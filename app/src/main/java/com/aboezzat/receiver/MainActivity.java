@@ -612,6 +612,7 @@ public class MainActivity extends Activity {
         lastRequestAt = System.currentTimeMillis();
         String mediaUrl = null;
         String audioUrl = null;
+        String command = null;
 
         try (Socket socket = client) {
             socket.setSoTimeout(5000);
@@ -660,6 +661,8 @@ public class MainActivity extends Activity {
 
                             } else if ("audio".equals(key)) {
                                 audioUrl = value;
+                            } else if ("command".equals(key)) {
+                                command = value;
                             }
                         }
                     }
@@ -680,6 +683,12 @@ public class MainActivity extends Activity {
 
         } catch (Exception e) {
             Log.e(TAG, "Request error", e);
+        }
+
+        if (command != null && !command.trim().isEmpty()) {
+            final String requestedCommand = command;
+            runOnUiThread(() -> handleRemoteCommand(requestedCommand));
+            return;
         }
 
         if ((mediaUrl != null && !mediaUrl.trim().isEmpty())
@@ -739,6 +748,35 @@ public class MainActivity extends Activity {
 
         } catch (Exception e) {
             return false;
+        }
+    }
+
+    private void handleRemoteCommand(String command) {
+        synchronized (playerLock) {
+            if (player == null) {
+                Log.w(TAG, "Remote command ignored; no active player: " + command);
+                return;
+            }
+            switch (command) {
+                case "play_pause":
+                    if (player.isPlaying()) player.pause(); else player.play();
+                    break;
+                case "rw":
+                    player.seekTo(Math.max(0L, player.getCurrentPosition() - 10000L));
+                    break;
+                case "ff":
+                    long duration = player.getDuration();
+                    long target = player.getCurrentPosition() + 10000L;
+                    player.seekTo(duration > 0 ? Math.min(target, duration) : target);
+                    break;
+                case "stop":
+                    player.stop();
+                    player.clearMediaItems();
+                    break;
+                default:
+                    Log.w(TAG, "Unsupported remote command: " + command);
+                    break;
+            }
         }
     }
 
