@@ -68,6 +68,9 @@ public class MainActivity extends Activity {
     private volatile boolean running = false;
     private volatile ServerSocket serverSocket;
 
+    private ConnectivityManager.NetworkCallback networkCallback;
+    private boolean networkCallbackRegistered = false;
+
     private final Object playerLock = new Object();
 
     private int dp(float value) {
@@ -96,7 +99,68 @@ public class MainActivity extends Activity {
     @Override
     protected void onResume() {
         super.onResume();
+        registerNetworkCallback();
         updateConnectionInfo();
+    }
+
+    @Override
+    protected void onPause() {
+        unregisterNetworkCallback();
+        super.onPause();
+    }
+
+    // تحديث عنوان IP فور تغيّر الشبكة، وليس عند فتح الشاشة فقط.
+    private void registerNetworkCallback() {
+        if (networkCallbackRegistered) return;
+
+        ConnectivityManager cm =
+                (ConnectivityManager) getSystemService(CONNECTIVITY_SERVICE);
+
+        if (cm == null) return;
+
+        networkCallback = new ConnectivityManager.NetworkCallback() {
+            @Override
+            public void onAvailable(Network network) {
+                runOnUiThread(() -> updateConnectionInfo());
+            }
+
+            @Override
+            public void onLinkPropertiesChanged(
+                    Network network,
+                    LinkProperties linkProperties) {
+                runOnUiThread(() -> updateConnectionInfo());
+            }
+
+            @Override
+            public void onLost(Network network) {
+                runOnUiThread(() -> updateConnectionInfo());
+            }
+        };
+
+        try {
+            cm.registerDefaultNetworkCallback(networkCallback);
+            networkCallbackRegistered = true;
+        } catch (Exception e) {
+            Log.w(TAG, "Could not register network callback", e);
+        }
+    }
+
+    private void unregisterNetworkCallback() {
+        if (!networkCallbackRegistered || networkCallback == null) return;
+
+        ConnectivityManager cm =
+                (ConnectivityManager) getSystemService(CONNECTIVITY_SERVICE);
+
+        if (cm != null) {
+            try {
+                cm.unregisterNetworkCallback(networkCallback);
+            } catch (Exception e) {
+                Log.w(TAG, "Could not unregister network callback", e);
+            }
+        }
+
+        networkCallbackRegistered = false;
+        networkCallback = null;
     }
 
     private GradientDrawable gradientBackground() {
