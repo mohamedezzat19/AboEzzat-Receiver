@@ -74,8 +74,9 @@ public class MainActivity extends Activity {
     private ImageView imageView;
     private ProgressBar imageLoading;
     private ExoPlayer player;
-    // Keep the last audible level so mute/unmute restores the user's chosen volume.
+    // Keep the selected level separately from mute state.
     private float lastNonZeroVolume = 1.0f;
+    private boolean muted = false;
 
     private volatile boolean running = false;
     private volatile ServerSocket serverSocket;
@@ -775,27 +776,17 @@ public class MainActivity extends Activity {
                     player.stop();
                     player.clearMediaItems();
                     break;
-                case "volume_up": {
-                    float current = player.getVolume();
-                    float next = Math.min(1.0f, (current > 0.0f ? current : lastNonZeroVolume) + 0.1f);
-                    player.setVolume(next);
-                    if (next > 0.0f) lastNonZeroVolume = next;
+                case "volume_up":
+                    lastNonZeroVolume = Math.min(1.0f, lastNonZeroVolume + 0.1f);
+                    if (!muted) player.setVolume(lastNonZeroVolume);
                     break;
-                }
-                case "volume_down": {
-                    float current = player.getVolume();
-                    float next = Math.max(0.0f, (current > 0.0f ? current : lastNonZeroVolume) - 0.1f);
-                    player.setVolume(next);
-                    if (next > 0.0f) lastNonZeroVolume = next;
+                case "volume_down":
+                    lastNonZeroVolume = Math.max(0.0f, lastNonZeroVolume - 0.1f);
+                    if (!muted) player.setVolume(lastNonZeroVolume);
                     break;
-                }
                 case "mute":
-                    if (player.getVolume() > 0.0f) {
-                        lastNonZeroVolume = player.getVolume();
-                        player.setVolume(0.0f);
-                    } else {
-                        player.setVolume(Math.max(0.1f, Math.min(1.0f, lastNonZeroVolume)));
-                    }
+                    muted = !muted;
+                    player.setVolume(muted ? 0.0f : lastNonZeroVolume);
                     break;
                 default:
                     Log.w(TAG, "Unsupported remote command: " + command);
@@ -854,6 +845,7 @@ public class MainActivity extends Activity {
             synchronized (playerLock) {
                 if (player == null) {
                     player = new ExoPlayer.Builder(this).build();
+                    player.setVolume(muted ? 0.0f : lastNonZeroVolume);
                     playerView.setPlayer(player);
                 }
 
@@ -907,6 +899,7 @@ public class MainActivity extends Activity {
             synchronized (playerLock) {
                 if (player == null) {
                     player = new ExoPlayer.Builder(this).build();
+                    player.setVolume(muted ? 0.0f : lastNonZeroVolume);
                     playerView.setPlayer(player);
                 }
                 player.stop();
