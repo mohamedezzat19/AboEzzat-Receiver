@@ -773,6 +773,15 @@ public class MainActivity extends Activity {
                     player.stop();
                     player.clearMediaItems();
                     break;
+                case "volume_up":
+                    player.setVolume(Math.min(1.0f, player.getVolume() + 0.1f));
+                    break;
+                case "volume_down":
+                    player.setVolume(Math.max(0.0f, player.getVolume() - 0.1f));
+                    break;
+                case "mute":
+                    player.setVolume(player.getVolume() > 0.0f ? 0.0f : 1.0f);
+                    break;
                 default:
                     Log.w(TAG, "Unsupported remote command: " + command);
                     break;
