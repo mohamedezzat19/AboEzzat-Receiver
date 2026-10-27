@@ -1,3 +1,4 @@
+
 package com.aboezzat.receiver;
 
 import android.app.Activity;
@@ -54,7 +55,6 @@ public class MainActivity extends Activity {
     private FrameLayout root;
     private LinearLayout welcomeScreen;
 
-    // صورة شاشة الترحيب الجديدة
     private ImageView welcomeBackground;
     private LinearLayout connectionCard;
     private TextView ipText;
@@ -155,96 +155,150 @@ public class MainActivity extends Activity {
         root = new FrameLayout(this);
         root.setBackgroundColor(Color.rgb(3, 12, 32));
 
-        // الخلفية كاملة بدون قص أو تمديد، مع لون كحلي للمساحة المتبقية.
+        // صورة الترحيب في أعلى الشاشة، كاملة بلا قص أو تمديد.
         welcomeBackground = new ImageView(this);
-        welcomeBackground.setImageResource(R.drawable.welcome_background);
-        welcomeBackground.setScaleType(ImageView.ScaleType.FIT_CENTER);
+        welcomeBackground.setImageResource(
+                R.drawable.welcome_background
+        );
+        welcomeBackground.setScaleType(
+                ImageView.ScaleType.FIT_CENTER
+        );
         welcomeBackground.setAdjustViewBounds(true);
-        welcomeBackground.setBackgroundColor(Color.rgb(3, 12, 32));
+        welcomeBackground.setBackgroundColor(
+                Color.rgb(3, 12, 32)
+        );
         welcomeBackground.setVisibility(View.VISIBLE);
-        root.addView(welcomeBackground, new FrameLayout.LayoutParams(
-                FrameLayout.LayoutParams.MATCH_PARENT,
-                FrameLayout.LayoutParams.MATCH_PARENT
-        ));
 
-        // تبقى الواجهة القديمة موجودة للتوافق مع دوال الرجوع للترحيب.
+        FrameLayout.LayoutParams welcomeImageParams =
+                new FrameLayout.LayoutParams(
+                        FrameLayout.LayoutParams.MATCH_PARENT,
+                        FrameLayout.LayoutParams.WRAP_CONTENT,
+                        Gravity.TOP | Gravity.CENTER_HORIZONTAL
+                );
+
+        welcomeImageParams.topMargin = dp(8);
+        root.addView(welcomeBackground, welcomeImageParams);
+
         welcomeScreen = new LinearLayout(this);
         welcomeScreen.setVisibility(View.GONE);
+
         root.addView(welcomeScreen, new FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT,
                 FrameLayout.LayoutParams.MATCH_PARENT
         ));
 
-        // بطاقة بيانات الاتصال، بمقاسات مرنة للموبايل والتلفزيون.
+        // معلومات السيرفر.
         connectionCard = new LinearLayout(this);
         connectionCard.setOrientation(LinearLayout.VERTICAL);
         connectionCard.setGravity(Gravity.CENTER);
-        connectionCard.setPadding(dp(16), dp(10), dp(16), dp(10));
+        connectionCard.setPadding(
+                dp(16), dp(10), dp(16), dp(10)
+        );
+
         connectionCard.setBackground(roundedBackground(
                 Color.argb(232, 5, 12, 32),
                 Color.rgb(255, 197, 74),
                 18
         ));
+
         connectionCard.setElevation(dp(8));
 
         TextView brand = makeText(
                 "ABO EZZAT  •  RECEIVER",
-                13, Color.rgb(255, 207, 94), true);
+                13,
+                Color.rgb(255, 207, 94),
+                true
+        );
+
         brand.setLetterSpacing(0.12f);
-        connectionCard.addView(brand, new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
-        ));
+
+        connectionCard.addView(brand,
+                new LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.MATCH_PARENT,
+                        LinearLayout.LayoutParams.WRAP_CONTENT
+                ));
 
         TextView heading = makeText(
                 "أهلاً بك يا أبو عزت",
-                22, Color.WHITE, true);
+                22,
+                Color.WHITE,
+                true
+        );
+
         LinearLayout.LayoutParams headingParams =
                 new LinearLayout.LayoutParams(
                         LinearLayout.LayoutParams.MATCH_PARENT,
-                        LinearLayout.LayoutParams.WRAP_CONTENT);
+                        LinearLayout.LayoutParams.WRAP_CONTENT
+                );
+
         headingParams.topMargin = dp(2);
         connectionCard.addView(heading, headingParams);
 
         receiverStatusText = makeText(
                 "●  جاري تشغيل خدمة الاستقبال...",
-                14, Color.rgb(255, 222, 151), true);
+                14,
+                Color.rgb(255, 222, 151),
+                true
+        );
+
         LinearLayout.LayoutParams statusParams =
                 new LinearLayout.LayoutParams(
                         LinearLayout.LayoutParams.MATCH_PARENT,
-                        LinearLayout.LayoutParams.WRAP_CONTENT);
+                        LinearLayout.LayoutParams.WRAP_CONTENT
+                );
+
         statusParams.topMargin = dp(6);
         connectionCard.addView(receiverStatusText, statusParams);
 
         ipText = makeText(
                 "IP الحالي: جارٍ تحديد العنوان...",
-                15, Color.WHITE, true);
+                15,
+                Color.WHITE,
+                true
+        );
+
         ipText.setTextIsSelectable(true);
+
         LinearLayout.LayoutParams ipParams =
                 new LinearLayout.LayoutParams(
                         LinearLayout.LayoutParams.MATCH_PARENT,
-                        LinearLayout.LayoutParams.WRAP_CONTENT);
+                        LinearLayout.LayoutParams.WRAP_CONTENT
+                );
+
         ipParams.topMargin = dp(4);
         connectionCard.addView(ipText, ipParams);
 
         TextView portText = makeText(
                 "PORT: " + PORT,
-                14, Color.rgb(255, 207, 94), true);
+                14,
+                Color.rgb(255, 207, 94),
+                true
+        );
+
         portText.setTextIsSelectable(true);
+
         LinearLayout.LayoutParams portParams =
                 new LinearLayout.LayoutParams(
                         LinearLayout.LayoutParams.MATCH_PARENT,
-                        LinearLayout.LayoutParams.WRAP_CONTENT);
+                        LinearLayout.LayoutParams.WRAP_CONTENT
+                );
+
         portParams.topMargin = dp(2);
         connectionCard.addView(portText, portParams);
 
         TextView instructions = makeText(
                 "وصّل الجهازين على نفس الشبكة",
-                12, Color.rgb(170, 194, 220), false);
+                12,
+                Color.rgb(170, 194, 220),
+                false
+        );
+
         LinearLayout.LayoutParams instructionParams =
                 new LinearLayout.LayoutParams(
                         LinearLayout.LayoutParams.MATCH_PARENT,
-                        LinearLayout.LayoutParams.WRAP_CONTENT);
+                        LinearLayout.LayoutParams.WRAP_CONTENT
+                );
+
         instructionParams.topMargin = dp(3);
         connectionCard.addView(instructions, instructionParams);
 
@@ -254,24 +308,41 @@ public class MainActivity extends Activity {
                         FrameLayout.LayoutParams.WRAP_CONTENT,
                         Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL
                 );
-        cardParams.setMargins(dp(12), dp(12), dp(12), dp(16));
+
+        int orientation =
+                getResources().getConfiguration().orientation;
+
+        int cardBottomMargin =
+                orientation ==
+                android.content.res.Configuration.ORIENTATION_LANDSCAPE
+                        ? 16 : 32;
+
+        cardParams.setMargins(
+                dp(12),
+                dp(12),
+                dp(12),
+                dp(cardBottomMargin)
+        );
+
         root.addView(connectionCard, cardParams);
 
-        // مشغل الفيديو والصوت كما كان.
+        // مشغل الفيديو والصوت.
         playerView = new PlayerView(this);
         playerView.setUseController(true);
         playerView.setVisibility(View.GONE);
         playerView.setBackgroundColor(Color.BLACK);
+
         root.addView(playerView, new FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT,
                 FrameLayout.LayoutParams.MATCH_PARENT
         ));
 
-        // عارض الصور المستقبلة يحافظ على أبعاد الصورة.
+        // عرض الصور المستقبلة مع الحفاظ على أبعادها.
         imageView = new ImageView(this);
         imageView.setVisibility(View.GONE);
         imageView.setBackgroundColor(Color.BLACK);
         imageView.setScaleType(ImageView.ScaleType.FIT_CENTER);
+
         root.addView(imageView, new FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT,
                 FrameLayout.LayoutParams.MATCH_PARENT
@@ -279,30 +350,44 @@ public class MainActivity extends Activity {
 
         imageLoading = new ProgressBar(this);
         imageLoading.setVisibility(View.GONE);
+
         FrameLayout.LayoutParams loadingParams =
-                new FrameLayout.LayoutParams(dp(56), dp(56), Gravity.CENTER);
+                new FrameLayout.LayoutParams(
+                        dp(56),
+                        dp(56),
+                        Gravity.CENTER
+                );
+
         root.addView(imageLoading, loadingParams);
 
         setContentView(root);
     }
 
-    // قراءة عنوان IPv4 من الشبكة الحالية، وليس عنوانًا ثابتًا.
+    // قراءة عنوان IP الحالي من الشبكة.
     private String getCurrentIpAddress() {
         try {
-            ConnectivityManager cm = (ConnectivityManager)
+            ConnectivityManager cm =
+                    (ConnectivityManager)
                     getSystemService(CONNECTIVITY_SERVICE);
 
             if (cm != null) {
                 Network activeNetwork = cm.getActiveNetwork();
+
                 if (activeNetwork != null) {
-                    LinkProperties properties = cm.getLinkProperties(activeNetwork);
+                    LinkProperties properties =
+                            cm.getLinkProperties(activeNetwork);
+
                     if (properties != null) {
                         for (android.net.LinkAddress linkAddress :
                                 properties.getLinkAddresses()) {
-                            InetAddress address = linkAddress.getAddress();
+
+                            InetAddress address =
+                                    linkAddress.getAddress();
+
                             if (address instanceof Inet4Address
                                     && !address.isLoopbackAddress()
                                     && !address.isLinkLocalAddress()) {
+
                                 return address.getHostAddress();
                             }
                         }
@@ -313,14 +398,17 @@ public class MainActivity extends Activity {
             Log.w(TAG, "Could not read active network IP", e);
         }
 
-        // طريقة احتياطية لبعض أجهزة Android TV.
+        // طريقة احتياطية لبعض أجهزة التلفزيون.
         try {
             Enumeration<NetworkInterface> interfaces =
                     NetworkInterface.getNetworkInterfaces();
 
             while (interfaces != null && interfaces.hasMoreElements()) {
-                NetworkInterface networkInterface = interfaces.nextElement();
-                if (!networkInterface.isUp() || networkInterface.isLoopback()) {
+                NetworkInterface networkInterface =
+                        interfaces.nextElement();
+
+                if (!networkInterface.isUp()
+                        || networkInterface.isLoopback()) {
                     continue;
                 }
 
@@ -329,9 +417,11 @@ public class MainActivity extends Activity {
 
                 while (addresses.hasMoreElements()) {
                     InetAddress address = addresses.nextElement();
+
                     if (address instanceof Inet4Address
                             && !address.isLoopbackAddress()
                             && !address.isLinkLocalAddress()) {
+
                         return address.getHostAddress();
                     }
                 }
@@ -347,10 +437,15 @@ public class MainActivity extends Activity {
         if (ipText == null) return;
 
         String ip = getCurrentIpAddress();
+
         if (ip == null || ip.trim().isEmpty()) {
-            ipText.setText("IP الحالي: غير متاح — اتصل بالشبكة");
+            ipText.setText(
+                    "IP الحالي: غير متاح — اتصل بالشبكة"
+            );
         } else {
-            ipText.setText("IP الحالي: " + ip + ":" + PORT);
+            ipText.setText(
+                    "IP الحالي: " + ip + ":" + PORT
+            );
         }
     }
 
@@ -365,11 +460,18 @@ public class MainActivity extends Activity {
                         TAG,
                         "Receiver listening on port " + PORT
                 );
+
                 runOnUiThread(() -> {
                     if (receiverStatusText != null) {
-                        receiverStatusText.setText("●  الاستقبال يعمل الآن");
-                        receiverStatusText.setTextColor(Color.rgb(49, 239, 164));
+                        receiverStatusText.setText(
+                                "●  الاستقبال يعمل الآن"
+                        );
+
+                        receiverStatusText.setTextColor(
+                                Color.rgb(49, 239, 164)
+                        );
                     }
+
                     updateConnectionInfo();
                 });
 
@@ -386,10 +488,16 @@ public class MainActivity extends Activity {
             } catch (Exception e) {
                 if (running) {
                     Log.e(TAG, "Server error", e);
+
                     runOnUiThread(() -> {
                         if (receiverStatusText != null) {
-                            receiverStatusText.setText("●  تعذّر تشغيل الاستقبال");
-                            receiverStatusText.setTextColor(Color.rgb(255, 100, 100));
+                            receiverStatusText.setText(
+                                    "●  تعذّر تشغيل الاستقبال"
+                            );
+
+                            receiverStatusText.setTextColor(
+                                    Color.rgb(255, 100, 100)
+                            );
                         }
                     });
                 }
@@ -538,7 +646,7 @@ public class MainActivity extends Activity {
 
         String playbackUrl = mediaUrl;
 
-        // طلب صوت فقط
+        // طلب صوت فقط.
         if (playbackUrl == null
                 || playbackUrl.trim().isEmpty()) {
 
@@ -553,7 +661,6 @@ public class MainActivity extends Activity {
 
         hideImage();
 
-        // إخفاء شاشة الترحيب عند تشغيل المحتوى
         welcomeBackground.setVisibility(View.GONE);
         welcomeScreen.setVisibility(View.GONE);
         connectionCard.setVisibility(View.GONE);
@@ -668,7 +775,6 @@ public class MainActivity extends Activity {
         imageView.setImageDrawable(null);
     }
 
-    // الرجوع إلى صورة الترحيب عند عدم عرض محتوى
     private void showWelcome() {
         hideImage();
 
@@ -676,6 +782,7 @@ public class MainActivity extends Activity {
         welcomeScreen.setVisibility(View.GONE);
         welcomeBackground.setVisibility(View.VISIBLE);
         connectionCard.setVisibility(View.VISIBLE);
+
         updateConnectionInfo();
     }
 
