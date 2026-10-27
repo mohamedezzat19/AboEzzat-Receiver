@@ -46,10 +46,6 @@ import java.net.InetAddress;
 import java.net.Inet4Address;
 import java.net.NetworkInterface;
 import java.util.Enumeration;
-import java.net.Inet4Address;
-import java.net.InetAddress;
-import java.net.NetworkInterface;
-import java.util.Enumeration;
 import java.net.Socket;
 import java.net.URL;
 import java.net.URLDecoder;
@@ -463,7 +459,8 @@ public class MainActivity extends Activity {
 
                             if (address instanceof Inet4Address
                                     && !address.isLoopbackAddress()
-                                    && !address.isLinkLocalAddress()) {
+                                    && !address.isLinkLocalAddress()
+                                    && address.isSiteLocalAddress()) {
 
                                 return address.getHostAddress();
                             }
