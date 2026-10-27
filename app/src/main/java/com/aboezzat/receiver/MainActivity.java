@@ -264,7 +264,7 @@ public class MainActivity extends Activity {
         connectionCard.setOrientation(LinearLayout.VERTICAL);
         connectionCard.setGravity(Gravity.CENTER);
         connectionCard.setPadding(
-                dp(16), dp(10), dp(16), dp(10)
+                dp(8), dp(5), dp(8), dp(5)
         );
 
         connectionCard.setBackground(roundedBackground(
@@ -276,8 +276,8 @@ public class MainActivity extends Activity {
         connectionCard.setElevation(dp(8));
 
         TextView brand = makeText(
-                "ABO EZZAT  •  RECEIVER",
-                13,
+                "ABO EZZAT • RECEIVER",
+                10,
                 Color.rgb(255, 207, 94),
                 true
         );
@@ -292,7 +292,7 @@ public class MainActivity extends Activity {
 
         TextView heading = makeText(
                 "أهلاً بك يا أبو عزت",
-                22,
+                15,
                 Color.WHITE,
                 true
         );
@@ -307,8 +307,8 @@ public class MainActivity extends Activity {
         connectionCard.addView(heading, headingParams);
 
         receiverStatusText = makeText(
-                "●  جاري تشغيل خدمة الاستقبال...",
-                14,
+                "● الاستقبال يعمل...",
+                11,
                 Color.rgb(255, 222, 151),
                 true
         );
@@ -323,8 +323,8 @@ public class MainActivity extends Activity {
         connectionCard.addView(receiverStatusText, statusParams);
 
         ipText = makeText(
-                "IP الحالي: جارٍ تحديد العنوان...",
-                15,
+                "IP: جارٍ التحديد...",
+                11,
                 Color.WHITE,
                 true
         );
@@ -342,7 +342,7 @@ public class MainActivity extends Activity {
 
         TextView portText = makeText(
                 "PORT: " + PORT,
-                14,
+                10,
                 Color.rgb(255, 207, 94),
                 true
         );
@@ -359,8 +359,8 @@ public class MainActivity extends Activity {
         connectionCard.addView(portText, portParams);
 
         TextView instructions = makeText(
-                "وصّل الجهازين على نفس الشبكة",
-                12,
+                "اتصل بنفس الشبكة",
+                9,
                 Color.rgb(170, 194, 220),
                 false
         );
@@ -374,26 +374,19 @@ public class MainActivity extends Activity {
         instructionParams.topMargin = dp(3);
         connectionCard.addView(instructions, instructionParams);
 
+        // بطاقة صغيرة في أقصى أسفل اليمين، دون تغيير صورة الخلفية.
         FrameLayout.LayoutParams cardParams =
                 new FrameLayout.LayoutParams(
-                        FrameLayout.LayoutParams.MATCH_PARENT,
+                        dp(230),
                         FrameLayout.LayoutParams.WRAP_CONTENT,
-                        Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL
+                        Gravity.BOTTOM | Gravity.END
                 );
 
-        int orientation =
-                getResources().getConfiguration().orientation;
-
-        int cardBottomMargin =
-                orientation ==
-                android.content.res.Configuration.ORIENTATION_LANDSCAPE
-                        ? 16 : 32;
-
         cardParams.setMargins(
-                dp(12),
-                dp(12),
-                dp(12),
-                dp(cardBottomMargin)
+                dp(8),
+                dp(8),
+                dp(8),
+                dp(12)
         );
 
         root.addView(connectionCard, cardParams);
