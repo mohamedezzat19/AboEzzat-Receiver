@@ -3,6 +3,8 @@ package com.aboezzat.receiver;
 
 import android.app.Activity;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.Color;
@@ -72,6 +74,12 @@ public class MainActivity extends Activity {
     private boolean networkCallbackRegistered = false;
 
     private final Object playerLock = new Object();
+
+    // تجميع روابط الفيديو/الصورة والصوت التي تصل كطلبين منفصلين بفاصل قصير.
+    private final Handler mediaHandler = new Handler(Looper.getMainLooper());
+    private String pendingVisualUrl;
+    private String pendingAudioUrl;
+    private Runnable pendingPlayback;
 
     private int dp(float value) {
         return (int) TypedValue.applyDimension(
@@ -644,21 +652,38 @@ public class MainActivity extends Activity {
             Log.e(TAG, "Request error", e);
         }
 
-        final String finalMediaUrl = mediaUrl;
-        final String finalAudioUrl = audioUrl;
-
-        if ((finalMediaUrl != null
-                && !finalMediaUrl.trim().isEmpty())
-                || (finalAudioUrl != null
-                && !finalAudioUrl.trim().isEmpty())) {
-
-            runOnUiThread(
-                    () -> playContent(
-                            finalMediaUrl,
-                            finalAudioUrl
-                    )
-            );
+        if ((mediaUrl != null && !mediaUrl.trim().isEmpty())
+                || (audioUrl != null && !audioUrl.trim().isEmpty())) {
+            final String receivedMediaUrl = mediaUrl;
+            final String receivedAudioUrl = audioUrl;
+            runOnUiThread(() -> queueIncomingMedia(
+                    receivedMediaUrl, receivedAudioUrl
+            ));
         }
+    }
+
+    // ننتظر لحظة قصيرة ليلتقط التطبيق الرابط الثاني إذا أُرسل فورًا بعد الأول.
+    private void queueIncomingMedia(String mediaUrl, String audioUrl) {
+        if (mediaUrl != null && !mediaUrl.trim().isEmpty()) {
+            pendingVisualUrl = mediaUrl;
+        }
+        if (audioUrl != null && !audioUrl.trim().isEmpty()) {
+            pendingAudioUrl = audioUrl;
+        }
+
+        if (pendingPlayback != null) {
+            mediaHandler.removeCallbacks(pendingPlayback);
+        }
+
+        pendingPlayback = () -> {
+            String visual = pendingVisualUrl;
+            String audio = pendingAudioUrl;
+            pendingVisualUrl = null;
+            pendingAudioUrl = null;
+            pendingPlayback = null;
+            playContent(visual, audio);
+        };
+        mediaHandler.postDelayed(pendingPlayback, 700);
     }
 
     private boolean isImageUrl(String url) {
@@ -705,6 +730,9 @@ public class MainActivity extends Activity {
                 && isImageUrl(mediaUrl)) {
 
             showImage(mediaUrl);
+            if (audioUrl != null && !audioUrl.trim().isEmpty()) {
+                playAudioAlongsideImage(audioUrl);
+            }
             return;
         }
 
@@ -777,6 +805,27 @@ public class MainActivity extends Activity {
 
         } catch (Exception e) {
             Log.e(TAG, "Playback error", e);
+            showWelcome();
+        }
+    }
+
+    // الصورة تظل ظاهرة بينما يشغّل ExoPlayer الصوت في الخلفية.
+    private void playAudioAlongsideImage(String audioUrl) {
+        try {
+            synchronized (playerLock) {
+                if (player == null) {
+                    player = new ExoPlayer.Builder(this).build();
+                    playerView.setPlayer(player);
+                }
+                player.stop();
+                player.clearMediaItems();
+                player.setMediaItem(MediaItem.fromUri(audioUrl));
+                player.prepare();
+                player.play();
+                playerView.setVisibility(View.GONE);
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "Audio with image playback error", e);
             showWelcome();
         }
     }
@@ -859,6 +908,10 @@ public class MainActivity extends Activity {
     @Override
     protected void onDestroy() {
         running = false;
+        if (pendingPlayback != null) {
+            mediaHandler.removeCallbacks(pendingPlayback);
+            pendingPlayback = null;
+        }
 
         try {
             if (serverSocket != null) {
