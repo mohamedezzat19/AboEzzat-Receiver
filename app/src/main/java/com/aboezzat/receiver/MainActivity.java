@@ -74,6 +74,8 @@ public class MainActivity extends Activity {
     private ImageView imageView;
     private ProgressBar imageLoading;
     private ExoPlayer player;
+    // Keep the last audible level so mute/unmute restores the user's chosen volume.
+    private float lastNonZeroVolume = 1.0f;
 
     private volatile boolean running = false;
     private volatile ServerSocket serverSocket;
@@ -773,14 +775,27 @@ public class MainActivity extends Activity {
                     player.stop();
                     player.clearMediaItems();
                     break;
-                case "volume_up":
-                    player.setVolume(Math.min(1.0f, player.getVolume() + 0.1f));
+                case "volume_up": {
+                    float current = player.getVolume();
+                    float next = Math.min(1.0f, (current > 0.0f ? current : lastNonZeroVolume) + 0.1f);
+                    player.setVolume(next);
+                    if (next > 0.0f) lastNonZeroVolume = next;
                     break;
-                case "volume_down":
-                    player.setVolume(Math.max(0.0f, player.getVolume() - 0.1f));
+                }
+                case "volume_down": {
+                    float current = player.getVolume();
+                    float next = Math.max(0.0f, (current > 0.0f ? current : lastNonZeroVolume) - 0.1f);
+                    player.setVolume(next);
+                    if (next > 0.0f) lastNonZeroVolume = next;
                     break;
+                }
                 case "mute":
-                    player.setVolume(player.getVolume() > 0.0f ? 0.0f : 1.0f);
+                    if (player.getVolume() > 0.0f) {
+                        lastNonZeroVolume = player.getVolume();
+                        player.setVolume(0.0f);
+                    } else {
+                        player.setVolume(Math.max(0.1f, Math.min(1.0f, lastNonZeroVolume)));
+                    }
                     break;
                 default:
                     Log.w(TAG, "Unsupported remote command: " + command);
