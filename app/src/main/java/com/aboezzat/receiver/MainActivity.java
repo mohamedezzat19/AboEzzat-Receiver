@@ -1,4 +1,3 @@
-
 package com.aboezzat.receiver;
 
 import android.app.Activity;
@@ -22,7 +21,6 @@ import android.widget.TextView;
 import android.widget.ProgressBar;
 
 import androidx.media3.common.MediaItem;
-import androidx.media3.common.Player;
 import androidx.media3.common.util.UnstableApi;
 import androidx.media3.exoplayer.ExoPlayer;
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory;
@@ -48,6 +46,10 @@ public class MainActivity extends Activity {
 
     private FrameLayout root;
     private LinearLayout welcomeScreen;
+
+    // صورة شاشة الترحيب الجديدة
+    private ImageView welcomeBackground;
+
     private PlayerView playerView;
     private ImageView imageView;
     private ProgressBar imageLoading;
@@ -73,7 +75,9 @@ public class MainActivity extends Activity {
         Window window = getWindow();
         window.setStatusBarColor(Color.rgb(3, 12, 32));
         window.setNavigationBarColor(Color.rgb(3, 12, 32));
-        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+        window.addFlags(
+                WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON
+        );
 
         buildScreen();
         startReceiver();
@@ -88,33 +92,46 @@ public class MainActivity extends Activity {
                         Color.rgb(7, 27, 54)
                 }
         );
+
         bg.setCornerRadius(dp(24));
         return bg;
     }
 
     private GradientDrawable roundedBackground(
-            int color, int strokeColor, int radius) {
+            int color,
+            int strokeColor,
+            int radius) {
 
         GradientDrawable bg = new GradientDrawable();
         bg.setColor(color);
         bg.setCornerRadius(dp(radius));
         bg.setStroke(dp(1), strokeColor);
+
         return bg;
     }
 
     private TextView makeText(
-            String text, int size, int color, boolean bold) {
+            String text,
+            int size,
+            int color,
+            boolean bold) {
 
         TextView view = new TextView(this);
         view.setText(text);
-        view.setTextSize(TypedValue.COMPLEX_UNIT_SP, size);
+        view.setTextSize(
+                TypedValue.COMPLEX_UNIT_SP,
+                size
+        );
         view.setTextColor(color);
         view.setGravity(Gravity.CENTER);
-        view.setTypeface(Typeface.create(
-                "sans-serif",
-                bold ? Typeface.BOLD : Typeface.NORMAL
-        ));
+        view.setTypeface(
+                Typeface.create(
+                        "sans-serif",
+                        bold ? Typeface.BOLD : Typeface.NORMAL
+                )
+        );
         view.setIncludeFontPadding(true);
+
         return view;
     }
 
@@ -122,78 +139,124 @@ public class MainActivity extends Activity {
         root = new FrameLayout(this);
         root.setBackground(gradientBackground());
 
+        // شاشة الترحيب القديمة تبقى موجودة كخيار احتياطي
         welcomeScreen = new LinearLayout(this);
-        welcomeScreen.setOrientation(LinearLayout.VERTICAL);
+        welcomeScreen.setOrientation(
+                LinearLayout.VERTICAL
+        );
         welcomeScreen.setGravity(Gravity.CENTER);
-        welcomeScreen.setPadding(dp(24), dp(14), dp(24), dp(14));
+        welcomeScreen.setPadding(
+                dp(24),
+                dp(14),
+                dp(24),
+                dp(14)
+        );
 
-        root.addView(welcomeScreen, new FrameLayout.LayoutParams(
-                FrameLayout.LayoutParams.MATCH_PARENT,
-                FrameLayout.LayoutParams.MATCH_PARENT
-        ));
+        root.addView(
+                welcomeScreen,
+                new FrameLayout.LayoutParams(
+                        FrameLayout.LayoutParams.MATCH_PARENT,
+                        FrameLayout.LayoutParams.MATCH_PARENT
+                )
+        );
 
-        // Header
+        // رأس الشاشة
         LinearLayout header = new LinearLayout(this);
         header.setOrientation(LinearLayout.VERTICAL);
         header.setGravity(Gravity.CENTER);
 
         TextView brand = makeText(
                 "ABO EZZAT  •  RECEIVER",
-                13, Color.rgb(255, 207, 94), true
+                13,
+                Color.rgb(255, 207, 94),
+                true
         );
         brand.setLetterSpacing(0.16f);
         header.addView(brand);
 
         TextView heading = makeText(
                 "أهلاً بك يا أبو عزت",
-                30, Color.WHITE, true
+                30,
+                Color.WHITE,
+                true
         );
         heading.setPadding(0, dp(7), 0, dp(2));
         header.addView(heading);
 
         TextView subtitle = makeText(
                 "مشاهدة ممتعة • تجربة استقبال مميزة",
-                13, Color.rgb(151, 183, 220), false
+                13,
+                Color.rgb(151, 183, 220),
+                false
         );
         header.addView(subtitle);
 
-        welcomeScreen.addView(header,
+        welcomeScreen.addView(
+                header,
                 new LinearLayout.LayoutParams(
                         LinearLayout.LayoutParams.MATCH_PARENT,
-                        0, 1f
-                ));
+                        0,
+                        1f
+                )
+        );
 
-        // Portrait
+        // الصورة الشخصية
         FrameLayout portraitFrame = new FrameLayout(this);
-        portraitFrame.setBackground(roundedBackground(
-                Color.rgb(10, 28, 53),
-                Color.rgb(255, 204, 89), 120
-        ));
+        portraitFrame.setBackground(
+                roundedBackground(
+                        Color.rgb(10, 28, 53),
+                        Color.rgb(255, 204, 89),
+                        120
+                )
+        );
         portraitFrame.setElevation(dp(8));
         portraitFrame.setClipToOutline(true);
 
         ImageView portrait = new ImageView(this);
         portrait.setImageResource(R.drawable.app_icon);
-        portrait.setScaleType(ImageView.ScaleType.FIT_CENTER);
-        portrait.setBackgroundColor(Color.rgb(10, 28, 53));
+        portrait.setScaleType(
+                ImageView.ScaleType.FIT_CENTER
+        );
+        portrait.setBackgroundColor(
+                Color.rgb(10, 28, 53)
+        );
 
         FrameLayout.LayoutParams portraitParams =
                 new FrameLayout.LayoutParams(
                         FrameLayout.LayoutParams.MATCH_PARENT,
                         FrameLayout.LayoutParams.MATCH_PARENT
                 );
-        portraitParams.setMargins(dp(5), dp(5), dp(5), dp(5));
-        portraitFrame.addView(portrait, portraitParams);
+
+        portraitParams.setMargins(
+                dp(5),
+                dp(5),
+                dp(5),
+                dp(5)
+        );
+
+        portraitFrame.addView(
+                portrait,
+                portraitParams
+        );
 
         LinearLayout.LayoutParams frameParams =
-                new LinearLayout.LayoutParams(dp(230), dp(230));
+                new LinearLayout.LayoutParams(
+                        dp(230),
+                        dp(230)
+                );
+
         frameParams.gravity = Gravity.CENTER;
         frameParams.topMargin = dp(5);
         frameParams.bottomMargin = dp(10);
-        welcomeScreen.addView(portraitFrame, frameParams);
 
-        // Gold divider
+        welcomeScreen.addView(
+                portraitFrame,
+                frameParams
+        );
+
+        // الخط الذهبي
         View divider = new View(this);
+
         GradientDrawable line = new GradientDrawable(
                 GradientDrawable.Orientation.LEFT_RIGHT,
                 new int[]{
@@ -204,121 +267,226 @@ public class MainActivity extends Activity {
                         Color.TRANSPARENT
                 }
         );
+
         line.setCornerRadius(dp(3));
         divider.setBackground(line);
 
         LinearLayout.LayoutParams dividerParams =
-                new LinearLayout.LayoutParams(dp(210), dp(2));
+                new LinearLayout.LayoutParams(
+                        dp(210),
+                        dp(2)
+                );
+
         dividerParams.gravity = Gravity.CENTER;
         dividerParams.topMargin = dp(8);
         dividerParams.bottomMargin = dp(8);
-        welcomeScreen.addView(divider, dividerParams);
 
-        // Prayer
+        welcomeScreen.addView(
+                divider,
+                dividerParams
+        );
+
+        // الذكر
         TextView prayer = makeText(
                 "سبحان الله وبحمده سبحان الله العظيم",
-                18, Color.rgb(255, 222, 151), true
+                18,
+                Color.rgb(255, 222, 151),
+                true
         );
+
         prayer.setMaxLines(2);
-        prayer.setPadding(dp(4), dp(4), dp(4), dp(4));
+        prayer.setPadding(
+                dp(4),
+                dp(4),
+                dp(4),
+                dp(4)
+        );
+
         welcomeScreen.addView(prayer);
 
-        // Status card
+        // بطاقة حالة الاستقبال
         LinearLayout statusCard = new LinearLayout(this);
-        statusCard.setOrientation(LinearLayout.HORIZONTAL);
+        statusCard.setOrientation(
+                LinearLayout.HORIZONTAL
+        );
         statusCard.setGravity(Gravity.CENTER_VERTICAL);
-        statusCard.setPadding(dp(14), dp(12), dp(14), dp(12));
-        statusCard.setBackground(roundedBackground(
-                Color.rgb(8, 26, 50),
-                Color.rgb(40, 91, 135), 22
-        ));
+        statusCard.setPadding(
+                dp(14),
+                dp(12),
+                dp(14),
+                dp(12)
+        );
+
+        statusCard.setBackground(
+                roundedBackground(
+                        Color.rgb(8, 26, 50),
+                        Color.rgb(40, 91, 135),
+                        22
+                )
+        );
 
         TextView signal = makeText(
-                "●", 26, Color.rgb(49, 239, 164), true
+                "●",
+                26,
+                Color.rgb(49, 239, 164),
+                true
         );
+
         LinearLayout.LayoutParams signalParams =
-                new LinearLayout.LayoutParams(dp(42), dp(42));
+                new LinearLayout.LayoutParams(
+                        dp(42),
+                        dp(42)
+                );
+
         signalParams.setMarginEnd(dp(10));
         statusCard.addView(signal, signalParams);
 
         LinearLayout statusTexts = new LinearLayout(this);
-        statusTexts.setOrientation(LinearLayout.VERTICAL);
+        statusTexts.setOrientation(
+                LinearLayout.VERTICAL
+        );
         statusTexts.setGravity(Gravity.CENTER_VERTICAL);
 
         TextView statusTitle = makeText(
                 "الرسيفر جاهز لاستقبال المحتوى",
-                16, Color.WHITE, true
+                16,
+                Color.WHITE,
+                true
         );
-        statusTitle.setGravity(Gravity.CENTER_VERTICAL);
+
+        statusTitle.setGravity(
+                Gravity.CENTER_VERTICAL
+        );
 
         TextView statusSubtitle = makeText(
                 "فيديو • صوت • صور",
-                13, Color.rgb(150, 185, 222), false
+                13,
+                Color.rgb(150, 185, 222),
+                false
         );
-        statusSubtitle.setGravity(Gravity.CENTER_VERTICAL);
-        statusSubtitle.setPadding(0, dp(4), 0, 0);
+
+        statusSubtitle.setGravity(
+                Gravity.CENTER_VERTICAL
+        );
+        statusSubtitle.setPadding(
+                0,
+                dp(4),
+                0,
+                0
+        );
 
         statusTexts.addView(statusTitle);
         statusTexts.addView(statusSubtitle);
 
-        statusCard.addView(statusTexts,
+        statusCard.addView(
+                statusTexts,
                 new LinearLayout.LayoutParams(
                         0,
                         LinearLayout.LayoutParams.WRAP_CONTENT,
                         1
-                ));
+                )
+        );
 
         LinearLayout.LayoutParams cardParams =
                 new LinearLayout.LayoutParams(
                         LinearLayout.LayoutParams.MATCH_PARENT,
                         LinearLayout.LayoutParams.WRAP_CONTENT
                 );
+
         cardParams.topMargin = dp(16);
         cardParams.bottomMargin = dp(8);
-        welcomeScreen.addView(statusCard, cardParams);
 
+        welcomeScreen.addView(
+                statusCard,
+                cardParams
+        );
+
+        // التذييل
         TextView footer = makeText(
                 "ABO EZZAT RECEIVER  •  PORT 8081",
-                10, Color.rgb(113, 146, 185), false
+                10,
+                Color.rgb(113, 146, 185),
+                false
         );
+
         footer.setLetterSpacing(0.10f);
-        welcomeScreen.addView(footer,
+
+        welcomeScreen.addView(
+                footer,
                 new LinearLayout.LayoutParams(
                         LinearLayout.LayoutParams.MATCH_PARENT,
                         dp(24)
-                ));
+                )
+        );
 
-        // Video and audio player
+        // صورة الخلفية الجديدة لشاشة الترحيب
+        welcomeBackground = new ImageView(this);
+        welcomeBackground.setImageResource(
+                R.drawable.welcome_background
+        );
+        welcomeBackground.setScaleType(
+                ImageView.ScaleType.CENTER_CROP
+        );
+        welcomeBackground.setVisibility(View.VISIBLE);
+
+        // نضع الخلفية خلف بقية عناصر الشاشة
+        root.addView(
+                welcomeBackground,
+                0,
+                new FrameLayout.LayoutParams(
+                        FrameLayout.LayoutParams.MATCH_PARENT,
+                        FrameLayout.LayoutParams.MATCH_PARENT
+                )
+        );
+
+        // نخفي التصميم القديم حتى لا يغطي الصورة الجديدة
+        welcomeScreen.setVisibility(View.GONE);
+
+        // مشغل الفيديو والصوت
         playerView = new PlayerView(this);
         playerView.setUseController(true);
         playerView.setVisibility(View.GONE);
         playerView.setBackgroundColor(Color.BLACK);
 
-        root.addView(playerView, new FrameLayout.LayoutParams(
-                FrameLayout.LayoutParams.MATCH_PARENT,
-                FrameLayout.LayoutParams.MATCH_PARENT
-        ));
+        root.addView(
+                playerView,
+                new FrameLayout.LayoutParams(
+                        FrameLayout.LayoutParams.MATCH_PARENT,
+                        FrameLayout.LayoutParams.MATCH_PARENT
+                )
+        );
 
-        // Image viewer
+        // عارض الصور المستقبلة
         imageView = new ImageView(this);
         imageView.setVisibility(View.GONE);
         imageView.setBackgroundColor(Color.BLACK);
-        imageView.setScaleType(ImageView.ScaleType.FIT_CENTER);
+        imageView.setScaleType(
+                ImageView.ScaleType.FIT_CENTER
+        );
 
-        root.addView(imageView, new FrameLayout.LayoutParams(
-                FrameLayout.LayoutParams.MATCH_PARENT,
-                FrameLayout.LayoutParams.MATCH_PARENT
-        ));
+        root.addView(
+                imageView,
+                new FrameLayout.LayoutParams(
+                        FrameLayout.LayoutParams.MATCH_PARENT,
+                        FrameLayout.LayoutParams.MATCH_PARENT
+                )
+        );
 
-        // Image loading indicator
+        // مؤشر تحميل الصور
         imageLoading = new ProgressBar(this);
         imageLoading.setVisibility(View.GONE);
 
         FrameLayout.LayoutParams loadingParams =
                 new FrameLayout.LayoutParams(
-                        dp(56), dp(56), Gravity.CENTER
+                        dp(56),
+                        dp(56),
+                        Gravity.CENTER
                 );
-        root.addView(imageLoading, loadingParams);
+
+        root.addView(
+                imageLoading,
+                loadingParams
+        );
 
         setContentView(root);
     }
@@ -329,13 +497,19 @@ public class MainActivity extends Activity {
         Thread serverThread = new Thread(() -> {
             try {
                 serverSocket = new ServerSocket(PORT);
-                Log.i(TAG, "Receiver listening on port " + PORT);
+
+                Log.i(
+                        TAG,
+                        "Receiver listening on port " + PORT
+                );
 
                 while (running) {
                     Socket client = serverSocket.accept();
 
-                    Thread requestThread =
-                            new Thread(() -> handleRequest(client));
+                    Thread requestThread = new Thread(
+                            () -> handleRequest(client)
+                    );
+
                     requestThread.start();
                 }
 
@@ -373,7 +547,9 @@ public class MainActivity extends Activity {
                     int questionIndex = target.indexOf('?');
 
                     if (questionIndex >= 0) {
-                        String query = target.substring(questionIndex + 1);
+                        String query = target.substring(
+                                questionIndex + 1
+                        );
 
                         for (String pair : query.split("&")) {
                             String[] item = pair.split("=", 2);
@@ -383,13 +559,19 @@ public class MainActivity extends Activity {
                             }
 
                             String key = URLDecoder.decode(
-                                    item[0], "UTF-8");
+                                    item[0],
+                                    "UTF-8"
+                            );
+
                             String value = URLDecoder.decode(
-                                    item[1], "UTF-8");
+                                    item[1],
+                                    "UTF-8"
+                            );
 
                             if ("url".equals(key)
                                     || "video".equals(key)) {
                                 mediaUrl = value;
+
                             } else if ("audio".equals(key)) {
                                 audioUrl = value;
                             }
@@ -417,21 +599,31 @@ public class MainActivity extends Activity {
         final String finalMediaUrl = mediaUrl;
         final String finalAudioUrl = audioUrl;
 
-        if ((finalMediaUrl != null && !finalMediaUrl.trim().isEmpty())
-                || (finalAudioUrl != null && !finalAudioUrl.trim().isEmpty())) {
+        if ((finalMediaUrl != null
+                && !finalMediaUrl.trim().isEmpty())
+                || (finalAudioUrl != null
+                && !finalAudioUrl.trim().isEmpty())) {
 
-            runOnUiThread(() ->
-                    playContent(finalMediaUrl, finalAudioUrl));
+            runOnUiThread(
+                    () -> playContent(
+                            finalMediaUrl,
+                            finalAudioUrl
+                    )
+            );
         }
     }
 
     private boolean isImageUrl(String url) {
-        if (url == null) return false;
+        if (url == null) {
+            return false;
+        }
 
         try {
             String path = Uri.parse(url).getPath();
 
-            if (path == null) return false;
+            if (path == null) {
+                return false;
+            }
 
             path = path.toLowerCase(Locale.ROOT);
 
@@ -441,6 +633,7 @@ public class MainActivity extends Activity {
                     || path.endsWith(".webp")
                     || path.endsWith(".gif")
                     || path.endsWith(".bmp");
+
         } catch (Exception e) {
             return false;
         }
@@ -455,26 +648,37 @@ public class MainActivity extends Activity {
         }
     }
 
-    private void playContent(String mediaUrl, String audioUrl) {
-        if (mediaUrl != null && !mediaUrl.trim().isEmpty()
+    private void playContent(
+            String mediaUrl,
+            String audioUrl) {
+
+        if (mediaUrl != null
+                && !mediaUrl.trim().isEmpty()
                 && isImageUrl(mediaUrl)) {
+
             showImage(mediaUrl);
             return;
         }
 
         String playbackUrl = mediaUrl;
 
-        // Audio-only request
-        if (playbackUrl == null || playbackUrl.trim().isEmpty()) {
+        // طلب صوت فقط
+        if (playbackUrl == null
+                || playbackUrl.trim().isEmpty()) {
+
             playbackUrl = audioUrl;
             audioUrl = null;
         }
 
-        if (playbackUrl == null || playbackUrl.trim().isEmpty()) {
+        if (playbackUrl == null
+                || playbackUrl.trim().isEmpty()) {
             return;
         }
 
         hideImage();
+
+        // إخفاء شاشة الترحيب عند تشغيل المحتوى
+        welcomeBackground.setVisibility(View.GONE);
         welcomeScreen.setVisibility(View.GONE);
         playerView.setVisibility(View.VISIBLE);
 
@@ -488,31 +692,41 @@ public class MainActivity extends Activity {
                 player.stop();
                 player.clearMediaItems();
 
-                if (audioUrl != null && !audioUrl.trim().isEmpty()) {
+                if (audioUrl != null
+                        && !audioUrl.trim().isEmpty()) {
+
                     DefaultMediaSourceFactory factory =
                             new DefaultMediaSourceFactory(this);
 
                     MediaSource videoSource =
                             factory.createMediaSource(
-                                    MediaItem.fromUri(playbackUrl));
+                                    MediaItem.fromUri(playbackUrl)
+                            );
 
                     MediaSource audioSource =
                             factory.createMediaSource(
-                                    MediaItem.fromUri(audioUrl));
+                                    MediaItem.fromUri(audioUrl)
+                            );
 
                     MergingMediaSource merged =
                             new MergingMediaSource(
-                                    true, videoSource, audioSource
+                                    true,
+                                    videoSource,
+                                    audioSource
                             );
 
                     player.setMediaSource(merged);
+
                 } else {
-                    player.setMediaItem(MediaItem.fromUri(playbackUrl));
+                    player.setMediaItem(
+                            MediaItem.fromUri(playbackUrl)
+                    );
                 }
 
                 player.prepare();
                 player.play();
             }
+
         } catch (Exception e) {
             Log.e(TAG, "Playback error", e);
             showWelcome();
@@ -524,6 +738,8 @@ public class MainActivity extends Activity {
 
         playerView.setVisibility(View.GONE);
         welcomeScreen.setVisibility(View.GONE);
+        welcomeBackground.setVisibility(View.GONE);
+
         imageView.setVisibility(View.VISIBLE);
         imageLoading.setVisibility(View.VISIBLE);
         imageView.setImageDrawable(null);
@@ -533,14 +749,19 @@ public class MainActivity extends Activity {
 
             try {
                 URL url = new URL(imageUrl);
-                java.net.URLConnection connection = url.openConnection();
+
+                java.net.URLConnection connection =
+                        url.openConnection();
+
                 connection.setConnectTimeout(10000);
                 connection.setReadTimeout(15000);
 
                 try (java.io.InputStream input =
                              connection.getInputStream()) {
+
                     bitmap = BitmapFactory.decodeStream(input);
                 }
+
             } catch (Exception e) {
                 Log.e(TAG, "Image loading error", e);
             }
@@ -553,6 +774,7 @@ public class MainActivity extends Activity {
                 if (result != null && !isFinishing()) {
                     imageView.setImageBitmap(result);
                     imageView.setVisibility(View.VISIBLE);
+
                 } else {
                     showWelcome();
                 }
@@ -568,10 +790,13 @@ public class MainActivity extends Activity {
         imageView.setImageDrawable(null);
     }
 
+    // الرجوع إلى صورة الترحيب عند عدم عرض محتوى
     private void showWelcome() {
         hideImage();
+
         playerView.setVisibility(View.GONE);
-        welcomeScreen.setVisibility(View.VISIBLE);
+        welcomeScreen.setVisibility(View.GONE);
+        welcomeBackground.setVisibility(View.VISIBLE);
     }
 
     @Override
