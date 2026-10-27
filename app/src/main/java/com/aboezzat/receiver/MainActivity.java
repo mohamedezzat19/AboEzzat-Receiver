@@ -8,6 +8,9 @@ import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
 import android.net.Uri;
+import android.net.ConnectivityManager;
+import android.net.LinkProperties;
+import android.net.Network;
 import android.view.Gravity;
 import android.view.View;
 import android.view.Window;
@@ -32,6 +35,10 @@ import java.io.BufferedReader;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.net.ServerSocket;
+import java.net.Inet4Address;
+import java.net.InetAddress;
+import java.net.NetworkInterface;
+import java.util.Enumeration;
 import java.net.Socket;
 import java.net.URL;
 import java.net.URLDecoder;
@@ -49,6 +56,9 @@ public class MainActivity extends Activity {
 
     // صورة شاشة الترحيب الجديدة
     private ImageView welcomeBackground;
+    private LinearLayout connectionCard;
+    private TextView ipText;
+    private TextView receiverStatusText;
 
     private PlayerView playerView;
     private ImageView imageView;
@@ -81,6 +91,12 @@ public class MainActivity extends Activity {
 
         buildScreen();
         startReceiver();
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        updateConnectionInfo();
     }
 
     private GradientDrawable gradientBackground() {
@@ -137,358 +153,205 @@ public class MainActivity extends Activity {
 
     private void buildScreen() {
         root = new FrameLayout(this);
-        root.setBackground(gradientBackground());
+        root.setBackgroundColor(Color.rgb(3, 12, 32));
 
-        // شاشة الترحيب القديمة تبقى موجودة كخيار احتياطي
+        // الخلفية كاملة بدون قص أو تمديد، مع لون كحلي للمساحة المتبقية.
+        welcomeBackground = new ImageView(this);
+        welcomeBackground.setImageResource(R.drawable.welcome_background);
+        welcomeBackground.setScaleType(ImageView.ScaleType.FIT_CENTER);
+        welcomeBackground.setAdjustViewBounds(true);
+        welcomeBackground.setBackgroundColor(Color.rgb(3, 12, 32));
+        welcomeBackground.setVisibility(View.VISIBLE);
+        root.addView(welcomeBackground, new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT
+        ));
+
+        // تبقى الواجهة القديمة موجودة للتوافق مع دوال الرجوع للترحيب.
         welcomeScreen = new LinearLayout(this);
-        welcomeScreen.setOrientation(
-                LinearLayout.VERTICAL
-        );
-        welcomeScreen.setGravity(Gravity.CENTER);
-        welcomeScreen.setPadding(
-                dp(24),
-                dp(14),
-                dp(24),
-                dp(14)
-        );
+        welcomeScreen.setVisibility(View.GONE);
+        root.addView(welcomeScreen, new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT
+        ));
 
-        root.addView(
-                welcomeScreen,
-                new FrameLayout.LayoutParams(
-                        FrameLayout.LayoutParams.MATCH_PARENT,
-                        FrameLayout.LayoutParams.MATCH_PARENT
-                )
-        );
-
-        // رأس الشاشة
-        LinearLayout header = new LinearLayout(this);
-        header.setOrientation(LinearLayout.VERTICAL);
-        header.setGravity(Gravity.CENTER);
+        // بطاقة بيانات الاتصال، بمقاسات مرنة للموبايل والتلفزيون.
+        connectionCard = new LinearLayout(this);
+        connectionCard.setOrientation(LinearLayout.VERTICAL);
+        connectionCard.setGravity(Gravity.CENTER);
+        connectionCard.setPadding(dp(16), dp(10), dp(16), dp(10));
+        connectionCard.setBackground(roundedBackground(
+                Color.argb(232, 5, 12, 32),
+                Color.rgb(255, 197, 74),
+                18
+        ));
+        connectionCard.setElevation(dp(8));
 
         TextView brand = makeText(
                 "ABO EZZAT  •  RECEIVER",
-                13,
-                Color.rgb(255, 207, 94),
-                true
-        );
-        brand.setLetterSpacing(0.16f);
-        header.addView(brand);
+                13, Color.rgb(255, 207, 94), true);
+        brand.setLetterSpacing(0.12f);
+        connectionCard.addView(brand, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+        ));
 
         TextView heading = makeText(
                 "أهلاً بك يا أبو عزت",
-                30,
-                Color.WHITE,
-                true
-        );
-        heading.setPadding(0, dp(7), 0, dp(2));
-        header.addView(heading);
-
-        TextView subtitle = makeText(
-                "مشاهدة ممتعة • تجربة استقبال مميزة",
-                13,
-                Color.rgb(151, 183, 220),
-                false
-        );
-        header.addView(subtitle);
-
-        welcomeScreen.addView(
-                header,
+                22, Color.WHITE, true);
+        LinearLayout.LayoutParams headingParams =
                 new LinearLayout.LayoutParams(
                         LinearLayout.LayoutParams.MATCH_PARENT,
-                        0,
-                        1f
-                )
-        );
+                        LinearLayout.LayoutParams.WRAP_CONTENT);
+        headingParams.topMargin = dp(2);
+        connectionCard.addView(heading, headingParams);
 
-        // الصورة الشخصية
-        FrameLayout portraitFrame = new FrameLayout(this);
-        portraitFrame.setBackground(
-                roundedBackground(
-                        Color.rgb(10, 28, 53),
-                        Color.rgb(255, 204, 89),
-                        120
-                )
-        );
-        portraitFrame.setElevation(dp(8));
-        portraitFrame.setClipToOutline(true);
+        receiverStatusText = makeText(
+                "●  جاري تشغيل خدمة الاستقبال...",
+                14, Color.rgb(255, 222, 151), true);
+        LinearLayout.LayoutParams statusParams =
+                new LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.MATCH_PARENT,
+                        LinearLayout.LayoutParams.WRAP_CONTENT);
+        statusParams.topMargin = dp(6);
+        connectionCard.addView(receiverStatusText, statusParams);
 
-        ImageView portrait = new ImageView(this);
-        portrait.setImageResource(R.drawable.app_icon);
-        portrait.setScaleType(
-                ImageView.ScaleType.FIT_CENTER
-        );
-        portrait.setBackgroundColor(
-                Color.rgb(10, 28, 53)
-        );
+        ipText = makeText(
+                "IP الحالي: جارٍ تحديد العنوان...",
+                15, Color.WHITE, true);
+        ipText.setTextIsSelectable(true);
+        LinearLayout.LayoutParams ipParams =
+                new LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.MATCH_PARENT,
+                        LinearLayout.LayoutParams.WRAP_CONTENT);
+        ipParams.topMargin = dp(4);
+        connectionCard.addView(ipText, ipParams);
 
-        FrameLayout.LayoutParams portraitParams =
+        TextView portText = makeText(
+                "PORT: " + PORT,
+                14, Color.rgb(255, 207, 94), true);
+        portText.setTextIsSelectable(true);
+        LinearLayout.LayoutParams portParams =
+                new LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.MATCH_PARENT,
+                        LinearLayout.LayoutParams.WRAP_CONTENT);
+        portParams.topMargin = dp(2);
+        connectionCard.addView(portText, portParams);
+
+        TextView instructions = makeText(
+                "وصّل الجهازين على نفس الشبكة",
+                12, Color.rgb(170, 194, 220), false);
+        LinearLayout.LayoutParams instructionParams =
+                new LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.MATCH_PARENT,
+                        LinearLayout.LayoutParams.WRAP_CONTENT);
+        instructionParams.topMargin = dp(3);
+        connectionCard.addView(instructions, instructionParams);
+
+        FrameLayout.LayoutParams cardParams =
                 new FrameLayout.LayoutParams(
                         FrameLayout.LayoutParams.MATCH_PARENT,
-                        FrameLayout.LayoutParams.MATCH_PARENT
+                        FrameLayout.LayoutParams.WRAP_CONTENT,
+                        Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL
                 );
+        cardParams.setMargins(dp(12), dp(12), dp(12), dp(16));
+        root.addView(connectionCard, cardParams);
 
-        portraitParams.setMargins(
-                dp(5),
-                dp(5),
-                dp(5),
-                dp(5)
-        );
-
-        portraitFrame.addView(
-                portrait,
-                portraitParams
-        );
-
-        LinearLayout.LayoutParams frameParams =
-                new LinearLayout.LayoutParams(
-                        dp(230),
-                        dp(230)
-                );
-
-        frameParams.gravity = Gravity.CENTER;
-        frameParams.topMargin = dp(5);
-        frameParams.bottomMargin = dp(10);
-
-        welcomeScreen.addView(
-                portraitFrame,
-                frameParams
-        );
-
-        // الخط الذهبي
-        View divider = new View(this);
-
-        GradientDrawable line = new GradientDrawable(
-                GradientDrawable.Orientation.LEFT_RIGHT,
-                new int[]{
-                        Color.TRANSPARENT,
-                        Color.rgb(255, 197, 74),
-                        Color.rgb(255, 232, 160),
-                        Color.rgb(255, 197, 74),
-                        Color.TRANSPARENT
-                }
-        );
-
-        line.setCornerRadius(dp(3));
-        divider.setBackground(line);
-
-        LinearLayout.LayoutParams dividerParams =
-                new LinearLayout.LayoutParams(
-                        dp(210),
-                        dp(2)
-                );
-
-        dividerParams.gravity = Gravity.CENTER;
-        dividerParams.topMargin = dp(8);
-        dividerParams.bottomMargin = dp(8);
-
-        welcomeScreen.addView(
-                divider,
-                dividerParams
-        );
-
-        // الذكر
-        TextView prayer = makeText(
-                "سبحان الله وبحمده سبحان الله العظيم",
-                18,
-                Color.rgb(255, 222, 151),
-                true
-        );
-
-        prayer.setMaxLines(2);
-        prayer.setPadding(
-                dp(4),
-                dp(4),
-                dp(4),
-                dp(4)
-        );
-
-        welcomeScreen.addView(prayer);
-
-        // بطاقة حالة الاستقبال
-        LinearLayout statusCard = new LinearLayout(this);
-        statusCard.setOrientation(
-                LinearLayout.HORIZONTAL
-        );
-        statusCard.setGravity(Gravity.CENTER_VERTICAL);
-        statusCard.setPadding(
-                dp(14),
-                dp(12),
-                dp(14),
-                dp(12)
-        );
-
-        statusCard.setBackground(
-                roundedBackground(
-                        Color.rgb(8, 26, 50),
-                        Color.rgb(40, 91, 135),
-                        22
-                )
-        );
-
-        TextView signal = makeText(
-                "●",
-                26,
-                Color.rgb(49, 239, 164),
-                true
-        );
-
-        LinearLayout.LayoutParams signalParams =
-                new LinearLayout.LayoutParams(
-                        dp(42),
-                        dp(42)
-                );
-
-        signalParams.setMarginEnd(dp(10));
-        statusCard.addView(signal, signalParams);
-
-        LinearLayout statusTexts = new LinearLayout(this);
-        statusTexts.setOrientation(
-                LinearLayout.VERTICAL
-        );
-        statusTexts.setGravity(Gravity.CENTER_VERTICAL);
-
-        TextView statusTitle = makeText(
-                "الرسيفر جاهز لاستقبال المحتوى",
-                16,
-                Color.WHITE,
-                true
-        );
-
-        statusTitle.setGravity(
-                Gravity.CENTER_VERTICAL
-        );
-
-        TextView statusSubtitle = makeText(
-                "فيديو • صوت • صور",
-                13,
-                Color.rgb(150, 185, 222),
-                false
-        );
-
-        statusSubtitle.setGravity(
-                Gravity.CENTER_VERTICAL
-        );
-        statusSubtitle.setPadding(
-                0,
-                dp(4),
-                0,
-                0
-        );
-
-        statusTexts.addView(statusTitle);
-        statusTexts.addView(statusSubtitle);
-
-        statusCard.addView(
-                statusTexts,
-                new LinearLayout.LayoutParams(
-                        0,
-                        LinearLayout.LayoutParams.WRAP_CONTENT,
-                        1
-                )
-        );
-
-        LinearLayout.LayoutParams cardParams =
-                new LinearLayout.LayoutParams(
-                        LinearLayout.LayoutParams.MATCH_PARENT,
-                        LinearLayout.LayoutParams.WRAP_CONTENT
-                );
-
-        cardParams.topMargin = dp(16);
-        cardParams.bottomMargin = dp(8);
-
-        welcomeScreen.addView(
-                statusCard,
-                cardParams
-        );
-
-        // التذييل
-        TextView footer = makeText(
-                "ABO EZZAT RECEIVER  •  PORT 8081",
-                10,
-                Color.rgb(113, 146, 185),
-                false
-        );
-
-        footer.setLetterSpacing(0.10f);
-
-        welcomeScreen.addView(
-                footer,
-                new LinearLayout.LayoutParams(
-                        LinearLayout.LayoutParams.MATCH_PARENT,
-                        dp(24)
-                )
-        );
-
-        // صورة الخلفية الجديدة لشاشة الترحيب
-        welcomeBackground = new ImageView(this);
-        welcomeBackground.setImageResource(
-                R.drawable.welcome_background
-        );
-        welcomeBackground.setScaleType(
-                ImageView.ScaleType.CENTER_CROP
-        );
-        welcomeBackground.setVisibility(View.VISIBLE);
-
-        // نضع الخلفية خلف بقية عناصر الشاشة
-        root.addView(
-                welcomeBackground,
-                0,
-                new FrameLayout.LayoutParams(
-                        FrameLayout.LayoutParams.MATCH_PARENT,
-                        FrameLayout.LayoutParams.MATCH_PARENT
-                )
-        );
-
-        // نخفي التصميم القديم حتى لا يغطي الصورة الجديدة
-        welcomeScreen.setVisibility(View.GONE);
-
-        // مشغل الفيديو والصوت
+        // مشغل الفيديو والصوت كما كان.
         playerView = new PlayerView(this);
         playerView.setUseController(true);
         playerView.setVisibility(View.GONE);
         playerView.setBackgroundColor(Color.BLACK);
+        root.addView(playerView, new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT
+        ));
 
-        root.addView(
-                playerView,
-                new FrameLayout.LayoutParams(
-                        FrameLayout.LayoutParams.MATCH_PARENT,
-                        FrameLayout.LayoutParams.MATCH_PARENT
-                )
-        );
-
-        // عارض الصور المستقبلة
+        // عارض الصور المستقبلة يحافظ على أبعاد الصورة.
         imageView = new ImageView(this);
         imageView.setVisibility(View.GONE);
         imageView.setBackgroundColor(Color.BLACK);
-        imageView.setScaleType(
-                ImageView.ScaleType.FIT_CENTER
-        );
+        imageView.setScaleType(ImageView.ScaleType.FIT_CENTER);
+        root.addView(imageView, new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT
+        ));
 
-        root.addView(
-                imageView,
-                new FrameLayout.LayoutParams(
-                        FrameLayout.LayoutParams.MATCH_PARENT,
-                        FrameLayout.LayoutParams.MATCH_PARENT
-                )
-        );
-
-        // مؤشر تحميل الصور
         imageLoading = new ProgressBar(this);
         imageLoading.setVisibility(View.GONE);
-
         FrameLayout.LayoutParams loadingParams =
-                new FrameLayout.LayoutParams(
-                        dp(56),
-                        dp(56),
-                        Gravity.CENTER
-                );
-
-        root.addView(
-                imageLoading,
-                loadingParams
-        );
+                new FrameLayout.LayoutParams(dp(56), dp(56), Gravity.CENTER);
+        root.addView(imageLoading, loadingParams);
 
         setContentView(root);
+    }
+
+    // قراءة عنوان IPv4 من الشبكة الحالية، وليس عنوانًا ثابتًا.
+    private String getCurrentIpAddress() {
+        try {
+            ConnectivityManager cm = (ConnectivityManager)
+                    getSystemService(CONNECTIVITY_SERVICE);
+
+            if (cm != null) {
+                Network activeNetwork = cm.getActiveNetwork();
+                if (activeNetwork != null) {
+                    LinkProperties properties = cm.getLinkProperties(activeNetwork);
+                    if (properties != null) {
+                        for (android.net.LinkAddress linkAddress :
+                                properties.getLinkAddresses()) {
+                            InetAddress address = linkAddress.getAddress();
+                            if (address instanceof Inet4Address
+                                    && !address.isLoopbackAddress()
+                                    && !address.isLinkLocalAddress()) {
+                                return address.getHostAddress();
+                            }
+                        }
+                    }
+                }
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "Could not read active network IP", e);
+        }
+
+        // طريقة احتياطية لبعض أجهزة Android TV.
+        try {
+            Enumeration<NetworkInterface> interfaces =
+                    NetworkInterface.getNetworkInterfaces();
+
+            while (interfaces != null && interfaces.hasMoreElements()) {
+                NetworkInterface networkInterface = interfaces.nextElement();
+                if (!networkInterface.isUp() || networkInterface.isLoopback()) {
+                    continue;
+                }
+
+                Enumeration<InetAddress> addresses =
+                        networkInterface.getInetAddresses();
+
+                while (addresses.hasMoreElements()) {
+                    InetAddress address = addresses.nextElement();
+                    if (address instanceof Inet4Address
+                            && !address.isLoopbackAddress()
+                            && !address.isLinkLocalAddress()) {
+                        return address.getHostAddress();
+                    }
+                }
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "Could not enumerate network interfaces", e);
+        }
+
+        return null;
+    }
+
+    private void updateConnectionInfo() {
+        if (ipText == null) return;
+
+        String ip = getCurrentIpAddress();
+        if (ip == null || ip.trim().isEmpty()) {
+            ipText.setText("IP الحالي: غير متاح — اتصل بالشبكة");
+        } else {
+            ipText.setText("IP الحالي: " + ip + ":" + PORT);
+        }
     }
 
     private void startReceiver() {
@@ -502,6 +365,13 @@ public class MainActivity extends Activity {
                         TAG,
                         "Receiver listening on port " + PORT
                 );
+                runOnUiThread(() -> {
+                    if (receiverStatusText != null) {
+                        receiverStatusText.setText("●  الاستقبال يعمل الآن");
+                        receiverStatusText.setTextColor(Color.rgb(49, 239, 164));
+                    }
+                    updateConnectionInfo();
+                });
 
                 while (running) {
                     Socket client = serverSocket.accept();
@@ -516,6 +386,12 @@ public class MainActivity extends Activity {
             } catch (Exception e) {
                 if (running) {
                     Log.e(TAG, "Server error", e);
+                    runOnUiThread(() -> {
+                        if (receiverStatusText != null) {
+                            receiverStatusText.setText("●  تعذّر تشغيل الاستقبال");
+                            receiverStatusText.setTextColor(Color.rgb(255, 100, 100));
+                        }
+                    });
                 }
             }
         }, "ReceiverServer");
@@ -680,6 +556,7 @@ public class MainActivity extends Activity {
         // إخفاء شاشة الترحيب عند تشغيل المحتوى
         welcomeBackground.setVisibility(View.GONE);
         welcomeScreen.setVisibility(View.GONE);
+        connectionCard.setVisibility(View.GONE);
         playerView.setVisibility(View.VISIBLE);
 
         try {
@@ -739,6 +616,7 @@ public class MainActivity extends Activity {
         playerView.setVisibility(View.GONE);
         welcomeScreen.setVisibility(View.GONE);
         welcomeBackground.setVisibility(View.GONE);
+        connectionCard.setVisibility(View.GONE);
 
         imageView.setVisibility(View.VISIBLE);
         imageLoading.setVisibility(View.VISIBLE);
@@ -797,6 +675,8 @@ public class MainActivity extends Activity {
         playerView.setVisibility(View.GONE);
         welcomeScreen.setVisibility(View.GONE);
         welcomeBackground.setVisibility(View.VISIBLE);
+        connectionCard.setVisibility(View.VISIBLE);
+        updateConnectionInfo();
     }
 
     @Override
