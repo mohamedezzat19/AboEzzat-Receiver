@@ -494,7 +494,8 @@ public class MainActivity extends Activity {
 
                     if (address instanceof Inet4Address
                             && !address.isLoopbackAddress()
-                            && !address.isLinkLocalAddress()) {
+                            && !address.isLinkLocalAddress()
+                            && address.isSiteLocalAddress()) {
 
                         return address.getHostAddress();
                     }
