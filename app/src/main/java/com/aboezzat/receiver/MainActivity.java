@@ -38,6 +38,14 @@ import java.io.BufferedReader;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.net.ServerSocket;
+import java.net.DatagramPacket;
+import java.net.DatagramSocket;
+import java.net.InetSocketAddress;
+import java.net.MulticastSocket;
+import java.net.InetAddress;
+import java.net.Inet4Address;
+import java.net.NetworkInterface;
+import java.util.Enumeration;
 import java.net.Inet4Address;
 import java.net.InetAddress;
 import java.net.NetworkInterface;
@@ -53,6 +61,10 @@ public class MainActivity extends Activity {
 
     private static final String TAG = "AboEzzatReceiver";
     private static final int PORT = 8081;
+    private static final int DISCOVERY_PORT = 37020;
+    private static final String DISCOVERY_GROUP = "239.255.42.99";
+    private volatile boolean heartbeatRunning = false;
+    private volatile long lastRequestAt = 0L;
 
     private FrameLayout root;
     private LinearLayout welcomeScreen;
@@ -516,6 +528,7 @@ public class MainActivity extends Activity {
 
     private void startReceiver() {
         running = true;
+        startDiscoveryHeartbeat();
 
         Thread serverThread = new Thread(() -> {
             try {
@@ -572,7 +585,33 @@ public class MainActivity extends Activity {
         serverThread.start();
     }
 
+
+    // إعلان وجود الريسيفر على الشبكة المحلية عبر multicast، دون الاعتماد على مسح كل IP.
+    private void startDiscoveryHeartbeat() {
+        if (heartbeatRunning) return;
+        heartbeatRunning = true;
+        Thread thread = new Thread(() -> {
+            while (running && heartbeatRunning) {
+                try (DatagramSocket socket = new DatagramSocket()) {
+                    socket.setBroadcast(true);
+                    byte[] data = ("ABOEZZAT_RECEIVER|" + getCurrentIpAddress() + "|" + PORT)
+                            .getBytes(StandardCharsets.UTF_8);
+                    InetAddress group = InetAddress.getByName(DISCOVERY_GROUP);
+                    DatagramPacket packet = new DatagramPacket(data, data.length, group, DISCOVERY_PORT);
+                    socket.send(packet);
+                } catch (Exception e) {
+                    Log.w(TAG, "Discovery heartbeat send failed", e);
+                }
+                try { Thread.sleep(1200L); }
+                catch (InterruptedException e) { Thread.currentThread().interrupt(); break; }
+            }
+        }, "ReceiverDiscoveryHeartbeat");
+        thread.setDaemon(true);
+        thread.start();
+    }
+
     private void handleRequest(Socket client) {
+        lastRequestAt = System.currentTimeMillis();
         String mediaUrl = null;
         String audioUrl = null;
 
@@ -901,6 +940,7 @@ public class MainActivity extends Activity {
     @Override
     protected void onDestroy() {
         running = false;
+        heartbeatRunning = false;
         if (pendingPlayback != null) {
             mediaHandler.removeCallbacks(pendingPlayback);
             pendingPlayback = null;
