@@ -13,9 +13,9 @@ import android.util.Log;
 
 import org.json.JSONObject;
 
-import java.io.BufferedReader;
-import java.io.InputStreamReader;
 import java.io.OutputStream;
+import java.io.InputStream;
+import java.io.IOException;
 import java.net.DatagramPacket;
 import java.net.DatagramSocket;
 import java.net.Inet4Address;
@@ -203,9 +203,7 @@ public class ReceiverServerService extends Service {
         boolean invalidMediaUrl = false;
         try (Socket socket = client) {
             socket.setSoTimeout(5000);
-            BufferedReader reader = new BufferedReader(
-                    new InputStreamReader(socket.getInputStream(), StandardCharsets.UTF_8));
-            String requestLine = reader.readLine();
+            String requestLine = readBoundedRequestLine(socket.getInputStream());
             if (requestLine != null) {
                 String[] parts = requestLine.split(" ");
                 if (parts.length >= 2) {
@@ -295,6 +293,25 @@ public class ReceiverServerService extends Service {
             // The foreground notification remains available to reopen the receiver.
             Log.e(TAG, "OS blocked opening Receiver for incoming request", e);
         }
+    }
+
+    // Never let an untrusted LAN client force an unbounded request-line allocation.
+    // The endpoint only needs the request line; headers are intentionally not parsed.
+    private String readBoundedRequestLine(InputStream input) throws IOException {
+        final int maxBytes = 8192;
+        java.io.ByteArrayOutputStream line = new java.io.ByteArrayOutputStream(256);
+        int value;
+        while ((value = input.read()) != -1) {
+            if (value == '\\n') break;
+            if (value != '\\r') {
+                if (line.size() >= maxBytes) {
+                    throw new IOException("HTTP request line exceeds " + maxBytes + " bytes");
+                }
+                line.write(value);
+            }
+        }
+        if (value == -1 && line.size() == 0) return null;
+        return new String(line.toByteArray(), StandardCharsets.UTF_8);
     }
 
     private boolean isHttpUrl(String value) {
