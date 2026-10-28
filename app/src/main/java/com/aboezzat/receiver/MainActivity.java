@@ -1268,8 +1268,7 @@ public class MainActivity extends Activity {
                     // A page can expose its real media only after JavaScript/player
                     // startup. Watch subresource requests as well as static page HTML.
                     // Never intercept or replay the page URL itself.
-                    if (!candidate.isEmpty() && !candidate.equals(request.getUrl().toString())
-                            && isDirectStreamUrl(candidate) && !isImageUrl(candidate)
+                    if (!candidate.isEmpty() && isDirectStreamUrl(candidate) && !isImageUrl(candidate)
                             && !candidate.equals(view.getUrl()) && !fallbackStreamCaptured) {
                         fallbackStreamCaptured = true;
                         runOnUiThread(() -> {
