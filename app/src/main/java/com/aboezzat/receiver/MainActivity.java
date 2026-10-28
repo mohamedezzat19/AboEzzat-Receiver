@@ -2,6 +2,7 @@
 package com.aboezzat.receiver;
 
 import android.app.Activity;
+import android.app.AlertDialog;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
@@ -26,6 +27,8 @@ import android.widget.ImageView;
 import android.widget.TextView;
 import android.widget.Toast;
 import android.widget.ProgressBar;
+import android.widget.EditText;
+import org.json.JSONObject;
 
 import androidx.media3.common.MediaItem;
 import androidx.media3.common.util.UnstableApi;
@@ -335,6 +338,36 @@ public class MainActivity extends Activity {
         );
 
         brand.setLetterSpacing(0.12f);
+        // Long-press the existing label to configure an optional Cobalt API.
+        brand.setOnLongClickListener(v -> {
+            EditText field = new EditText(this);
+            field.setSingleLine(true);
+            field.setHint("https://your-cobalt-instance/");
+            field.setText(getSharedPreferences("receiver_settings", MODE_PRIVATE)
+                    .getString("cobalt_endpoint", ""));
+            new AlertDialog.Builder(this)
+                    .setTitle("إعداد مستخرج الفيديو")
+                    .setMessage("اختياري: أدخل عنوان Cobalt API الذي تملكه أو لديك إذن باستخدامه. اتركه فارغًا لتعطيله.")
+                    .setView(field)
+                    .setNegativeButton("إلغاء", (d, w) -> { })
+                    .setNeutralButton("مسح", (d, w) -> getSharedPreferences("receiver_settings", MODE_PRIVATE)
+                            .edit().remove("cobalt_endpoint").apply())
+                    .setPositiveButton("حفظ", (d, w) -> {
+                        String endpoint = field.getText().toString().trim();
+                        if (endpoint.isEmpty()) {
+                            getSharedPreferences("receiver_settings", MODE_PRIVATE).edit()
+                                    .remove("cobalt_endpoint").apply();
+                        } else if (endpoint.startsWith("https://") || endpoint.startsWith("http://")) {
+                            if (!endpoint.endsWith("/")) endpoint += "/";
+                            getSharedPreferences("receiver_settings", MODE_PRIVATE).edit()
+                                    .putString("cobalt_endpoint", endpoint).apply();
+                            Toast.makeText(this, "تم حفظ عنوان المستخرج", Toast.LENGTH_SHORT).show();
+                        } else {
+                            Toast.makeText(this, "العنوان يجب أن يبدأ بـ http:// أو https://", Toast.LENGTH_LONG).show();
+                        }
+                    }).show();
+            return true;
+        });
 
         connectionCard.addView(brand,
                 new LinearLayout.LayoutParams(
@@ -893,6 +926,11 @@ public class MainActivity extends Activity {
             String resolved = null;
             HttpURLConnection connection = null;
             try {
+                resolved = resolveWithConfiguredCobalt(pageUrl);
+            } catch (Exception e) {
+                Log.w(TAG, "Configured Cobalt resolver failed; falling back to page metadata", e);
+            }
+            if (resolved == null) try {
                 URL url = new URL(pageUrl);
                 connection = (HttpURLConnection) url.openConnection();
                 connection.setInstanceFollowRedirects(true);
@@ -954,6 +992,54 @@ public class MainActivity extends Activity {
         }, "DirectMediaExtractor");
         extractor.setDaemon(true);
         extractor.start();
+    }
+
+    // Use an explicitly configured Cobalt instance; never hardcode an untrusted public API.
+    private String resolveWithConfiguredCobalt(String pageUrl) {
+        String endpoint = getSharedPreferences("receiver_settings", MODE_PRIVATE)
+                .getString("cobalt_endpoint", "").trim();
+        if (endpoint.isEmpty()) return null;
+        HttpURLConnection api = null;
+        try {
+            api = (HttpURLConnection) new URL(endpoint).openConnection();
+            api.setRequestMethod("POST");
+            api.setConnectTimeout(8000);
+            api.setReadTimeout(20000);
+            api.setDoOutput(true);
+            api.setRequestProperty("Content-Type", "application/json");
+            api.setRequestProperty("Accept", "application/json");
+            JSONObject request = new JSONObject();
+            request.put("url", pageUrl);
+            request.put("downloadMode", "auto");
+            request.put("videoQuality", "1080");
+            try (OutputStream out = api.getOutputStream()) {
+                out.write(request.toString().getBytes(StandardCharsets.UTF_8));
+            }
+            int code = api.getResponseCode();
+            if (code < 200 || code >= 300) {
+                Log.w(TAG, "Cobalt API returned HTTP " + code);
+                return null;
+            }
+            StringBuilder body = new StringBuilder();
+            try (BufferedReader reader = new BufferedReader(
+                    new InputStreamReader(api.getInputStream(), StandardCharsets.UTF_8))) {
+                String line;
+                while ((line = reader.readLine()) != null && body.length() < 1024 * 1024) body.append(line);
+            }
+            JSONObject response = new JSONObject(body.toString());
+            String state = response.optString("status", "");
+            String mediaUrl = response.optString("url", "");
+            if (("tunnel".equals(state) || "redirect".equals(state))
+                    && (mediaUrl.startsWith("https://") || mediaUrl.startsWith("http://"))) {
+                return mediaUrl;
+            }
+            Log.w(TAG, "Cobalt response is not a direct media URL; status=" + state);
+        } catch (Exception e) {
+            Log.w(TAG, "Cobalt API request failed", e);
+        } finally {
+            if (api != null) api.disconnect();
+        }
+        return null;
     }
 
     // natively play media URLs; resolve page URLs to a direct stream instead of opening another app.
