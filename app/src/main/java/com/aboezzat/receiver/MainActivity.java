@@ -880,8 +880,21 @@ public class MainActivity extends Activity {
             return; // Identity/status probe only; do not send it to the playback remote.
         }
         if (command != null && !command.trim().isEmpty()) {
-            final String requestedCommand = command;
-            runOnUiThread(() -> handleRemoteCommand(requestedCommand));
+            final String requestedCommand = command.trim();
+            // Log the exact command reaching the receiver. This makes it possible to
+            // distinguish a network/IP problem from a playback-control problem.
+            Log.i(TAG, "Remote command received: " + requestedCommand
+                    + ", playerAvailable=" + (player != null));
+            runOnUiThread(() -> {
+                try {
+                    handleRemoteCommand(requestedCommand);
+                } catch (Exception e) {
+                    Log.e(TAG, "Remote command failed: " + requestedCommand, e);
+                    Toast.makeText(MainActivity.this,
+                            "تعذّر تنفيذ أمر الريموت: " + requestedCommand,
+                            Toast.LENGTH_SHORT).show();
+                }
+            });
             return;
         }
 
