@@ -107,15 +107,24 @@ public class MainActivity extends Activity {
     private SharedPreferences playbackPrefs;
     private String currentPlaybackUrl = "";
     private final Handler playbackProgressHandler = new Handler(Looper.getMainLooper());
+    // Persist the position against the URI actually loaded in ExoPlayer. The
+    // mutable currentPlaybackUrl can already point at the next request.
+    private void savePlaybackPositionLocked() {
+        if (player == null || playbackPrefs == null || player.getCurrentMediaItem() == null
+                || player.getCurrentMediaItem().localConfiguration == null) {
+            return;
+        }
+        String itemUrl = player.getCurrentMediaItem().localConfiguration.uri.toString();
+        if (itemUrl == null || itemUrl.isEmpty()) return;
+        long position = Math.max(0L, player.getCurrentPosition());
+        playbackPrefs.edit().putLong("position_" + itemUrl.hashCode(), position).apply();
+    }
+
     private final Runnable playbackProgressRunnable = new Runnable() {
         @Override public void run() {
             synchronized (playerLock) {
-                if (player != null && player.isPlaying()
-                        && currentPlaybackUrl != null && !currentPlaybackUrl.isEmpty()
-                        && playbackPrefs != null) {
-                    playbackPrefs.edit()
-                            .putLong("position_" + currentPlaybackUrl.hashCode(), player.getCurrentPosition())
-                            .apply();
+                if (player != null && player.isPlaying()) {
+                    savePlaybackPositionLocked();
                 }
             }
             playbackProgressHandler.postDelayed(this, 3000L);
@@ -1334,6 +1343,7 @@ public class MainActivity extends Activity {
                     player.seekTo(duration > 0 ? Math.min(target, duration) : target);
                     break;
                 case "stop":
+                    savePlaybackPositionLocked();
                     player.stop();
                     player.clearMediaItems();
                     break;
@@ -1359,6 +1369,7 @@ public class MainActivity extends Activity {
     private void stopCurrentPlayer() {
         synchronized (playerLock) {
             if (player != null) {
+                savePlaybackPositionLocked();
                 player.stop();
                 player.clearMediaItems();
             }
@@ -1436,6 +1447,7 @@ public class MainActivity extends Activity {
                     playerView.setPlayer(player);
                 }
 
+                savePlaybackPositionLocked();
                 player.stop();
                 player.clearMediaItems();
 
@@ -1496,6 +1508,7 @@ public class MainActivity extends Activity {
                     player.setVolume(muted ? 0.0f : lastNonZeroVolume);
                     playerView.setPlayer(player);
                 }
+                savePlaybackPositionLocked();
                 player.stop();
                 player.clearMediaItems();
                 player.setMediaItem(MediaItem.fromUri(audioUrl));
@@ -1600,12 +1613,7 @@ public class MainActivity extends Activity {
     protected void onDestroy() {
         playbackProgressHandler.removeCallbacks(playbackProgressRunnable);
         synchronized (playerLock) {
-            if (player != null && playbackPrefs != null
-                    && currentPlaybackUrl != null && !currentPlaybackUrl.isEmpty()) {
-                playbackPrefs.edit()
-                        .putLong("position_" + currentPlaybackUrl.hashCode(), player.getCurrentPosition())
-                        .apply();
-            }
+            savePlaybackPositionLocked();
         }
         running = false;
         heartbeatRunning = false;
