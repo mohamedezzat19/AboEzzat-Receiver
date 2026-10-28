@@ -743,8 +743,72 @@ public class MainActivity extends Activity {
         }
     }
 
+    private boolean isYouTubeUrl(String value) {
+        if (value == null || value.trim().isEmpty()) return false;
+        try {
+            Uri uri = Uri.parse(value.trim());
+            String host = uri.getHost();
+            if (host == null) return false;
+            host = host.toLowerCase(Locale.ROOT);
+            return host.equals("youtu.be")
+                    || host.equals("youtube.com")
+                    || host.endsWith(".youtube.com")
+                    || host.equals("youtube-nocookie.com")
+                    || host.endsWith(".youtube-nocookie.com");
+        } catch (Exception ignored) {
+            return false;
+        }
+    }
+
+    // Prefer SmartTube/Smart YouTube TV on the television for YouTube URLs.
+    private boolean launchSmartYouTube(String url) {
+        String[] packages = new String[] {
+                "com.teamsmart.videomanager.tv",
+                "com.liskovsoft.smarttubetv.beta",
+                "com.liskovsoft.smartyoutubetv2.tv",
+                "com.liskovsoft.smartyoutubetv",
+                "com.google.android.youtube.tv"
+        };
+        for (String packageName : packages) {
+            try {
+                android.content.Intent open = new android.content.Intent(
+                        android.content.Intent.ACTION_VIEW, Uri.parse(url));
+                open.setPackage(packageName);
+                open.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK);
+                startActivity(open);
+                receiverStatusText.setText("تم فتح فيديو YouTube على تطبيق الشاشة");
+                return true;
+            } catch (Exception ignored) {
+                // Try the next known SmartTube / YouTube TV package.
+            }
+        }
+
+        try {
+            android.content.Intent open = new android.content.Intent(
+                    android.content.Intent.ACTION_VIEW, Uri.parse(url));
+            open.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK);
+            startActivity(open);
+            receiverStatusText.setText("تم فتح رابط YouTube في التطبيق المتاح");
+            return true;
+        } catch (Exception ignored) {
+            Toast.makeText(this,
+                    "لم يتم العثور على SmartTube أو تطبيق متوافق مع YouTube",
+                    Toast.LENGTH_LONG).show();
+            return false;
+        }
+    }
+
     // ننتظر لحظة قصيرة ليلتقط التطبيق الرابط الثاني إذا أُرسل فورًا بعد الأول.
     private void queueIncomingMedia(String mediaUrl, String audioUrl) {
+        if (mediaUrl != null && isYouTubeUrl(mediaUrl)) {
+            if (pendingPlayback != null) {
+                mediaHandler.removeCallbacks(pendingPlayback);
+                pendingPlayback = null;
+            }
+            pendingVisualUrl = null;
+            pendingAudioUrl = null;
+            if (launchSmartYouTube(mediaUrl)) return;
+        }
         if (mediaUrl != null && !mediaUrl.trim().isEmpty()) {
             pendingVisualUrl = mediaUrl;
         }
