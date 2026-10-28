@@ -997,6 +997,18 @@ public class MainActivity extends Activity {
         extractor.start();
     }
 
+    private boolean isHttpUrl(String value) {
+        if (value == null || value.trim().isEmpty()) return false;
+        try {
+            Uri uri = Uri.parse(value.trim());
+            String scheme = uri.getScheme();
+            return uri.getHost() != null
+                    && ("http".equalsIgnoreCase(scheme) || "https".equalsIgnoreCase(scheme));
+        } catch (Exception ignored) {
+            return false;
+        }
+    }
+
     // Use an explicitly configured Cobalt instance; never hardcode an untrusted public API.
     private String resolveWithConfiguredCobalt(String pageUrl) {
         String endpoint = getSharedPreferences("receiver_settings", MODE_PRIVATE)
@@ -1033,8 +1045,28 @@ public class MainActivity extends Activity {
             String state = response.optString("status", "");
             String mediaUrl = response.optString("url", "");
             if (("tunnel".equals(state) || "redirect".equals(state))
-                    && (mediaUrl.startsWith("https://") || mediaUrl.startsWith("http://"))) {
+                    && isHttpUrl(mediaUrl)) {
                 return mediaUrl;
+            }
+
+            // Cobalt can return a picker for posts containing several media items.
+            // Prefer an explicit video entry; if the API omits item types, use the
+            // first valid HTTP(S) item rather than discarding the entire post.
+            if ("picker".equals(state)) {
+                org.json.JSONArray picker = response.optJSONArray("picker");
+                if (picker != null) {
+                    String firstValid = null;
+                    for (int i = 0; i < picker.length(); i++) {
+                        JSONObject item = picker.optJSONObject(i);
+                        if (item == null) continue;
+                        String candidate = item.optString("url", "");
+                        String type = item.optString("type", "").toLowerCase(Locale.ROOT);
+                        if (!isHttpUrl(candidate)) continue;
+                        if (type.contains("video")) return candidate;
+                        if (type.isEmpty() && firstValid == null) firstValid = candidate;
+                    }
+                    if (firstValid != null) return firstValid;
+                }
             }
             Log.w(TAG, "Cobalt response is not a direct media URL; status=" + state);
         } catch (Exception e) {
