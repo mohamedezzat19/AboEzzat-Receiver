@@ -91,6 +91,14 @@ public class MainActivity extends Activity {
     private View webFullscreenView;
     private WebChromeClient.CustomViewCallback webFullscreenCallback;
     private ImageView imageView;
+    private float imageZoomScale = 1.0f;
+    private float imagePanX = 0f;
+    private float imagePanY = 0f;
+    private float imageDownX = 0f;
+    private float imageDownY = 0f;
+    private float imageGestureStartX = 0f;
+    private float imageGestureStartY = 0f;
+    private boolean imageDragging = false;
     private ProgressBar imageLoading;
     private ExoPlayer player;
     // Keep the selected level separately from mute state.
@@ -553,6 +561,39 @@ public class MainActivity extends Activity {
         imageView.setVisibility(View.GONE);
         imageView.setBackgroundColor(Color.BLACK);
         imageView.setScaleType(ImageView.ScaleType.FIT_CENTER);
+        imageView.setFocusable(true);
+        imageView.setFocusableInTouchMode(true);
+        imageView.setOnTouchListener((view, event) -> {
+            switch (event.getActionMasked()) {
+                case android.view.MotionEvent.ACTION_DOWN:
+                    imageDownX = event.getX();
+                    imageDownY = event.getY();
+                    imageGestureStartX = imagePanX;
+                    imageGestureStartY = imagePanY;
+                    imageDragging = false;
+                    return true;
+                case android.view.MotionEvent.ACTION_MOVE:
+                    if (imageZoomScale > 1.0f) {
+                        float dx = event.getX() - imageDownX;
+                        float dy = event.getY() - imageDownY;
+                        if (Math.abs(dx) > dp(5) || Math.abs(dy) > dp(5)) imageDragging = true;
+                        imagePanX = imageGestureStartX + dx;
+                        imagePanY = imageGestureStartY + dy;
+                        applyImageTransform();
+                    }
+                    return true;
+                case android.view.MotionEvent.ACTION_UP:
+                    if (!imageDragging && imageZoomScale <= 1.0f) {
+                        imageZoomScale = 2.0f;
+                        applyImageTransform();
+                    } else if (!imageDragging && imageZoomScale > 1.0f) {
+                        resetImageTransform();
+                    }
+                    return true;
+                default:
+                    return true;
+            }
+        });
 
         root.addView(imageView, new FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT,
@@ -1409,6 +1450,61 @@ public class MainActivity extends Activity {
         }
     }
 
+    private boolean handleImageRemoteKey(int keyCode) {
+        if (imageView == null || imageView.getVisibility() != View.VISIBLE) return false;
+        switch (keyCode) {
+            case android.view.KeyEvent.KEYCODE_DPAD_CENTER:
+            case android.view.KeyEvent.KEYCODE_ENTER:
+                if (imageZoomScale > 1.0f) resetImageTransform();
+                else { imageZoomScale = 2.0f; applyImageTransform(); }
+                return true;
+            case android.view.KeyEvent.KEYCODE_DPAD_UP:
+                if (imageZoomScale > 1.0f) { imagePanY += dp(35); applyImageTransform(); }
+                return true;
+            case android.view.KeyEvent.KEYCODE_DPAD_DOWN:
+                if (imageZoomScale > 1.0f) { imagePanY -= dp(35); applyImageTransform(); }
+                return true;
+            case android.view.KeyEvent.KEYCODE_DPAD_LEFT:
+                if (imageZoomScale > 1.0f) { imagePanX += dp(35); applyImageTransform(); }
+                return true;
+            case android.view.KeyEvent.KEYCODE_DPAD_RIGHT:
+                if (imageZoomScale > 1.0f) { imagePanX -= dp(35); applyImageTransform(); }
+                return true;
+            case android.view.KeyEvent.KEYCODE_BACK:
+            case android.view.KeyEvent.KEYCODE_ESCAPE:
+                resetImageTransform();
+                hideImage();
+                showWelcome();
+                return true;
+            default:
+                return false;
+        }
+    }
+
+    private void applyImageTransform() {
+        if (imageView == null) return;
+        imageView.setScaleX(imageZoomScale);
+        imageView.setScaleY(imageZoomScale);
+        imageView.setTranslationX(imagePanX);
+        imageView.setTranslationY(imagePanY);
+    }
+
+    private void resetImageTransform() {
+        imageZoomScale = 1.0f;
+        imagePanX = 0f;
+        imagePanY = 0f;
+        applyImageTransform();
+    }
+
+    @Override
+    public boolean dispatchKeyEvent(android.view.KeyEvent event) {
+        if (event.getAction() == android.view.KeyEvent.ACTION_DOWN
+                && handleImageRemoteKey(event.getKeyCode())) {
+            return true;
+        }
+        return super.dispatchKeyEvent(event);
+    }
+
     private void handleRemoteCommand(String command) {
         synchronized (playerLock) {
             if (player == null) {
@@ -1661,6 +1757,7 @@ public class MainActivity extends Activity {
 
     private void showImage(String imageUrl) {
         stopCurrentPlayer();
+        resetImageTransform();
 
         playerView.setVisibility(View.GONE);
         welcomeScreen.setVisibility(View.GONE);
@@ -1712,6 +1809,7 @@ public class MainActivity extends Activity {
     }
 
     private void hideImage() {
+        resetImageTransform();
         imageView.setVisibility(View.GONE);
         imageLoading.setVisibility(View.GONE);
         imageView.setImageDrawable(null);
