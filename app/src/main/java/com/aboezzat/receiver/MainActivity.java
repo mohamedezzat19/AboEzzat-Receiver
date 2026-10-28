@@ -538,6 +538,8 @@ public class MainActivity extends Activity {
         // مشغل الفيديو والصوت.
         playerView = new PlayerView(this);
         playerView.setUseController(true);
+        // Keep video inside the physical screen bounds while preserving its aspect ratio.
+        playerView.setResizeMode(androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_FIT);
         playerView.setVisibility(View.GONE);
         playerView.setBackgroundColor(Color.BLACK);
 
