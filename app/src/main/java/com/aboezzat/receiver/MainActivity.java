@@ -72,6 +72,9 @@ public class MainActivity extends Activity {
     private static final String DISCOVERY_GROUP = "239.255.42.99";
     private volatile boolean heartbeatRunning = false;
     private volatile long lastRequestAt = 0L;
+    private volatile boolean extractionInProgress = false;
+    private volatile int extractionAttemptCount = 0;
+    private volatile String extractionStatus = "idle";
 
     private FrameLayout root;
     private LinearLayout welcomeScreen;
@@ -755,24 +758,36 @@ public class MainActivity extends Activity {
                 }
             }
 
+            String responseBody = "OK";
+            String contentType = "text/plain; charset=utf-8";
+            if ("status".equals(command)) {
+                JSONObject statusJson = new JSONObject();
+                statusJson.put("extracting", extractionInProgress);
+                statusJson.put("attempt", extractionAttemptCount);
+                statusJson.put("status", extractionStatus);
+                responseBody = statusJson.toString();
+                contentType = "application/json; charset=utf-8";
+            }
+            byte[] bodyBytes = responseBody.getBytes(StandardCharsets.UTF_8);
             byte[] response = (
                     "HTTP/1.1 200 OK\r\n" +
-                    "Content-Type: text/plain; charset=utf-8\r\n" +
+                    "Content-Type: " + contentType + "\r\n" +
                     "Access-Control-Allow-Origin: *\r\n" +
                     "Connection: close\r\n" +
-                    "Content-Length: 2\r\n\r\nOK"
+                    "Content-Length: " + bodyBytes.length + "\r\n\r\n"
             ).getBytes(StandardCharsets.UTF_8);
 
             OutputStream output = socket.getOutputStream();
             output.write(response);
+            output.write(bodyBytes);
             output.flush();
 
         } catch (Exception e) {
             Log.e(TAG, "Request error", e);
         }
 
-        if ("ping".equals(command)) {
-            return; // Identity probe only; do not send it to the playback remote.
+        if ("ping".equals(command) || "status".equals(command)) {
+            return; // Identity/status probe only; do not send it to the playback remote.
         }
         if (command != null && !command.trim().isEmpty()) {
             final String requestedCommand = command;
@@ -926,9 +941,12 @@ public class MainActivity extends Activity {
     }
 
     private void resolveSharedVideoToStream(String pageUrl) {
+        extractionInProgress = true;
+        extractionAttemptCount = 0;
+        extractionStatus = "starting";
         runOnUiThread(() -> {
             if (receiverStatusText != null) {
-                receiverStatusText.setText("جارٍ استخراج رابط الفيديو المباشر…");
+                receiverStatusText.setText("جارٍ تجهيز محركات استخراج الفيديو…");
             }
         });
         Thread extractor = new Thread(() -> {
@@ -936,12 +954,16 @@ public class MainActivity extends Activity {
             boolean resolvedByCobalt = false;
             HttpURLConnection connection = null;
             try {
+                extractionAttemptCount = 1;
+                extractionStatus = "محاولة محرك Cobalt (إذا كان مضبوطًا)";
                 resolved = resolveWithConfiguredCobalt(pageUrl);
                 resolvedByCobalt = resolved != null;
             } catch (Exception e) {
                 Log.w(TAG, "Configured Cobalt resolver failed; falling back to page metadata", e);
             }
             if (resolved == null) try {
+                extractionAttemptCount = 2;
+                extractionStatus = "محاولة استخراج بيانات صفحة الفيديو";
                 URL url = new URL(pageUrl);
                 connection = (HttpURLConnection) url.openConnection();
                 connection.setInstanceFollowRedirects(true);
@@ -982,6 +1004,8 @@ public class MainActivity extends Activity {
 
             final String directUrl = resolved;
             final boolean cobaltResult = resolvedByCobalt;
+            extractionInProgress = false;
+            extractionStatus = directUrl != null ? "resolved" : "web_fallback";
             runOnUiThread(() -> {
                 if (directUrl != null && (isDirectStreamUrl(directUrl) || cobaltResult)) {
                     if (receiverStatusText != null) {
