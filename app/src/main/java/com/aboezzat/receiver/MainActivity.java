@@ -1403,39 +1403,21 @@ public class MainActivity extends Activity {
     }
 
     private void openYouTubeInTvApp(String videoUrl) {
-        String[] preferredPackages = {
-                "com.liskovsoft.smarttubetv.beta",
-                "com.liskovsoft.smarttubetv",
-                "com.google.android.youtube.tv",
-                "com.google.android.youtube"
-        };
-        for (String packageName : preferredPackages) {
-            android.content.Intent intent = new android.content.Intent(
-                    android.content.Intent.ACTION_VIEW, Uri.parse(videoUrl));
-            intent.setPackage(packageName);
-            intent.addFlags(android.content.Intent.FLAG_ACTIVITY_CLEAR_TOP);
-            try {
-                startActivity(intent);
-                Toast.makeText(this, "جاري فتح فيديو YouTube في تطبيق الشاشة المتوافق…",
-                        Toast.LENGTH_LONG).show();
-                return;
-            } catch (android.content.ActivityNotFoundException ignored) {
-                // Try the next known YouTube-compatible TV app.
-            } catch (Exception e) {
-                Log.w(TAG, "Could not open YouTube in " + packageName, e);
-            }
-        }
-
-        // No known package accepted the link: let the user choose an installed handler.
+        // Let Android itself decide which installed app can handle this YouTube URL.
+        // Do not force SmartTube/YouTube packages or display an app picker implemented by Receiver.
         try {
-            android.content.Intent chooserTarget = new android.content.Intent(
+            android.content.Intent target = new android.content.Intent(
                     android.content.Intent.ACTION_VIEW, Uri.parse(videoUrl));
-            startActivity(android.content.Intent.createChooser(
-                    chooserTarget, "اختار تطبيق YouTube على الشاشة"));
+            target.addCategory(android.content.Intent.CATEGORY_BROWSABLE);
+            target.addFlags(android.content.Intent.FLAG_ACTIVITY_CLEAR_TOP);
+
+            android.content.Intent systemChooser = android.content.Intent.createChooser(
+                    target, "اختيار تطبيق لتشغيل YouTube");
+            startActivity(systemChooser);
         } catch (Exception e) {
-            Log.w(TAG, "No compatible app available for YouTube link", e);
+            Log.w(TAG, "Android could not show the system app chooser for YouTube", e);
             Toast.makeText(this,
-                    "مش لاقي تطبيق YouTube متوافق على الشاشة. ثبّت SmartTube أو YouTube TV وجرب تاني.",
+                    "تعذّر فتح قائمة تطبيقات أندرويد. تأكد من وجود تطبيق يدعم رابط YouTube.",
                     Toast.LENGTH_LONG).show();
         }
     }
