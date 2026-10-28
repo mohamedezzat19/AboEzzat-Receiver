@@ -937,7 +937,11 @@ public class MainActivity extends Activity {
                     if (receiverStatusText != null) {
                         receiverStatusText.setText("تم استخراج الفيديو المباشر، جارٍ التشغيل");
                     }
-                    queueIncomingMedia(directUrl, null);
+                    // The resolver may have verified a media response by Content-Type even
+                    // when its signed URL has no recognizable file extension. Play it
+                    // directly so queueIncomingMedia does not mistake it for a page URL
+                    // and start extraction again.
+                    playContent(directUrl, null);
                 } else {
                     if (receiverStatusText != null) {
                         receiverStatusText.setText("تعذّر استخراج رابط مباشر من هذا الرابط");
