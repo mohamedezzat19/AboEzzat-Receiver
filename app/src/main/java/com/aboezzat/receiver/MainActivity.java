@@ -90,6 +90,7 @@ public class MainActivity extends Activity {
     private final java.util.ArrayList<String> playbackQueue = new java.util.ArrayList<>();
     private int playbackQueueIndex = -1;
     private WebView fallbackWebView;
+    private volatile boolean fallbackStreamCaptured = false;
     private final Handler backPressHandler = new Handler(Looper.getMainLooper());
     private boolean backPressedOnceInBrowser = false;
     private final Runnable resetBrowserBackPress = () -> backPressedOnceInBrowser = false;
@@ -1227,6 +1228,7 @@ public class MainActivity extends Activity {
             Toast.makeText(this, "الرابط غير صالح للتشغيل", Toast.LENGTH_LONG).show();
             return;
         }
+        fallbackStreamCaptured = false;
         stopCurrentPlayer();
         hideImage();
         welcomeBackground.setVisibility(View.GONE);
@@ -1257,7 +1259,33 @@ public class MainActivity extends Activity {
             if (android.os.Build.VERSION.SDK_INT >= 21) {
                 CookieManager.getInstance().setAcceptThirdPartyCookies(fallbackWebView, true);
             }
-            fallbackWebView.setWebViewClient(new WebViewClient());
+            fallbackWebView.setWebViewClient(new WebViewClient() {
+                @Override
+                public android.webkit.WebResourceResponse shouldInterceptRequest(
+                        WebView view, android.webkit.WebResourceRequest request) {
+                    String candidate = request == null || request.getUrl() == null
+                            ? "" : request.getUrl().toString();
+                    // A page can expose its real media only after JavaScript/player
+                    // startup. Watch subresource requests as well as static page HTML.
+                    // Never intercept or replay the page URL itself.
+                    if (!candidate.isEmpty() && !candidate.equals(request.getUrl().toString())
+                            && isDirectStreamUrl(candidate) && !isImageUrl(candidate)
+                            && !candidate.equals(view.getUrl()) && !fallbackStreamCaptured) {
+                        fallbackStreamCaptured = true;
+                        runOnUiThread(() -> {
+                            if (fallbackWebView != null
+                                    && fallbackWebView.getVisibility() == View.VISIBLE
+                                    && isDirectStreamUrl(candidate)) {
+                                Log.i(TAG, "Captured public media request from fallback page");
+                                extractionStatus = "stream_captured";
+                                persistExtractionState();
+                                playContent(candidate, null);
+                            }
+                        });
+                    }
+                    return super.shouldInterceptRequest(view, request);
+                }
+            });
             fallbackWebView.setWebChromeClient(new WebChromeClient() {
                 @Override
                 public void onShowCustomView(View view, CustomViewCallback callback) {
