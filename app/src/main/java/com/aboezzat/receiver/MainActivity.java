@@ -110,8 +110,11 @@ public class MainActivity extends Activity {
     // Persist the position against the URI actually loaded in ExoPlayer. The
     // mutable currentPlaybackUrl can already point at the next request.
     private void savePlaybackPositionLocked() {
-        if (player == null || playbackPrefs == null || player.getCurrentMediaItem() == null
+        if (player == null || playbackPrefs == null
+                || player.getPlaybackState() == Player.STATE_ENDED
+                || player.getCurrentMediaItem() == null
                 || player.getCurrentMediaItem().localConfiguration == null) {
+            // Do not recreate a resume point after STATE_ENDED cleared it.
             return;
         }
         String itemUrl = player.getCurrentMediaItem().localConfiguration.uri.toString();
