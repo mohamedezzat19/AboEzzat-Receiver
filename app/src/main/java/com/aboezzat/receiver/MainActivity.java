@@ -1250,6 +1250,27 @@ public class MainActivity extends Activity {
 
     // natively play media URLs; resolve page URLs to a direct stream instead of opening another app.
     private void queueIncomingMedia(String mediaUrl, String audioUrl) {
+        // The receiver is reachable on the local network, so accept only remote HTTP(S)
+        // URLs from incoming requests; never pass file/content/javascript or other schemes
+        // to ExoPlayer or the social-video resolver.
+        String originalMediaUrl = mediaUrl;
+        String originalAudioUrl = audioUrl;
+        if (mediaUrl != null && !mediaUrl.trim().isEmpty() && !isHttpUrl(mediaUrl)) {
+            mediaUrl = null;
+        }
+        if (audioUrl != null && !audioUrl.trim().isEmpty() && !isHttpUrl(audioUrl)) {
+            audioUrl = null;
+        }
+        boolean hasMedia = mediaUrl != null && !mediaUrl.trim().isEmpty();
+        boolean hasAudio = audioUrl != null && !audioUrl.trim().isEmpty();
+        if (!hasMedia && !hasAudio) {
+            if ((originalMediaUrl != null && !originalMediaUrl.trim().isEmpty())
+                    || (originalAudioUrl != null && !originalAudioUrl.trim().isEmpty())) {
+                Toast.makeText(this, "رابط غير مدعوم؛ استخدم رابط HTTP أو HTTPS صالحًا.", Toast.LENGTH_LONG).show();
+            }
+            return;
+        }
+
         if (mediaUrl != null && isDirectStreamUrl(mediaUrl)) {
             extractionInProgress = false;
             extractionAttemptCount = 0;
