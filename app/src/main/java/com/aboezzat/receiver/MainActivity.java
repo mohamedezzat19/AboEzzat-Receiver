@@ -1294,6 +1294,26 @@ public class MainActivity extends Activity {
                     }
                     return super.shouldInterceptRequest(view, request);
                 }
+
+                @Override
+                public void onPageFinished(WebView view, String url) {
+                    super.onPageFinished(view, url);
+                    // Some sites ship desktop-only layouts without a viewport meta tag.
+                    // Apply a conservative TV fit without changing the page's login/session.
+                    if (view != null && url != null && url.equals(fallbackPageUrl)) {
+                        String fitScript = "(function(){try{"
+                                + "var h=document.head||document.getElementsByTagName('head')[0];"
+                                + "if(h&&!document.querySelector('meta[name=viewport]')){"
+                                + "var m=document.createElement('meta');m.name='viewport';"
+                                + "m.content='width=device-width,initial-scale=1,maximum-scale=2';h.appendChild(m);}"
+                                + "document.documentElement.style.maxWidth='100vw';"
+                                + "document.documentElement.style.overflowX='hidden';"
+                                + "if(document.body){document.body.style.maxWidth='100vw';"
+                                + "document.body.style.overflowX='hidden';}"
+                                + "}catch(e){}})();";
+                        view.evaluateJavascript(fitScript, null);
+                    }
+                }
             });
             fallbackWebView.setWebChromeClient(new WebChromeClient() {
                 @Override
