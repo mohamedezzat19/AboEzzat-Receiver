@@ -179,6 +179,7 @@ public class ReceiverServerService extends Service {
         String mediaUrl = null;
         String audioUrl = null;
         String command = null;
+        boolean invalidMediaUrl = false;
         try (Socket socket = client) {
             socket.setSoTimeout(5000);
             BufferedReader reader = new BufferedReader(
@@ -205,7 +206,7 @@ public class ReceiverServerService extends Service {
 
             // The local HTTP endpoint accepts network URLs only. Reject malformed or
             // non-HTTP schemes before saving a request or asking the UI to play it.
-            boolean invalidMediaUrl = (mediaUrl != null && !mediaUrl.trim().isEmpty()
+            invalidMediaUrl = (mediaUrl != null && !mediaUrl.trim().isEmpty()
                     && !isHttpUrl(mediaUrl))
                     || (audioUrl != null && !audioUrl.trim().isEmpty()
                     && !isHttpUrl(audioUrl));
