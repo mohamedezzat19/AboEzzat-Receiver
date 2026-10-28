@@ -17,6 +17,12 @@ import android.net.LinkProperties;
 import android.net.Network;
 import android.view.Gravity;
 import android.view.View;
+import android.view.ViewGroup;
+import android.webkit.WebView;
+import android.webkit.WebViewClient;
+import android.webkit.WebChromeClient;
+import android.webkit.WebSettings;
+import android.webkit.CookieManager;
 import android.view.Window;
 import android.view.WindowManager;
 import android.util.TypedValue;
@@ -76,6 +82,9 @@ public class MainActivity extends Activity {
     private TextView receiverStatusText;
 
     private PlayerView playerView;
+    private WebView fallbackWebView;
+    private View webFullscreenView;
+    private WebChromeClient.CustomViewCallback webFullscreenCallback;
     private ImageView imageView;
     private ProgressBar imageLoading;
     private ExoPlayer player;
@@ -985,16 +994,111 @@ public class MainActivity extends Activity {
                     playContent(directUrl, null);
                 } else {
                     if (receiverStatusText != null) {
-                        receiverStatusText.setText("تعذّر استخراج رابط مباشر من هذا الرابط");
+                        receiverStatusText.setText("تعذّر الرابط المباشر؛ تجربة مشغّل الويب");
                     }
-                    Toast.makeText(this,
-                            "المنصة لم تعرض رابط فيديو مباشر قابلًا للتشغيل. قد يتطلب الفيديو جلسة دخول أو رابط بث موقّع.",
-                            Toast.LENGTH_LONG).show();
+                    // Fall back to a clean fullscreen WebView rather than abandoning
+                    // the cast when a platform page does not expose a direct stream.
+                    showWebFallback(pageUrl);
                 }
             });
         }, "DirectMediaExtractor");
         extractor.setDaemon(true);
         extractor.start();
+    }
+
+
+    // Last-resort browser playback: show the page without browser chrome and honor
+    // HTML5 video fullscreen requests. Existing ExoPlayer remains the first choice.
+    private void showWebFallback(String pageUrl) {
+        if (!isHttpUrl(pageUrl)) {
+            showWelcome();
+            Toast.makeText(this, "الرابط غير صالح للتشغيل", Toast.LENGTH_LONG).show();
+            return;
+        }
+        stopCurrentPlayer();
+        hideImage();
+        welcomeBackground.setVisibility(View.GONE);
+        welcomeScreen.setVisibility(View.GONE);
+        connectionCard.setVisibility(View.GONE);
+        playerView.setVisibility(View.GONE);
+
+        if (fallbackWebView == null) {
+            fallbackWebView = new WebView(this);
+            fallbackWebView.setBackgroundColor(Color.BLACK);
+            WebSettings settings = fallbackWebView.getSettings();
+            settings.setJavaScriptEnabled(true);
+            settings.setDomStorageEnabled(true);
+            settings.setMediaPlaybackRequiresUserGesture(false);
+            settings.setLoadsImagesAutomatically(true);
+            settings.setJavaScriptCanOpenWindowsAutomatically(false);
+            settings.setSupportMultipleWindows(false);
+            CookieManager.getInstance().setAcceptCookie(true);
+            if (android.os.Build.VERSION.SDK_INT >= 21) {
+                CookieManager.getInstance().setAcceptThirdPartyCookies(fallbackWebView, true);
+            }
+            fallbackWebView.setWebViewClient(new WebViewClient());
+            fallbackWebView.setWebChromeClient(new WebChromeClient() {
+                @Override
+                public void onShowCustomView(View view, CustomViewCallback callback) {
+                    if (webFullscreenView != null) {
+                        callback.onCustomViewHidden();
+                        return;
+                    }
+                    webFullscreenView = view;
+                    webFullscreenCallback = callback;
+                    fallbackWebView.setVisibility(View.GONE);
+                    root.addView(webFullscreenView, new FrameLayout.LayoutParams(
+                            FrameLayout.LayoutParams.MATCH_PARENT,
+                            FrameLayout.LayoutParams.MATCH_PARENT, Gravity.CENTER));
+                    getWindow().addFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN);
+                    getWindow().getDecorView().setSystemUiVisibility(
+                            View.SYSTEM_UI_FLAG_FULLSCREEN
+                                    | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
+                                    | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
+                                    | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
+                                    | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
+                                    | View.SYSTEM_UI_FLAG_LAYOUT_STABLE);
+                }
+
+                @Override
+                public void onHideCustomView() {
+                    if (webFullscreenView == null) return;
+                    root.removeView(webFullscreenView);
+                    webFullscreenView = null;
+                    if (webFullscreenCallback != null) {
+                        webFullscreenCallback.onCustomViewHidden();
+                        webFullscreenCallback = null;
+                    }
+                    getWindow().clearFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN);
+                    getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_VISIBLE);
+                    if (fallbackWebView != null) fallbackWebView.setVisibility(View.VISIBLE);
+                }
+            });
+            root.addView(fallbackWebView, new FrameLayout.LayoutParams(
+                    FrameLayout.LayoutParams.MATCH_PARENT,
+                    FrameLayout.LayoutParams.MATCH_PARENT));
+        } else if (fallbackWebView.getParent() == null) {
+            root.addView(fallbackWebView, new FrameLayout.LayoutParams(
+                    FrameLayout.LayoutParams.MATCH_PARENT,
+                    FrameLayout.LayoutParams.MATCH_PARENT));
+        }
+        fallbackWebView.setVisibility(View.VISIBLE);
+        fallbackWebView.loadUrl(pageUrl);
+        Toast.makeText(this, "تعذّر استخراج رابط مباشر؛ جارٍ تجربة تشغيل صفحة الفيديو", Toast.LENGTH_LONG).show();
+    }
+
+    private boolean closeWebFullscreen() {
+        if (webFullscreenView == null) return false;
+        if (webFullscreenCallback != null) {
+            webFullscreenCallback.onCustomViewHidden();
+            webFullscreenCallback = null;
+        }
+        root.removeView(webFullscreenView);
+        webFullscreenView = null;
+        getWindow().clearFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN);
+        getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_VISIBLE);
+        if (fallbackWebView != null) fallbackWebView.setVisibility(View.VISIBLE);
+        return true;
     }
 
     private boolean isHttpUrl(String value) {
@@ -1233,6 +1337,8 @@ public class MainActivity extends Activity {
 
         hideImage();
 
+        if (fallbackWebView != null) fallbackWebView.setVisibility(View.GONE);
+        if (webFullscreenView != null) closeWebFullscreen();
         welcomeBackground.setVisibility(View.GONE);
         welcomeScreen.setVisibility(View.GONE);
         connectionCard.setVisibility(View.GONE);
@@ -1372,7 +1478,11 @@ public class MainActivity extends Activity {
 
     private void showWelcome() {
         hideImage();
-
+        if (webFullscreenView != null) closeWebFullscreen();
+        if (fallbackWebView != null) {
+            fallbackWebView.stopLoading();
+            fallbackWebView.setVisibility(View.GONE);
+        }
         playerView.setVisibility(View.GONE);
         welcomeScreen.setVisibility(View.GONE);
         welcomeBackground.setVisibility(View.VISIBLE);
@@ -1383,8 +1493,13 @@ public class MainActivity extends Activity {
 
     @Override
     public void onBackPressed() {
+        if (closeWebFullscreen()) return;
+        if (fallbackWebView != null && fallbackWebView.getVisibility() == View.VISIBLE
+                && fallbackWebView.canGoBack()) {
+            fallbackWebView.goBack();
+            return;
+        }
         showWelcome();
-        super.onBackPressed();
     }
 
     @Override
@@ -1404,6 +1519,11 @@ public class MainActivity extends Activity {
             Log.w(TAG, "Server close error", e);
         }
 
+        if (fallbackWebView != null) {
+            fallbackWebView.stopLoading();
+            fallbackWebView.destroy();
+            fallbackWebView = null;
+        }
         synchronized (playerLock) {
             if (player != null) {
                 player.release();
