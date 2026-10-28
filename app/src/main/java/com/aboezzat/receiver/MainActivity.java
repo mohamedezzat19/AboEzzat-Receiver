@@ -792,7 +792,7 @@ public class MainActivity extends Activity {
             String lower = value.toLowerCase(Locale.ROOT);
             return lowerPath.endsWith(".mp4") || lowerPath.endsWith(".m4v")
                     || lowerPath.endsWith(".webm") || lowerPath.endsWith(".mov")
-                    || lowerPath.endsWith(".m3u8") || lowerPath.endsWith(".mpd")
+                    || lowerPath.endsWith(".flv") || lowerPath.endsWith(".m3u8") || lowerPath.endsWith(".mpd")
                     || lower.contains("mime=video") || lower.contains("type=video")
                     || lower.contains("video_playback") || lower.contains("/videoplayback")
                     || lower.contains("contenttype=video");
@@ -854,7 +854,9 @@ public class MainActivity extends Activity {
                 "playbackUrl", "playback_url", "hls_url", "hlsUrl",
                 "playUrl", "play_url", "stream_url", "streamUrl",
                 "hls_pull_url", "hlsPullUrl", "flv_pull_url", "flvPullUrl",
-                "pull_url", "pullUrl", "liveUrl", "live_url"
+                "pull_url", "pullUrl", "liveUrl", "live_url",
+                "flvUrl", "flv_url", "flvPullUrl", "flv_pull_url",
+                "hlsPullUrl", "hls_pull_url", "live_play_url", "livePlayUrl"
         };
         for (String field : fieldNames) {
             java.util.regex.Matcher matcher = java.util.regex.Pattern
@@ -907,7 +909,8 @@ public class MainActivity extends Activity {
                     if (type != null && (type.toLowerCase(Locale.ROOT).startsWith("video/")
                             || type.toLowerCase(Locale.ROOT).contains("application/vnd.apple.mpegurl")
                             || type.toLowerCase(Locale.ROOT).contains("application/x-mpegurl")
-                            || type.toLowerCase(Locale.ROOT).contains("application/dash+xml"))) {
+                            || type.toLowerCase(Locale.ROOT).contains("application/dash+xml")
+                            || type.toLowerCase(Locale.ROOT).contains("application/x-flv"))) {
                         resolved = connection.getURL().toString();
                     } else {
                         StringBuilder html = new StringBuilder();
