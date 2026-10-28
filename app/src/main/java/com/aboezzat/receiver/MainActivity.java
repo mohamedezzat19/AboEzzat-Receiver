@@ -408,13 +408,21 @@ public class MainActivity extends Activity {
                         if (endpoint.isEmpty()) {
                             getSharedPreferences("receiver_settings", MODE_PRIVATE).edit()
                                     .remove("cobalt_endpoint").apply();
-                        } else if (endpoint.startsWith("https://") || endpoint.startsWith("http://")) {
-                            if (!endpoint.endsWith("/")) endpoint += "/";
-                            getSharedPreferences("receiver_settings", MODE_PRIVATE).edit()
-                                    .putString("cobalt_endpoint", endpoint).apply();
-                            Toast.makeText(this, "تم حفظ عنوان المستخرج", Toast.LENGTH_SHORT).show();
                         } else {
-                            Toast.makeText(this, "العنوان يجب أن يبدأ بـ http:// أو https://", Toast.LENGTH_LONG).show();
+                            Uri endpointUri = Uri.parse(endpoint);
+                            String endpointScheme = endpointUri.getScheme();
+                            boolean validEndpoint = endpointUri.getHost() != null
+                                    && ("https".equalsIgnoreCase(endpointScheme)
+                                    || "http".equalsIgnoreCase(endpointScheme));
+                            if (validEndpoint) {
+                                // Preserve paths and query parameters exactly; appending a slash
+                                // after a query string can silently corrupt a configured API URL.
+                                getSharedPreferences("receiver_settings", MODE_PRIVATE).edit()
+                                        .putString("cobalt_endpoint", endpoint).apply();
+                                Toast.makeText(this, "تم حفظ عنوان المستخرج", Toast.LENGTH_SHORT).show();
+                            } else {
+                                Toast.makeText(this, "أدخل عنوانًا صالحًا يبدأ بـ http:// أو https:// ويحتوي على اسم مضيف", Toast.LENGTH_LONG).show();
+                            }
                         }
                     }).show();
             return true;
