@@ -1051,6 +1051,9 @@ public class MainActivity extends Activity {
             fallbackWebView = new WebView(this);
             fallbackWebView.setBackgroundColor(Color.BLACK);
             WebSettings settings = fallbackWebView.getSettings();
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                settings.setSafeBrowsingEnabled(true);
+            }
             settings.setJavaScriptEnabled(true);
             settings.setDomStorageEnabled(true);
             settings.setMediaPlaybackRequiresUserGesture(false);
