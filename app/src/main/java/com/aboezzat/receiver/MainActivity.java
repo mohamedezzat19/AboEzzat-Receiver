@@ -88,6 +88,9 @@ public class MainActivity extends Activity {
 
     private PlayerView playerView;
     private WebView fallbackWebView;
+    private final Handler backPressHandler = new Handler(Looper.getMainLooper());
+    private boolean backPressedOnceInBrowser = false;
+    private final Runnable resetBrowserBackPress = () -> backPressedOnceInBrowser = false;
     private View webFullscreenView;
     private WebChromeClient.CustomViewCallback webFullscreenCallback;
     private ImageView imageView;
@@ -1839,6 +1842,8 @@ public class MainActivity extends Activity {
     }
 
     private void showWelcome() {
+        // Returning home must stop playback, not merely hide the player UI.
+        stopCurrentPlayer();
         hideImage();
         if (webFullscreenView != null) closeWebFullscreen();
         if (fallbackWebView != null) {
@@ -1856,16 +1861,34 @@ public class MainActivity extends Activity {
     @Override
     public void onBackPressed() {
         if (closeWebFullscreen()) return;
-        if (fallbackWebView != null && fallbackWebView.getVisibility() == View.VISIBLE
-                && fallbackWebView.canGoBack()) {
-            fallbackWebView.goBack();
+
+        boolean browserVisible = fallbackWebView != null
+                && fallbackWebView.getVisibility() == View.VISIBLE;
+        if (browserVisible && backPressedOnceInBrowser) {
+            backPressHandler.removeCallbacks(resetBrowserBackPress);
+            backPressedOnceInBrowser = false;
+            showWelcome();
             return;
         }
+        if (browserVisible && fallbackWebView.canGoBack()) {
+            backPressedOnceInBrowser = true;
+            backPressHandler.removeCallbacks(resetBrowserBackPress);
+            backPressHandler.postDelayed(resetBrowserBackPress, 1800L);
+            fallbackWebView.goBack();
+            Toast.makeText(this, "اضغط رجوع مرة ثانية بسرعة للعودة للرئيسية", Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        // One Back from playback/image/browser-without-history returns to the app home
+        // and stops media or web loading so audio/video cannot continue behind the home UI.
+        backPressHandler.removeCallbacks(resetBrowserBackPress);
+        backPressedOnceInBrowser = false;
         showWelcome();
     }
 
     @Override
     protected void onDestroy() {
+        backPressHandler.removeCallbacks(resetBrowserBackPress);
         playbackProgressHandler.removeCallbacks(playbackProgressRunnable);
         synchronized (playerLock) {
             savePlaybackPositionLocked();
