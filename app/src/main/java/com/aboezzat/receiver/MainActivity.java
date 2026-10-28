@@ -1055,6 +1055,12 @@ public class MainActivity extends Activity {
                 settings.setSafeBrowsingEnabled(true);
             }
             settings.setJavaScriptEnabled(true);
+            settings.setAllowFileAccess(false);
+            settings.setAllowContentAccess(true);
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.JELLY_BEAN) {
+                settings.setAllowFileAccessFromFileURLs(false);
+                settings.setAllowUniversalAccessFromFileURLs(false);
+            }
             settings.setDomStorageEnabled(true);
             settings.setMediaPlaybackRequiresUserGesture(false);
             settings.setLoadsImagesAutomatically(true);
