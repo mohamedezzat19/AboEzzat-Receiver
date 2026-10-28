@@ -924,9 +924,11 @@ public class MainActivity extends Activity {
         });
         Thread extractor = new Thread(() -> {
             String resolved = null;
+            boolean resolvedByCobalt = false;
             HttpURLConnection connection = null;
             try {
                 resolved = resolveWithConfiguredCobalt(pageUrl);
+                resolvedByCobalt = resolved != null;
             } catch (Exception e) {
                 Log.w(TAG, "Configured Cobalt resolver failed; falling back to page metadata", e);
             }
@@ -970,8 +972,9 @@ public class MainActivity extends Activity {
             }
 
             final String directUrl = resolved;
+            final boolean cobaltResult = resolvedByCobalt;
             runOnUiThread(() -> {
-                if (directUrl != null && isDirectStreamUrl(directUrl)) {
+                if (directUrl != null && (isDirectStreamUrl(directUrl) || cobaltResult)) {
                     if (receiverStatusText != null) {
                         receiverStatusText.setText("تم استخراج الفيديو المباشر، جارٍ التشغيل");
                     }
