@@ -728,6 +728,9 @@ public class MainActivity extends Activity {
             Log.e(TAG, "Request error", e);
         }
 
+        if ("ping".equals(command)) {
+            return; // Identity probe only; do not send it to the playback remote.
+        }
         if (command != null && !command.trim().isEmpty()) {
             final String requestedCommand = command;
             runOnUiThread(() -> handleRemoteCommand(requestedCommand));
