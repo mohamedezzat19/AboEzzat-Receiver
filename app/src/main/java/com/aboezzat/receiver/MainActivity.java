@@ -1007,6 +1007,7 @@ public class MainActivity extends Activity {
         Thread extractor = new Thread(() -> {
             String resolved = null;
             boolean resolvedByCobalt = false;
+            boolean resolvedByContentType = false;
             HttpURLConnection connection = null;
             try {
                 extractionAttemptCount = 1;
@@ -1039,6 +1040,7 @@ public class MainActivity extends Activity {
                             || type.toLowerCase(Locale.ROOT).contains("application/dash+xml")
                             || type.toLowerCase(Locale.ROOT).contains("application/x-flv"))) {
                         resolved = connection.getURL().toString();
+                        resolvedByContentType = true;
                     } else {
                         StringBuilder html = new StringBuilder();
                         try (BufferedReader reader = new BufferedReader(
@@ -1060,11 +1062,12 @@ public class MainActivity extends Activity {
 
             final String directUrl = resolved;
             final boolean cobaltResult = resolvedByCobalt;
+            final boolean contentTypeResult = resolvedByContentType;
             extractionInProgress = false;
             extractionAttemptCount = directUrl != null ? extractionAttemptCount : 3;
             extractionStatus = directUrl != null ? "resolved" : "web_fallback";
             runOnUiThread(() -> {
-                if (directUrl != null && (isDirectStreamUrl(directUrl) || cobaltResult)) {
+                if (directUrl != null && (isDirectStreamUrl(directUrl) || cobaltResult || contentTypeResult)) {
                     if (receiverStatusText != null) {
                         receiverStatusText.setText("تم استخراج الفيديو المباشر، جارٍ التشغيل");
                     }
