@@ -236,6 +236,17 @@ public class ReceiverServerService extends Service {
                 && (audioUrl == null || audioUrl.trim().isEmpty())
                 && (command == null || command.trim().isEmpty())) return;
 
+        // Keep the latest incoming media request in case Android blocks starting
+        // an Activity from the background. MainActivity consumes and clears it later.
+        if ((mediaUrl != null && !mediaUrl.trim().isEmpty())
+                || (audioUrl != null && !audioUrl.trim().isEmpty())) {
+            getSharedPreferences("AboEzzatReceiverPending", MODE_PRIVATE).edit()
+                    .putString("url", mediaUrl == null ? "" : mediaUrl)
+                    .putString("audio", audioUrl == null ? "" : audioUrl)
+                    .putLong("received_at", System.currentTimeMillis())
+                    .apply();
+        }
+
         Intent request = new Intent(this, MainActivity.class);
         request.setAction(ACTION_SERVER_REQUEST);
         request.putExtra(EXTRA_URL, mediaUrl);
