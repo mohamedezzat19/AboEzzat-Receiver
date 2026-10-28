@@ -897,9 +897,17 @@ public class MainActivity extends Activity {
             return lowerPath.endsWith(".mp4") || lowerPath.endsWith(".m4v")
                     || lowerPath.endsWith(".webm") || lowerPath.endsWith(".mov")
                     || lowerPath.endsWith(".flv") || lowerPath.endsWith(".m3u8") || lowerPath.endsWith(".mpd")
+                    || lowerPath.endsWith(".mp3") || lowerPath.endsWith(".m4a")
+                    || lowerPath.endsWith(".aac") || lowerPath.endsWith(".ogg")
+                    || lowerPath.endsWith(".oga") || lowerPath.endsWith(".opus")
+                    || lowerPath.endsWith(".wav") || lowerPath.endsWith(".flac")
+                    || lowerPath.endsWith(".mid") || lowerPath.endsWith(".midi")
                     || lower.contains("mime=video") || lower.contains("type=video")
                     || lower.contains("video_playback") || lower.contains("/videoplayback")
-                    || lower.contains("contenttype=video");
+                    || lower.contains("contenttype=video")
+                    || lower.contains("mime=audio") || lower.contains("type=audio")
+                    || lower.contains("audio_playback") || lower.contains("/audioplayback")
+                    || lower.contains("contenttype=audio");
         } catch (Exception ignored) {
             return false;
         }
@@ -974,7 +982,7 @@ public class MainActivity extends Activity {
         }
 
         java.util.regex.Matcher rawMedia = java.util.regex.Pattern
-                .compile("(?is)(https?:\\\\?/\\\\?/[^\\s'\\\"><]+?\\.(?:mp4|m4v|webm|mov|m3u8|mpd)(?:\\?[^\\s'\\\"><]*)?)")
+                .compile("(?is)(https?:\\\\?/\\\\?/[^\\s'\\\"><]+?\\.(?:mp4|m4v|webm|mov|m3u8|mpd|mp3|m4a|aac|ogg|oga|opus|wav|flac)(?:\\?[^\\s'\\\"><]*)?)")
                 .matcher(html);
         while (rawMedia.find()) {
             String candidate = cleanExtractedUrl(rawMedia.group(1));
@@ -1025,6 +1033,7 @@ public class MainActivity extends Activity {
                 if (status >= 200 && status < 400) {
                     String type = connection.getContentType();
                     if (type != null && (type.toLowerCase(Locale.ROOT).startsWith("video/")
+                            || type.toLowerCase(Locale.ROOT).startsWith("audio/")
                             || type.toLowerCase(Locale.ROOT).contains("application/vnd.apple.mpegurl")
                             || type.toLowerCase(Locale.ROOT).contains("application/x-mpegurl")
                             || type.toLowerCase(Locale.ROOT).contains("application/dash+xml")
