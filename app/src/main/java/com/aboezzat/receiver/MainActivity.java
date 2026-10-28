@@ -113,6 +113,45 @@ public class MainActivity extends Activity {
 
         buildScreen();
         startReceiver();
+        handleExternalIntent(getIntent());
+    }
+
+    @Override
+    protected void onNewIntent(android.content.Intent intent) {
+        super.onNewIntent(intent);
+        setIntent(intent);
+        handleExternalIntent(intent);
+    }
+
+    // Support web links shared directly to Receiver in addition to links sent over port 8081.
+    private void handleExternalIntent(android.content.Intent intent) {
+        if (intent == null) return;
+        String action = intent.getAction();
+        String url = null;
+
+        if (android.content.Intent.ACTION_VIEW.equals(action)) {
+            Uri data = intent.getData();
+            if (data != null) {
+                String scheme = data.getScheme();
+                if ("http".equalsIgnoreCase(scheme) || "https".equalsIgnoreCase(scheme)) {
+                    url = data.toString();
+                }
+            }
+        } else if (android.content.Intent.ACTION_SEND.equals(action)) {
+            String sharedText = intent.getStringExtra(android.content.Intent.EXTRA_TEXT);
+            if (sharedText != null) {
+                java.util.regex.Matcher matcher = java.util.regex.Pattern
+                        .compile("(?i)https?://[^\\\\s<>\\\\\"']+")
+                        .matcher(sharedText);
+                if (matcher.find()) {
+                    url = matcher.group().replaceAll("[),.]+$", "");
+                }
+            }
+        }
+
+        if (url != null && !url.trim().isEmpty()) {
+            queueIncomingMedia(url, null);
+        }
     }
 
     @Override
