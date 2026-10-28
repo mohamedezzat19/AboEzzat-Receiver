@@ -760,6 +760,76 @@ public class MainActivity extends Activity {
         }
     }
 
+    private boolean isSocialVideoUrl(String value) {
+        if (value == null || value.trim().isEmpty() || isYouTubeUrl(value)) return false;
+        try {
+            String host = Uri.parse(value.trim()).getHost();
+            if (host == null) return false;
+            host = host.toLowerCase(Locale.ROOT);
+            return host.equals("tiktok.com") || host.endsWith(".tiktok.com")
+                    || host.equals("instagram.com") || host.endsWith(".instagram.com")
+                    || host.equals("threads.net") || host.endsWith(".threads.net")
+                    || host.equals("threads.com") || host.endsWith(".threads.com")
+                    || host.equals("facebook.com") || host.endsWith(".facebook.com")
+                    || host.equals("fb.watch") || host.endsWith(".fb.watch")
+                    || host.equals("fb.me") || host.endsWith(".fb.me");
+        } catch (Exception ignored) {
+            return false;
+        }
+    }
+
+    // Open shared social video links in the matching TV/mobile app when installed.
+    private boolean launchSocialVideo(String url) {
+        String host;
+        try {
+            host = Uri.parse(url).getHost();
+            if (host == null) return false;
+            host = host.toLowerCase(Locale.ROOT);
+        } catch (Exception ignored) {
+            return false;
+        }
+
+        String[] packages;
+        if (host.contains("tiktok")) {
+            packages = new String[]{"com.zhiliaoapp.musically", "com.ss.android.ugc.trill"};
+        } else if (host.contains("instagram")) {
+            packages = new String[]{"com.instagram.android"};
+        } else if (host.contains("threads")) {
+            packages = new String[]{"com.instagram.barcelona", "com.instagram.android"};
+        } else {
+            packages = new String[]{"com.facebook.katana", "com.facebook.lite"};
+        }
+
+        for (String packageName : packages) {
+            try {
+                android.content.Intent open = new android.content.Intent(
+                        android.content.Intent.ACTION_VIEW, Uri.parse(url));
+                open.setPackage(packageName);
+                open.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK);
+                startActivity(open);
+                if (receiverStatusText != null) {
+                    receiverStatusText.setText("تم فتح الفيديو في تطبيق المنصة على الشاشة");
+                }
+                return true;
+            } catch (Exception ignored) {
+                // Continue to the next installed platform app.
+            }
+        }
+
+        try {
+            android.content.Intent open = new android.content.Intent(
+                    android.content.Intent.ACTION_VIEW, Uri.parse(url));
+            open.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK);
+            startActivity(open);
+            if (receiverStatusText != null) {
+                receiverStatusText.setText("تم فتح رابط الفيديو في التطبيق المتاح على الشاشة");
+            }
+            return true;
+        } catch (Exception ignored) {
+            return false;
+        }
+    }
+
     // Prefer SmartTube/Smart YouTube TV on the television for YouTube URLs.
     private boolean launchSmartYouTube(String url) {
         String[] packages = new String[] {
@@ -800,6 +870,15 @@ public class MainActivity extends Activity {
 
     // ننتظر لحظة قصيرة ليلتقط التطبيق الرابط الثاني إذا أُرسل فورًا بعد الأول.
     private void queueIncomingMedia(String mediaUrl, String audioUrl) {
+        if (mediaUrl != null && isSocialVideoUrl(mediaUrl)) {
+            if (pendingPlayback != null) {
+                mediaHandler.removeCallbacks(pendingPlayback);
+                pendingPlayback = null;
+            }
+            pendingVisualUrl = null;
+            pendingAudioUrl = null;
+            if (launchSocialVideo(mediaUrl)) return;
+        }
         if (mediaUrl != null && isYouTubeUrl(mediaUrl)) {
             if (pendingPlayback != null) {
                 mediaHandler.removeCallbacks(pendingPlayback);
