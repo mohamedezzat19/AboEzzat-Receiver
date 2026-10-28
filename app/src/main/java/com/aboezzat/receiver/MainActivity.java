@@ -1176,14 +1176,15 @@ public class MainActivity extends Activity {
                     // and start extraction again.
                     playContent(directUrl, null);
                 } else {
+                    // Direct extraction can fail for authenticated/social pages or DRM-backed streams.
+                    // Keep direct ExoPlayer playback as first choice, but do not leave the user at
+                    // the welcome screen: try the page's own HTML5 player on the TV as a fallback.
                     if (receiverStatusText != null) {
-                        receiverStatusText.setText("لم يصل رابط مباشر قابل للتشغيل");
+                        receiverStatusText.setText("تعذّر استخراج رابط مباشر؛ جاري فتح مشغّل الموقع على الشاشة");
                     }
-                    // Receiver is a native playback endpoint: never open a platform page in WebView.
-                    // Share should extract the stream in its authenticated browser and send the direct URL.
-                    showWelcome();
+                    showWebFallback(pageUrl);
                     Toast.makeText(MainActivity.this,
-                            "ماوصلش رابط فيديو مباشر من Share. افتح الفيديو في Share وانتظر التقاط الرابط ثم أرسله للشاشة.",
+                            "الموقع لم يكشف رابط بث مباشر؛ بجرب تشغيل الفيديو من صفحة الموقع على الشاشة.",
                             Toast.LENGTH_LONG).show();
                 }
             });
