@@ -1292,6 +1292,16 @@ public class MainActivity extends Activity {
         if (audioUrl != null && !audioUrl.trim().isEmpty() && !isHttpUrl(audioUrl)) {
             audioUrl = null;
         }
+        // YouTube page links should be handed to the TV's YouTube-compatible app,
+        // not treated as a media URL for ExoPlayer. Direct raw stream URLs still play below.
+        if (mediaUrl != null && isYouTubeUrl(mediaUrl)) {
+            if (audioUrl != null && !audioUrl.trim().isEmpty()) {
+                Log.i(TAG, "YouTube page link takes precedence over separate audio URL");
+            }
+            openYouTubeInTvApp(mediaUrl);
+            return;
+        }
+
         boolean hasMedia = mediaUrl != null && !mediaUrl.trim().isEmpty();
         boolean hasAudio = audioUrl != null && !audioUrl.trim().isEmpty();
         if (!hasMedia && !hasAudio) {
@@ -1333,6 +1343,44 @@ public class MainActivity extends Activity {
             playContent(visual, audio);
         };
         mediaHandler.postDelayed(pendingPlayback, 150);
+    }
+
+    private void openYouTubeInTvApp(String videoUrl) {
+        String[] preferredPackages = {
+                "com.liskovsoft.smarttubetv.beta",
+                "com.liskovsoft.smarttubetv",
+                "com.google.android.youtube.tv",
+                "com.google.android.youtube"
+        };
+        for (String packageName : preferredPackages) {
+            android.content.Intent intent = new android.content.Intent(
+                    android.content.Intent.ACTION_VIEW, Uri.parse(videoUrl));
+            intent.setPackage(packageName);
+            intent.addFlags(android.content.Intent.FLAG_ACTIVITY_CLEAR_TOP);
+            try {
+                startActivity(intent);
+                Toast.makeText(this, "جاري فتح فيديو YouTube في تطبيق الشاشة المتوافق…",
+                        Toast.LENGTH_LONG).show();
+                return;
+            } catch (android.content.ActivityNotFoundException ignored) {
+                // Try the next known YouTube-compatible TV app.
+            } catch (Exception e) {
+                Log.w(TAG, "Could not open YouTube in " + packageName, e);
+            }
+        }
+
+        // No known package accepted the link: let the user choose an installed handler.
+        try {
+            android.content.Intent chooserTarget = new android.content.Intent(
+                    android.content.Intent.ACTION_VIEW, Uri.parse(videoUrl));
+            startActivity(android.content.Intent.createChooser(
+                    chooserTarget, "اختار تطبيق YouTube على الشاشة"));
+        } catch (Exception e) {
+            Log.w(TAG, "No compatible app available for YouTube link", e);
+            Toast.makeText(this,
+                    "مش لاقي تطبيق YouTube متوافق على الشاشة. ثبّت SmartTube أو YouTube TV وجرب تاني.",
+                    Toast.LENGTH_LONG).show();
+        }
     }
 
     private boolean isImageUrl(String url) {
