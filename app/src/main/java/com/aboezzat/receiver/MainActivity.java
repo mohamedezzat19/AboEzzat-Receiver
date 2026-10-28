@@ -141,7 +141,7 @@ public class MainActivity extends Activity {
             String sharedText = intent.getStringExtra(android.content.Intent.EXTRA_TEXT);
             if (sharedText != null) {
                 java.util.regex.Matcher matcher = java.util.regex.Pattern
-                        .compile("(?i)https?://[^\\\\s<>\\\\\"']+")
+                        .compile("(?i)https?://\\S+")
                         .matcher(sharedText);
                 if (matcher.find()) {
                     url = matcher.group().replaceAll("[),.]+$", "");
