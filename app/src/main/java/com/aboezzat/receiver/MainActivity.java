@@ -188,13 +188,19 @@ public class MainActivity extends Activity {
                 }
             }
         } else if (android.content.Intent.ACTION_SEND.equals(action)) {
-            String sharedText = intent.getStringExtra(android.content.Intent.EXTRA_TEXT);
+            CharSequence sharedText = intent.getCharSequenceExtra(android.content.Intent.EXTRA_TEXT);
             if (sharedText != null) {
                 java.util.regex.Matcher matcher = java.util.regex.Pattern
-                        .compile("(?i)https?://\\S+")
+                        .compile("(?i)https?://[^\\s<>\\\"']+")
                         .matcher(sharedText);
                 if (matcher.find()) {
-                    url = matcher.group().replaceAll("[),.]+$", "");
+                    url = matcher.group().replaceAll("[),.?!;،؛؟\\]}]+$", "");
+                    Uri parsed = Uri.parse(url);
+                    String scheme = parsed.getScheme();
+                    if (parsed.getHost() == null
+                            || !("http".equalsIgnoreCase(scheme) || "https".equalsIgnoreCase(scheme))) {
+                        url = null;
+                    }
                 }
             }
         }
