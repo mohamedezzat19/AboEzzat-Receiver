@@ -1412,10 +1412,12 @@ public class MainActivity extends Activity {
     private void handleRemoteCommand(String command) {
         synchronized (playerLock) {
             if (player == null) {
-                // Keep the physical volume controls useful even when no media player is active.
+                // If playback is happening in another TV app (for example SmartTube),
+                // route media keys through Android's active media-session system.
+                // Volume is handled at system level as well, because ExoPlayer may not exist.
+                android.media.AudioManager audioManager =
+                        (android.media.AudioManager) getSystemService(AUDIO_SERVICE);
                 if ("volume_up".equals(command) || "volume_down".equals(command) || "mute".equals(command)) {
-                    android.media.AudioManager audioManager =
-                            (android.media.AudioManager) getSystemService(AUDIO_SERVICE);
                     if (audioManager != null) {
                         if ("volume_up".equals(command)) {
                             audioManager.adjustStreamVolume(android.media.AudioManager.STREAM_MUSIC,
@@ -1430,7 +1432,36 @@ public class MainActivity extends Activity {
                     }
                     return;
                 }
-                Log.w(TAG, "Remote command ignored; no active media: " + command);
+                int keyCode;
+                switch (command) {
+                    case "play_pause":
+                        keyCode = android.view.KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE;
+                        break;
+                    case "rw":
+                        keyCode = android.view.KeyEvent.KEYCODE_MEDIA_REWIND;
+                        break;
+                    case "ff":
+                        keyCode = android.view.KeyEvent.KEYCODE_MEDIA_FAST_FORWARD;
+                        break;
+                    case "stop":
+                        keyCode = android.view.KeyEvent.KEYCODE_MEDIA_STOP;
+                        break;
+                    default:
+                        Log.w(TAG, "Unsupported remote command with no local player: " + command);
+                        return;
+                }
+                if (audioManager != null) {
+                    long now = android.os.SystemClock.uptimeMillis();
+                    android.view.KeyEvent down = new android.view.KeyEvent(
+                            now, now, android.view.KeyEvent.ACTION_DOWN, keyCode, 0);
+                    android.view.KeyEvent up = new android.view.KeyEvent(
+                            now, now, android.view.KeyEvent.ACTION_UP, keyCode, 0);
+                    audioManager.dispatchMediaKeyEvent(down);
+                    audioManager.dispatchMediaKeyEvent(up);
+                    Log.i(TAG, "Dispatched remote media key to Android media session: " + command);
+                } else {
+                    Log.w(TAG, "No AudioManager available for remote command: " + command);
+                }
                 return;
             }
             switch (command) {
