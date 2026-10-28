@@ -203,7 +203,14 @@ public class ReceiverServerService extends Service {
                 }
             }
 
-            String body = "OK";
+            // The local HTTP endpoint accepts network URLs only. Reject malformed or
+            // non-HTTP schemes before saving a request or asking the UI to play it.
+            boolean invalidMediaUrl = (mediaUrl != null && !mediaUrl.trim().isEmpty()
+                    && !isHttpUrl(mediaUrl))
+                    || (audioUrl != null && !audioUrl.trim().isEmpty()
+                    && !isHttpUrl(audioUrl));
+            String body = invalidMediaUrl ? "Invalid media URL" : "OK";
+            String responseStatus = invalidMediaUrl ? "400 Bad Request" : "200 OK";
             String contentType = "text/plain; charset=utf-8";
             if ("status".equals(command)) {
                 SharedPreferences state = getSharedPreferences("AboEzzatReceiverState", MODE_PRIVATE);
@@ -215,7 +222,7 @@ public class ReceiverServerService extends Service {
                 contentType = "application/json; charset=utf-8";
             }
             byte[] bodyBytes = body.getBytes(StandardCharsets.UTF_8);
-            byte[] headers = ("HTTP/1.1 200 OK\r\n"
+            byte[] headers = ("HTTP/1.1 " + responseStatus + "\r\n"
                     + "Content-Type: " + contentType + "\r\n"
                     + "Access-Control-Allow-Origin: *\r\n"
                     + "Access-Control-Allow-Methods: GET, OPTIONS\r\n"
@@ -231,6 +238,10 @@ public class ReceiverServerService extends Service {
             return;
         }
 
+        if (invalidMediaUrl) {
+            Log.w(TAG, "Rejected non-HTTP or malformed media URL");
+            return;
+        }
         if ("ping".equals(command) || "status".equals(command)) return;
         if ((mediaUrl == null || mediaUrl.trim().isEmpty())
                 && (audioUrl == null || audioUrl.trim().isEmpty())
@@ -261,6 +272,17 @@ public class ReceiverServerService extends Service {
             // Some Android/TV builds can block activity launches from the background.
             // The foreground notification remains available to reopen the receiver.
             Log.e(TAG, "OS blocked opening Receiver for incoming request", e);
+        }
+    }
+
+    private boolean isHttpUrl(String value) {
+        try {
+            java.net.URL url = new java.net.URL(value.trim());
+            String protocol = url.getProtocol();
+            return ("http".equalsIgnoreCase(protocol) || "https".equalsIgnoreCase(protocol))
+                    && url.getHost() != null && !url.getHost().trim().isEmpty();
+        } catch (Exception e) {
+            return false;
         }
     }
 
