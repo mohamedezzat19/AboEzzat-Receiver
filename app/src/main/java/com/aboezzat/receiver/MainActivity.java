@@ -159,6 +159,14 @@ public class MainActivity extends Activity {
         );
     }
 
+    private void persistExtractionState() {
+        getSharedPreferences("AboEzzatReceiverState", MODE_PRIVATE).edit()
+                .putBoolean("extracting", extractionInProgress)
+                .putInt("attempt", extractionAttemptCount)
+                .putString("status", extractionStatus)
+                .apply();
+    }
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -172,7 +180,7 @@ public class MainActivity extends Activity {
 
         playbackPrefs = getSharedPreferences("AboEzzatReceiverPlayback", MODE_PRIVATE);
         buildScreen();
-        startReceiver();
+        startReceiverService();
         handleExternalIntent(getIntent());
         playbackProgressHandler.postDelayed(playbackProgressRunnable, 3000L);
     }
@@ -184,12 +192,37 @@ public class MainActivity extends Activity {
         handleExternalIntent(intent);
     }
 
+    private void startReceiverService() {
+        android.content.Intent serviceIntent = new android.content.Intent(this, ReceiverServerService.class);
+        try {
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                startForegroundService(serviceIntent);
+            } else {
+                startService(serviceIntent);
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "Unable to start background receiver service", e);
+            Toast.makeText(this, "تعذّر تشغيل الاستقبال بالخلفية. افتح التطبيق مرة أخرى.", Toast.LENGTH_LONG).show();
+        }
+    }
+
     // Support web links shared directly to Receiver in addition to links sent over port 8081.
     private void handleExternalIntent(android.content.Intent intent) {
         if (intent == null) return;
         String action = intent.getAction();
-        String url = null;
+        if (ReceiverServerService.ACTION_SERVER_REQUEST.equals(action)) {
+            String command = intent.getStringExtra(ReceiverServerService.EXTRA_COMMAND);
+            String incomingUrl = intent.getStringExtra(ReceiverServerService.EXTRA_URL);
+            String incomingAudio = intent.getStringExtra(ReceiverServerService.EXTRA_AUDIO);
+            if (command != null && !command.trim().isEmpty()) {
+                handleRemoteCommand(command.trim());
+            } else {
+                queueIncomingMedia(incomingUrl, incomingAudio);
+            }
+            return;
+        }
 
+        String url = null;
         if (android.content.Intent.ACTION_VIEW.equals(action)) {
             Uri data = intent.getData();
             if (data != null) {
@@ -1058,6 +1091,7 @@ public class MainActivity extends Activity {
         extractionInProgress = true;
         extractionAttemptCount = 0;
         extractionStatus = "starting";
+        persistExtractionState();
         runOnUiThread(() -> {
             if (receiverStatusText != null) {
                 receiverStatusText.setText("جارٍ تجهيز محركات استخراج الفيديو…");
@@ -1071,6 +1105,7 @@ public class MainActivity extends Activity {
             try {
                 extractionAttemptCount = 1;
                 extractionStatus = "محاولة محرك Cobalt (إذا كان مضبوطًا)";
+                persistExtractionState();
                 resolved = resolveWithConfiguredCobalt(pageUrl);
                 resolvedByCobalt = resolved != null;
             } catch (Exception e) {
@@ -1079,6 +1114,7 @@ public class MainActivity extends Activity {
             if (resolved == null) try {
                 extractionAttemptCount = 2;
                 extractionStatus = "محاولة استخراج بيانات صفحة الفيديو";
+                persistExtractionState();
                 URL url = new URL(pageUrl);
                 connection = (HttpURLConnection) url.openConnection();
                 connection.setInstanceFollowRedirects(true);
@@ -1125,6 +1161,7 @@ public class MainActivity extends Activity {
             extractionInProgress = false;
             extractionAttemptCount = directUrl != null ? extractionAttemptCount : 3;
             extractionStatus = directUrl != null ? "resolved" : "web_fallback";
+            persistExtractionState();
             runOnUiThread(() -> {
                 if (directUrl != null && (isDirectStreamUrl(directUrl) || cobaltResult || contentTypeResult)) {
                     if (receiverStatusText != null) {
@@ -1373,6 +1410,7 @@ public class MainActivity extends Activity {
             extractionInProgress = false;
             extractionAttemptCount = 0;
             extractionStatus = "direct_playback";
+            persistExtractionState();
         }
         if (mediaUrl != null && !mediaUrl.trim().isEmpty()
                 && !isImageUrl(mediaUrl) && !isDirectStreamUrl(mediaUrl)
