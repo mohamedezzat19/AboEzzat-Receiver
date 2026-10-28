@@ -1452,9 +1452,12 @@ public class MainActivity extends Activity {
             target.addCategory(android.content.Intent.CATEGORY_BROWSABLE);
             target.addFlags(android.content.Intent.FLAG_ACTIVITY_CLEAR_TOP);
 
-            android.content.Intent systemChooser = android.content.Intent.createChooser(
-                    target, "اختيار تطبيق لتشغيل YouTube");
-            startActivity(systemChooser);
+            // Start the implicit ACTION_VIEW directly. Wrapping it in
+            // Intent.createChooser() forces the chooser-only UI and removes the
+            // resolver's "Just once" / "Always" default-handler choices on Android TV.
+            // A direct implicit intent lets Android/Fire OS show its native resolver
+            // whenever multiple apps can handle this URL and no default is set.
+            startActivity(target);
         } catch (Exception e) {
             Log.w(TAG, "Android could not show the system app chooser for YouTube", e);
             Toast.makeText(this,
