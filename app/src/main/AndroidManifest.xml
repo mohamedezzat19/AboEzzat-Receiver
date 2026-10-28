@@ -2,6 +2,7 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
 
     <uses-feature
         android:name="android.software.leanback"
@@ -21,6 +22,11 @@
         android:theme="@style/Theme.AboEzzatReceiver">
 
         <meta-data android:name="android.webkit.WebView.EnableSafeBrowsing" android:value="true" />
+
+        <service
+            android:name=".ReceiverServerService"
+            android:enabled="true"
+            android:exported="false" />
 
         <activity
             android:name=".MainActivity"
