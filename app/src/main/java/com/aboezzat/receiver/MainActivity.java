@@ -219,6 +219,7 @@ public class MainActivity extends Activity {
             if (command != null && !command.trim().isEmpty()) {
                 handleRemoteCommand(command.trim());
             } else {
+                clearPendingServerMedia();
                 queueIncomingMedia(incomingUrl, incomingAudio);
             }
             return;
@@ -252,8 +253,32 @@ public class MainActivity extends Activity {
         }
 
         if (url != null && !url.trim().isEmpty()) {
+            clearPendingServerMedia();
             queueIncomingMedia(url, null);
+            return;
         }
+
+        // If the OS prevented a background launch, process the last received link
+        // when the user next opens Receiver. Ignore stale pending requests after 10 minutes.
+        SharedPreferences pending = getSharedPreferences("AboEzzatReceiverPending", MODE_PRIVATE);
+        String pendingUrl = pending.getString("url", "");
+        String pendingAudio = pending.getString("audio", "");
+        long receivedAt = pending.getLong("received_at", 0L);
+        if (System.currentTimeMillis() - receivedAt <= 10 * 60 * 1000L
+                && (!pendingUrl.trim().isEmpty() || !pendingAudio.trim().isEmpty())) {
+            clearPendingServerMedia();
+            queueIncomingMedia(pendingUrl, pendingAudio);
+        } else if (receivedAt != 0L) {
+            clearPendingServerMedia();
+        }
+    }
+
+    private void clearPendingServerMedia() {
+        getSharedPreferences("AboEzzatReceiverPending", MODE_PRIVATE).edit()
+                .remove("url")
+                .remove("audio")
+                .remove("received_at")
+                .apply();
     }
 
     @Override
