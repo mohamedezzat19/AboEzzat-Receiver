@@ -1080,11 +1080,14 @@ public class MainActivity extends Activity {
                     playContent(directUrl, null);
                 } else {
                     if (receiverStatusText != null) {
-                        receiverStatusText.setText("تعذّر الرابط المباشر؛ تجربة مشغّل الويب");
+                        receiverStatusText.setText("لم يصل رابط مباشر قابل للتشغيل");
                     }
-                    // Fall back to a clean fullscreen WebView rather than abandoning
-                    // the cast when a platform page does not expose a direct stream.
-                    showWebFallback(pageUrl);
+                    // Receiver is a native playback endpoint: never open a platform page in WebView.
+                    // Share should extract the stream in its authenticated browser and send the direct URL.
+                    showWelcome();
+                    Toast.makeText(MainActivity.this,
+                            "ماوصلش رابط فيديو مباشر من Share. افتح الفيديو في Share وانتظر التقاط الرابط ثم أرسله للشاشة.",
+                            Toast.LENGTH_LONG).show();
                 }
             });
         }, "DirectMediaExtractor");
