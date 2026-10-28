@@ -757,7 +757,25 @@ public class MainActivity extends Activity {
     private void handleRemoteCommand(String command) {
         synchronized (playerLock) {
             if (player == null) {
-                Log.w(TAG, "Remote command ignored; no active player: " + command);
+                // Keep the physical volume controls useful even when no media player is active.
+                if ("volume_up".equals(command) || "volume_down".equals(command) || "mute".equals(command)) {
+                    android.media.AudioManager audioManager =
+                            (android.media.AudioManager) getSystemService(AUDIO_SERVICE);
+                    if (audioManager != null) {
+                        if ("volume_up".equals(command)) {
+                            audioManager.adjustStreamVolume(android.media.AudioManager.STREAM_MUSIC,
+                                    android.media.AudioManager.ADJUST_RAISE, 0);
+                        } else if ("volume_down".equals(command)) {
+                            audioManager.adjustStreamVolume(android.media.AudioManager.STREAM_MUSIC,
+                                    android.media.AudioManager.ADJUST_LOWER, 0);
+                        } else {
+                            audioManager.adjustStreamVolume(android.media.AudioManager.STREAM_MUSIC,
+                                    android.media.AudioManager.ADJUST_TOGGLE_MUTE, 0);
+                        }
+                    }
+                    return;
+                }
+                Log.w(TAG, "Remote command ignored; no active media: " + command);
                 return;
             }
             switch (command) {
