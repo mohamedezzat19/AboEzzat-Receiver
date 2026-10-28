@@ -1414,12 +1414,20 @@ public class MainActivity extends Activity {
                     player.addListener(new Player.Listener() {
                         @Override
                         public void onPlaybackStateChanged(int playbackState) {
-                            if (playbackState == Player.STATE_ENDED
-                                    && playbackPrefs != null
-                                    && currentPlaybackUrl != null
-                                    && !currentPlaybackUrl.isEmpty()) {
+                            if (playbackState != Player.STATE_ENDED
+                                    || playbackPrefs == null
+                                    || player == null
+                                    || player.getCurrentMediaItem() == null
+                                    || player.getCurrentMediaItem().localConfiguration == null) {
+                                return;
+                            }
+                            // Use the URL owned by this ended media item, not the mutable
+                            // global currentPlaybackUrl, which may already refer to a new request.
+                            String endedUrl = player.getCurrentMediaItem()
+                                    .localConfiguration.uri.toString();
+                            if (endedUrl != null && !endedUrl.isEmpty()) {
                                 playbackPrefs.edit()
-                                        .remove("position_" + currentPlaybackUrl.hashCode())
+                                        .remove("position_" + endedUrl.hashCode())
                                         .apply();
                             }
                         }
