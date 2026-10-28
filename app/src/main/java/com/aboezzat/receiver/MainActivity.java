@@ -91,6 +91,7 @@ public class MainActivity extends Activity {
     private int playbackQueueIndex = -1;
     private WebView fallbackWebView;
     private volatile boolean fallbackStreamCaptured = false;
+    private volatile String fallbackPageUrl = "";
     private final Handler backPressHandler = new Handler(Looper.getMainLooper());
     private boolean backPressedOnceInBrowser = false;
     private final Runnable resetBrowserBackPress = () -> backPressedOnceInBrowser = false;
@@ -1229,6 +1230,7 @@ public class MainActivity extends Activity {
             return;
         }
         fallbackStreamCaptured = false;
+        fallbackPageUrl = pageUrl;
         stopCurrentPlayer();
         hideImage();
         welcomeBackground.setVisibility(View.GONE);
@@ -1253,6 +1255,14 @@ public class MainActivity extends Activity {
             settings.setDomStorageEnabled(true);
             settings.setMediaPlaybackRequiresUserGesture(false);
             settings.setLoadsImagesAutomatically(true);
+            // TV-friendly layout: scale desktop-sized pages down to the screen and
+            // use a readable but compact default zoom for D-pad navigation.
+            settings.setUseWideViewPort(true);
+            settings.setLoadWithOverviewMode(true);
+            settings.setTextZoom(85);
+            settings.setSupportZoom(true);
+            settings.setBuiltInZoomControls(true);
+            settings.setDisplayZoomControls(false);
             settings.setJavaScriptCanOpenWindowsAutomatically(false);
             settings.setSupportMultipleWindows(false);
             CookieManager.getInstance().setAcceptCookie(true);
@@ -1269,7 +1279,7 @@ public class MainActivity extends Activity {
                     // startup. Watch subresource requests as well as static page HTML.
                     // Never intercept or replay the page URL itself.
                     if (!candidate.isEmpty() && isDirectStreamUrl(candidate) && !isImageUrl(candidate)
-                            && !candidate.equals(view.getUrl()) && !fallbackStreamCaptured) {
+                            && !candidate.equals(fallbackPageUrl) && !fallbackStreamCaptured) {
                         fallbackStreamCaptured = true;
                         runOnUiThread(() -> {
                             if (fallbackWebView != null
@@ -1331,6 +1341,9 @@ public class MainActivity extends Activity {
                     FrameLayout.LayoutParams.MATCH_PARENT));
         }
         fallbackWebView.setVisibility(View.VISIBLE);
+        fallbackWebView.setFocusable(true);
+        fallbackWebView.setFocusableInTouchMode(true);
+        fallbackWebView.requestFocus(View.FOCUS_DOWN);
         fallbackWebView.loadUrl(pageUrl);
         Toast.makeText(this, "تعذّر استخراج رابط مباشر؛ جارٍ تجربة تشغيل صفحة الفيديو", Toast.LENGTH_LONG).show();
     }
