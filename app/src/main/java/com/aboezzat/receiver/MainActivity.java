@@ -38,6 +38,7 @@ import android.widget.EditText;
 import org.json.JSONObject;
 
 import androidx.media3.common.MediaItem;
+import androidx.media3.common.Player;
 import androidx.media3.common.util.UnstableApi;
 import androidx.media3.exoplayer.ExoPlayer;
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory;
@@ -1410,6 +1411,19 @@ public class MainActivity extends Activity {
             synchronized (playerLock) {
                 if (player == null) {
                     player = new ExoPlayer.Builder(this).build();
+                    player.addListener(new Player.Listener() {
+                        @Override
+                        public void onPlaybackStateChanged(int playbackState) {
+                            if (playbackState == Player.STATE_ENDED
+                                    && playbackPrefs != null
+                                    && currentPlaybackUrl != null
+                                    && !currentPlaybackUrl.isEmpty()) {
+                                playbackPrefs.edit()
+                                        .remove("position_" + currentPlaybackUrl.hashCode())
+                                        .apply();
+                            }
+                        }
+                    });
                     player.setVolume(muted ? 0.0f : lastNonZeroVolume);
                     playerView.setPlayer(player);
                 }
