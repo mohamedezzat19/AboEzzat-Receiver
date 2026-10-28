@@ -1752,6 +1752,17 @@ public class MainActivity extends Activity {
                     player = new ExoPlayer.Builder(this).build();
                     player.addListener(new Player.Listener() {
                         @Override
+                        public void onVideoSizeChanged(androidx.media3.common.VideoSize videoSize) {
+                            // Keep rotation metadata from the stream and let PlayerView fit
+                            // the rotated aspect ratio rather than forcing landscape/portrait.
+                            Log.d(TAG, "Video size=" + videoSize.width + "x" + videoSize.height
+                                    + ", rotation=" + videoSize.unappliedRotationDegrees);
+                            if (playerView != null) {
+                                playerView.setResizeMode(androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_FIT);
+                            }
+                        }
+
+                        @Override
                         public void onPlaybackStateChanged(int playbackState) {
                             if (playbackState != Player.STATE_ENDED
                                     || playbackPrefs == null
