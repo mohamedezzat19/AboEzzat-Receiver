@@ -13,13 +13,14 @@
 
     <application
         android:allowBackup="false"
-        <meta-data android:name="android.webkit.WebView.EnableSafeBrowsing" android:value="true" />
         android:label="AboEzzat Receiver"
         android:icon="@drawable/app_icon"
         android:roundIcon="@drawable/app_icon"
         android:usesCleartextTraffic="true"
         android:supportsRtl="true"
         android:theme="@style/Theme.AboEzzatReceiver">
+
+        <meta-data android:name="android.webkit.WebView.EnableSafeBrowsing" android:value="true" />
 
         <activity
             android:name=".MainActivity"
