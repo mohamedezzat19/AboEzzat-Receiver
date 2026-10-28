@@ -1,9 +1,12 @@
-
 name: Build AboEzzat Receiver APK
 
 on:
   workflow_dispatch:
   push:
+    branches:
+      - main
+      - master
+  pull_request:
     branches:
       - main
       - master
@@ -14,6 +17,7 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-22.04
+    timeout-minutes: 20
 
     steps:
       - name: Download project
@@ -39,3 +43,4 @@ jobs:
           name: AboEzzat-Receiver-APK
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
+          retention-days: 14
