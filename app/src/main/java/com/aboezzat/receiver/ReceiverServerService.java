@@ -27,6 +27,10 @@ import java.net.Socket;
 import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
 import java.util.Enumeration;
+import java.util.concurrent.ArrayBlockingQueue;
+import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
 
 public class ReceiverServerService extends Service {
     private static final String TAG = "AboEzzatReceiverService";
@@ -45,6 +49,9 @@ public class ReceiverServerService extends Service {
     private volatile ServerSocket serverSocket;
     private Thread serverThread;
     private Thread heartbeatThread;
+    // Bound concurrent clients so a burst of LAN requests cannot create unbounded threads.
+    private final ThreadPoolExecutor requestExecutor = new ThreadPoolExecutor(
+            2, 4, 30L, TimeUnit.SECONDS, new ArrayBlockingQueue<>(16));
 
     @Override
     public void onCreate() {
@@ -112,9 +119,23 @@ public class ReceiverServerService extends Service {
                 while (running) {
                     try {
                         Socket client = listener.accept();
-                        Thread request = new Thread(() -> handleRequest(client), "ReceiverRequest");
-                        request.setDaemon(true);
-                        request.start();
+                        try {
+                            requestExecutor.execute(() -> handleRequest(client));
+                        } catch (RejectedExecutionException overloaded) {
+                            // Fail fast instead of accumulating sockets/threads without a bound.
+                            try (Socket rejected = client) {
+                                rejected.setSoTimeout(1000);
+                                byte[] body = "Receiver busy".getBytes(StandardCharsets.UTF_8);
+                                OutputStream output = rejected.getOutputStream();
+                                output.write(("HTTP/1.1 503 Service Unavailable\r\n"
+                                        + "Content-Type: text/plain; charset=utf-8\r\n"
+                                        + "Connection: close\r\n"
+                                        + "Content-Length: " + body.length + "\r\n\r\n")
+                                        .getBytes(StandardCharsets.UTF_8));
+                                output.write(body);
+                                output.flush();
+                            } catch (Exception ignored) { }
+                        }
                     } catch (Exception e) {
                         if (running) Log.w(TAG, "Accept failed; listener will retry", e);
                     }
@@ -296,6 +317,7 @@ public class ReceiverServerService extends Service {
         }
         if (serverThread != null) serverThread.interrupt();
         if (heartbeatThread != null) heartbeatThread.interrupt();
+        requestExecutor.shutdownNow();
         super.onDestroy();
     }
 
