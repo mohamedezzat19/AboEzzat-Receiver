@@ -1005,6 +1005,7 @@ public class MainActivity extends Activity {
             final String directUrl = resolved;
             final boolean cobaltResult = resolvedByCobalt;
             extractionInProgress = false;
+            extractionAttemptCount = directUrl != null ? extractionAttemptCount : 3;
             extractionStatus = directUrl != null ? "resolved" : "web_fallback";
             runOnUiThread(() -> {
                 if (directUrl != null && (isDirectStreamUrl(directUrl) || cobaltResult)) {
@@ -1207,6 +1208,11 @@ public class MainActivity extends Activity {
 
     // natively play media URLs; resolve page URLs to a direct stream instead of opening another app.
     private void queueIncomingMedia(String mediaUrl, String audioUrl) {
+        if (mediaUrl != null && isDirectStreamUrl(mediaUrl)) {
+            extractionInProgress = false;
+            extractionAttemptCount = 0;
+            extractionStatus = "direct_playback";
+        }
         if (mediaUrl != null && !mediaUrl.trim().isEmpty()
                 && !isImageUrl(mediaUrl) && !isDirectStreamUrl(mediaUrl)
                 && (mediaUrl.startsWith("http://") || mediaUrl.startsWith("https://"))) {
