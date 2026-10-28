@@ -1438,12 +1438,22 @@ public class MainActivity extends Activity {
 
             path = path.toLowerCase(Locale.ROOT);
 
+            String lowerUrl = url.toLowerCase(Locale.ROOT);
+            String query = Uri.parse(url).getQuery();
+            String lowerQuery = query == null ? "" : query.toLowerCase(Locale.ROOT);
             return path.endsWith(".jpg")
                     || path.endsWith(".jpeg")
                     || path.endsWith(".png")
                     || path.endsWith(".webp")
                     || path.endsWith(".gif")
-                    || path.endsWith(".bmp");
+                    || path.endsWith(".bmp")
+                    || path.endsWith(".avif")
+                    || path.endsWith(".heic")
+                    || path.endsWith(".heif")
+                    || path.endsWith(".tif")
+                    || path.endsWith(".tiff")
+                    || lowerQuery.matches(".*(?:format|fm|type)=(?:jpg|jpeg|png|webp|gif|bmp|avif|heic|heif)(?:&.*)?")
+                    || lowerUrl.matches(".*[?&](?:media_type|mime)=image%2f[a-z0-9.+-]+.*");
 
         } catch (Exception e) {
             return false;
