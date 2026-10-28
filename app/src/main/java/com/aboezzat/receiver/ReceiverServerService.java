@@ -302,8 +302,8 @@ public class ReceiverServerService extends Service {
         java.io.ByteArrayOutputStream line = new java.io.ByteArrayOutputStream(256);
         int value;
         while ((value = input.read()) != -1) {
-            if (value == '\\n') break;
-            if (value != '\\r') {
+            if (value == '\n') break;
+            if (value != '\r') {
                 if (line.size() >= maxBytes) {
                     throw new IOException("HTTP request line exceeds " + maxBytes + " bytes");
                 }
