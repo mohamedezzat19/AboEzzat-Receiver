@@ -851,7 +851,10 @@ public class MainActivity extends Activity {
         String[] fieldNames = new String[] {
                 "playAddr", "play_addr", "downloadAddr", "download_addr",
                 "contentUrl", "content_url", "video_url", "videoUrl",
-                "playbackUrl", "playback_url", "hls_url", "hlsUrl"
+                "playbackUrl", "playback_url", "hls_url", "hlsUrl",
+                "playUrl", "play_url", "stream_url", "streamUrl",
+                "hls_pull_url", "hlsPullUrl", "flv_pull_url", "flvPullUrl",
+                "pull_url", "pullUrl", "liveUrl", "live_url"
         };
         for (String field : fieldNames) {
             java.util.regex.Matcher matcher = java.util.regex.Pattern
