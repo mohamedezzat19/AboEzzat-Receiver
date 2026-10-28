@@ -49,6 +49,7 @@ import java.net.NetworkInterface;
 import java.util.Enumeration;
 import java.net.Socket;
 import java.net.URL;
+import java.net.HttpURLConnection;
 import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
 import java.util.Locale;
@@ -782,127 +783,188 @@ public class MainActivity extends Activity {
         }
     }
 
-    // Open shared social video links in the matching TV/mobile app when installed.
-    private boolean launchSocialVideo(String url) {
-        String host;
+    private boolean isDirectStreamUrl(String value) {
+        if (value == null || value.trim().isEmpty()) return false;
         try {
-            host = Uri.parse(url).getHost();
-            if (host == null) return false;
-            host = host.toLowerCase(Locale.ROOT);
-        } catch (Exception ignored) {
-            return false;
-        }
-
-        String[] packages;
-        if (host.contains("tiktok")) {
-            packages = new String[]{"com.zhiliaoapp.musically", "com.ss.android.ugc.trill"};
-        } else if (host.contains("instagram")) {
-            packages = new String[]{"com.instagram.android"};
-        } else if (host.contains("threads")) {
-            packages = new String[]{"com.instagram.barcelona", "com.instagram.android"};
-        } else {
-            packages = new String[]{"com.facebook.katana", "com.facebook.lite"};
-        }
-
-        for (String packageName : packages) {
-            try {
-                android.content.Intent open = new android.content.Intent(
-                        android.content.Intent.ACTION_VIEW, Uri.parse(url));
-                open.setPackage(packageName);
-                open.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK);
-                startActivity(open);
-                if (receiverStatusText != null) {
-                    receiverStatusText.setText("تم فتح الفيديو في تطبيق المنصة على الشاشة");
-                }
-                return true;
-            } catch (Exception ignored) {
-                // Continue to the next installed platform app.
-            }
-        }
-
-        try {
-            android.content.Intent open = new android.content.Intent(
-                    android.content.Intent.ACTION_VIEW, Uri.parse(url));
-            open.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK);
-            startActivity(open);
-            if (receiverStatusText != null) {
-                receiverStatusText.setText("تم فتح رابط الفيديو في التطبيق المتاح على الشاشة");
-            }
-            return true;
+            Uri uri = Uri.parse(value.trim());
+            String path = uri.getPath();
+            String lowerPath = path == null ? "" : path.toLowerCase(Locale.ROOT);
+            String lower = value.toLowerCase(Locale.ROOT);
+            return lowerPath.endsWith(".mp4") || lowerPath.endsWith(".m4v")
+                    || lowerPath.endsWith(".webm") || lowerPath.endsWith(".mov")
+                    || lowerPath.endsWith(".m3u8") || lowerPath.endsWith(".mpd")
+                    || lower.contains("mime=video") || lower.contains("type=video")
+                    || lower.contains("video_playback") || lower.contains("/videoplayback")
+                    || lower.contains("contenttype=video");
         } catch (Exception ignored) {
             return false;
         }
     }
 
-    // Prefer SmartTube/Smart YouTube TV on the television for YouTube URLs.
-    private boolean launchSmartYouTube(String url) {
-        String[] packages = new String[] {
-                "com.teamsmart.videomanager.tv",
-                "com.liskovsoft.smarttubetv.beta",
-                "com.liskovsoft.smartyoutubetv2.tv",
-                "com.liskovsoft.smartyoutubetv",
-                "com.google.android.youtube.tv"
+    private String cleanExtractedUrl(String value) {
+        if (value == null) return null;
+        String candidate = value.trim()
+                .replace("\\/", "/")
+                .replace("\\u0026", "&")
+                .replace("\\u003d", "=")
+                .replace("\\u002F", "/")
+                .replace("&amp;", "&")
+                .replace("&#38;", "&")
+                .replace("\\u0026", "&");
+        while (candidate.endsWith("\\") || candidate.endsWith(",")
+                || candidate.endsWith(";") || candidate.endsWith(")")) {
+            candidate = candidate.substring(0, candidate.length() - 1);
+        }
+        if (candidate.startsWith("//")) candidate = "https:" + candidate;
+        return candidate.startsWith("http://") || candidate.startsWith("https://")
+                ? candidate : null;
+    }
+
+    // Extract only publicly exposed media URLs from page metadata or player JSON.
+    // No login, DRM, signature bypass, or protected-stream circumvention is attempted.
+    private String extractDirectMediaFromHtml(String html, String pageUrl) {
+        if (html == null || html.isEmpty()) return null;
+        java.util.LinkedHashSet<String> candidates = new java.util.LinkedHashSet<>();
+
+        java.util.regex.Matcher metaTags = java.util.regex.Pattern
+                .compile("(?is)<meta\\b[^>]*>")
+                .matcher(html);
+        while (metaTags.find()) {
+            String tag = metaTags.group();
+            java.util.regex.Matcher property = java.util.regex.Pattern
+                    .compile("(?i)(?:property|name)\\s*=\\s*['\\\"]([^'\\\"]+)['\\\"]")
+                    .matcher(tag);
+            java.util.regex.Matcher content = java.util.regex.Pattern
+                    .compile("(?i)content\\s*=\\s*['\\\"]([^'\\\"]+)['\\\"]")
+                    .matcher(tag);
+            if (!property.find() || !content.find()) continue;
+            String key = property.group(1).toLowerCase(Locale.ROOT);
+            if (key.equals("og:video") || key.equals("og:video:url")
+                    || key.equals("og:video:secure_url")
+                    || key.equals("twitter:player:stream")
+                    || key.equals("twitter:player:stream:content_type")) {
+                String candidate = cleanExtractedUrl(content.group(1));
+                if (candidate != null) candidates.add(candidate);
+            }
+        }
+
+        String[] fieldNames = new String[] {
+                "playAddr", "play_addr", "downloadAddr", "download_addr",
+                "contentUrl", "content_url", "video_url", "videoUrl",
+                "playbackUrl", "playback_url", "hls_url", "hlsUrl"
         };
-        for (String packageName : packages) {
-            try {
-                android.content.Intent open = new android.content.Intent(
-                        android.content.Intent.ACTION_VIEW, Uri.parse(url));
-                open.setPackage(packageName);
-                open.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK);
-                startActivity(open);
-                receiverStatusText.setText("تم فتح فيديو YouTube على تطبيق الشاشة");
-                return true;
-            } catch (Exception ignored) {
-                // Try the next known SmartTube / YouTube TV package.
+        for (String field : fieldNames) {
+            java.util.regex.Matcher matcher = java.util.regex.Pattern
+                    .compile("(?is)['\\\"]?" + java.util.regex.Pattern.quote(field)
+                            + "['\\\"]?\\s*[:=]\\s*['\\\"]([^'\\\"]{8,})['\\\"]")
+                    .matcher(html);
+            while (matcher.find()) {
+                String candidate = cleanExtractedUrl(matcher.group(1));
+                if (candidate != null) candidates.add(candidate);
             }
         }
 
-        try {
-            android.content.Intent open = new android.content.Intent(
-                    android.content.Intent.ACTION_VIEW, Uri.parse(url));
-            open.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK);
-            startActivity(open);
-            receiverStatusText.setText("تم فتح رابط YouTube في التطبيق المتاح");
-            return true;
-        } catch (Exception ignored) {
-            Toast.makeText(this,
-                    "لم يتم العثور على SmartTube أو تطبيق متوافق مع YouTube",
-                    Toast.LENGTH_LONG).show();
-            return false;
+        java.util.regex.Matcher rawMedia = java.util.regex.Pattern
+                .compile("(?is)(https?:\\\\?/\\\\?/[^\\s'\\\"><]+?\\.(?:mp4|m4v|webm|mov|m3u8|mpd)(?:\\?[^\\s'\\\"><]*)?)")
+                .matcher(html);
+        while (rawMedia.find()) {
+            String candidate = cleanExtractedUrl(rawMedia.group(1));
+            if (candidate != null) candidates.add(candidate);
         }
+
+        for (String candidate : candidates) {
+            if (isDirectStreamUrl(candidate) && !candidate.equals(pageUrl)) return candidate;
+        }
+        return null;
     }
 
-    // ننتظر لحظة قصيرة ليلتقط التطبيق الرابط الثاني إذا أُرسل فورًا بعد الأول.
+    private void resolveSharedVideoToStream(String pageUrl) {
+        runOnUiThread(() -> {
+            if (receiverStatusText != null) {
+                receiverStatusText.setText("جارٍ استخراج رابط الفيديو المباشر…");
+            }
+        });
+        Thread extractor = new Thread(() -> {
+            String resolved = null;
+            HttpURLConnection connection = null;
+            try {
+                URL url = new URL(pageUrl);
+                connection = (HttpURLConnection) url.openConnection();
+                connection.setInstanceFollowRedirects(true);
+                connection.setConnectTimeout(10000);
+                connection.setReadTimeout(12000);
+                connection.setRequestProperty("User-Agent",
+                        "Mozilla/5.0 (Linux; Android 12; TV) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36");
+                connection.setRequestProperty("Accept",
+                        "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8");
+                connection.setRequestProperty("Accept-Language", "en-US,en;q=0.8");
+                int status = connection.getResponseCode();
+                if (status >= 200 && status < 400) {
+                    String type = connection.getContentType();
+                    if (type != null && (type.toLowerCase(Locale.ROOT).startsWith("video/")
+                            || type.toLowerCase(Locale.ROOT).contains("application/vnd.apple.mpegurl")
+                            || type.toLowerCase(Locale.ROOT).contains("application/x-mpegurl")
+                            || type.toLowerCase(Locale.ROOT).contains("application/dash+xml"))) {
+                        resolved = connection.getURL().toString();
+                    } else {
+                        StringBuilder html = new StringBuilder();
+                        try (BufferedReader reader = new BufferedReader(
+                                new InputStreamReader(connection.getInputStream(), StandardCharsets.UTF_8))) {
+                            char[] buffer = new char[8192];
+                            int count;
+                            while ((count = reader.read(buffer)) != -1 && html.length() < 4 * 1024 * 1024) {
+                                html.append(buffer, 0, count);
+                            }
+                        }
+                        resolved = extractDirectMediaFromHtml(html.toString(), pageUrl);
+                    }
+                }
+            } catch (Exception e) {
+                Log.w(TAG, "Direct media extraction failed for shared URL", e);
+            } finally {
+                if (connection != null) connection.disconnect();
+            }
+
+            final String directUrl = resolved;
+            runOnUiThread(() -> {
+                if (directUrl != null && isDirectStreamUrl(directUrl)) {
+                    if (receiverStatusText != null) {
+                        receiverStatusText.setText("تم استخراج الفيديو المباشر، جارٍ التشغيل");
+                    }
+                    queueIncomingMedia(directUrl, null);
+                } else {
+                    if (receiverStatusText != null) {
+                        receiverStatusText.setText("تعذّر استخراج رابط مباشر من هذا الرابط");
+                    }
+                    Toast.makeText(this,
+                            "المنصة لم تعرض رابط فيديو مباشر قابلًا للتشغيل. قد يتطلب الفيديو جلسة دخول أو رابط بث موقّع.",
+                            Toast.LENGTH_LONG).show();
+                }
+            });
+        }, "DirectMediaExtractor");
+        extractor.setDaemon(true);
+        extractor.start();
+    }
+
+    // natively play media URLs; resolve page URLs to a direct stream instead of opening another app.
     private void queueIncomingMedia(String mediaUrl, String audioUrl) {
-        if (mediaUrl != null && isSocialVideoUrl(mediaUrl)) {
+        if (mediaUrl != null && !mediaUrl.trim().isEmpty()
+                && !isImageUrl(mediaUrl) && !isDirectStreamUrl(mediaUrl)
+                && (mediaUrl.startsWith("http://") || mediaUrl.startsWith("https://"))) {
             if (pendingPlayback != null) {
                 mediaHandler.removeCallbacks(pendingPlayback);
                 pendingPlayback = null;
             }
             pendingVisualUrl = null;
             pendingAudioUrl = null;
-            if (launchSocialVideo(mediaUrl)) return;
-        }
-        if (mediaUrl != null && isYouTubeUrl(mediaUrl)) {
-            if (pendingPlayback != null) {
-                mediaHandler.removeCallbacks(pendingPlayback);
-                pendingPlayback = null;
-            }
-            pendingVisualUrl = null;
-            pendingAudioUrl = null;
-            if (launchSmartYouTube(mediaUrl)) return;
-        }
-        if (mediaUrl != null && !mediaUrl.trim().isEmpty()) {
-            pendingVisualUrl = mediaUrl;
-        }
-        if (audioUrl != null && !audioUrl.trim().isEmpty()) {
-            pendingAudioUrl = audioUrl;
+            resolveSharedVideoToStream(mediaUrl);
+            return;
         }
 
-        if (pendingPlayback != null) {
-            mediaHandler.removeCallbacks(pendingPlayback);
-        }
+        if (mediaUrl != null && !mediaUrl.trim().isEmpty()) pendingVisualUrl = mediaUrl;
+        if (audioUrl != null && !audioUrl.trim().isEmpty()) pendingAudioUrl = audioUrl;
 
+        if (pendingPlayback != null) mediaHandler.removeCallbacks(pendingPlayback);
         pendingPlayback = () -> {
             String visual = pendingVisualUrl;
             String audio = pendingAudioUrl;
@@ -911,7 +973,7 @@ public class MainActivity extends Activity {
             pendingPlayback = null;
             playContent(visual, audio);
         };
-        mediaHandler.postDelayed(pendingPlayback, 700);
+        mediaHandler.postDelayed(pendingPlayback, 150);
     }
 
     private boolean isImageUrl(String url) {
