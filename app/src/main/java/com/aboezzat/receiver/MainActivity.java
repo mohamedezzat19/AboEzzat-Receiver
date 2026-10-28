@@ -87,6 +87,8 @@ public class MainActivity extends Activity {
     private TextView receiverStatusText;
 
     private PlayerView playerView;
+    private final java.util.ArrayList<String> playbackQueue = new java.util.ArrayList<>();
+    private int playbackQueueIndex = -1;
     private WebView fallbackWebView;
     private final Handler backPressHandler = new Handler(Looper.getMainLooper());
     private boolean backPressedOnceInBrowser = false;
@@ -582,7 +584,9 @@ public class MainActivity extends Activity {
         // مشغل الفيديو والصوت.
         playerView = new PlayerView(this);
         playerView.setUseController(true);
-        // Keep video inside the physical screen bounds while preserving its aspect ratio.
+        // TextureView applies 90/180/270-degree rotation metadata more consistently
+        // than SurfaceView on Android TV devices while preserving the source aspect ratio.
+        playerView.setSurfaceType(PlayerView.SURFACE_TYPE_TEXTURE_VIEW);
         playerView.setResizeMode(androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_FIT);
         playerView.setVisibility(View.GONE);
         playerView.setBackgroundColor(Color.BLACK);
@@ -1588,6 +1592,12 @@ public class MainActivity extends Activity {
                     case "stop":
                         keyCode = android.view.KeyEvent.KEYCODE_MEDIA_STOP;
                         break;
+                    case "previous":
+                        keyCode = android.view.KeyEvent.KEYCODE_MEDIA_PREVIOUS;
+                        break;
+                    case "next":
+                        keyCode = android.view.KeyEvent.KEYCODE_MEDIA_NEXT;
+                        break;
                     default:
                         Log.w(TAG, "Unsupported remote command with no local player: " + command);
                         return;
@@ -1623,6 +1633,12 @@ public class MainActivity extends Activity {
                     player.stop();
                     player.clearMediaItems();
                     break;
+                case "previous":
+                    playQueueRelative(-1);
+                    break;
+                case "next":
+                    playQueueRelative(1);
+                    break;
                 case "volume_up":
                     lastNonZeroVolume = Math.min(1.0f, lastNonZeroVolume + 0.1f);
                     if (!muted) player.setVolume(lastNonZeroVolume);
@@ -1652,6 +1668,42 @@ public class MainActivity extends Activity {
         }
         // Preserve the last saved position; do not overwrite it with position zero on shutdown.
         currentPlaybackUrl = "";
+    }
+
+    private void rememberPlaybackUrl(String url) {
+        if (url == null || url.trim().isEmpty()) return;
+        if (playbackQueueIndex >= 0 && playbackQueueIndex < playbackQueue.size()
+                && url.equals(playbackQueue.get(playbackQueueIndex))) return;
+        if (playbackQueueIndex >= 0 && playbackQueueIndex < playbackQueue.size() - 1) {
+            playbackQueue.subList(playbackQueueIndex + 1, playbackQueue.size()).clear();
+        }
+        if (!playbackQueue.isEmpty() && playbackQueue.get(playbackQueue.size() - 1).equals(url)) {
+            playbackQueueIndex = playbackQueue.size() - 1;
+            return;
+        }
+        playbackQueue.add(url);
+        playbackQueueIndex = playbackQueue.size() - 1;
+        // Bound the in-memory history so a long-running receiver cannot grow indefinitely.
+        if (playbackQueue.size() > 100) {
+            playbackQueue.remove(0);
+            playbackQueueIndex = Math.max(0, playbackQueueIndex - 1);
+        }
+    }
+
+    private void playQueueRelative(int delta) {
+        if (playbackQueue.isEmpty()) {
+            Toast.makeText(this, "مفيش فيديو سابق أو تالي في سجل التشغيل", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        int target = playbackQueueIndex + delta;
+        if (target < 0 || target >= playbackQueue.size()) {
+            Toast.makeText(this, delta < 0 ? "ده أول فيديو في سجل التشغيل" : "ده آخر فيديو في سجل التشغيل",
+                    Toast.LENGTH_SHORT).show();
+            return;
+        }
+        playbackQueueIndex = target;
+        String url = playbackQueue.get(target);
+        queueIncomingMedia(url, null);
     }
 
     private void playContent(
@@ -1685,6 +1737,7 @@ public class MainActivity extends Activity {
         }
 
         currentPlaybackUrl = playbackUrl;
+        rememberPlaybackUrl(playbackUrl);
         hideImage();
 
         if (fallbackWebView != null) fallbackWebView.setVisibility(View.GONE);
