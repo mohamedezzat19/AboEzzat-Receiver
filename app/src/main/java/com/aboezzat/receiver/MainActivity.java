@@ -1464,6 +1464,7 @@ public class MainActivity extends Activity {
 
     // الصورة تظل ظاهرة بينما يشغّل ExoPlayer الصوت في الخلفية.
     private void playAudioAlongsideImage(String audioUrl) {
+        currentPlaybackUrl = audioUrl;
         try {
             synchronized (playerLock) {
                 if (player == null) {
@@ -1475,6 +1476,9 @@ public class MainActivity extends Activity {
                 player.clearMediaItems();
                 player.setMediaItem(MediaItem.fromUri(audioUrl));
                 player.prepare();
+                long savedPosition = playbackPrefs == null ? 0L
+                        : playbackPrefs.getLong("position_" + audioUrl.hashCode(), 0L);
+                if (savedPosition > 5000L) player.seekTo(savedPosition);
                 player.play();
                 playerView.setVisibility(View.GONE);
             }
