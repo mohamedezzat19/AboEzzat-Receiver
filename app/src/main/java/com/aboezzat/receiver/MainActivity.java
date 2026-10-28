@@ -2,6 +2,7 @@
 package com.aboezzat.receiver;
 
 import android.app.Activity;
+import android.content.SharedPreferences;
 import android.app.AlertDialog;
 import android.os.Bundle;
 import android.os.Handler;
@@ -102,6 +103,23 @@ public class MainActivity extends Activity {
     private boolean networkCallbackRegistered = false;
 
     private final Object playerLock = new Object();
+    private SharedPreferences playbackPrefs;
+    private String currentPlaybackUrl = "";
+    private final Handler playbackProgressHandler = new Handler(Looper.getMainLooper());
+    private final Runnable playbackProgressRunnable = new Runnable() {
+        @Override public void run() {
+            synchronized (playerLock) {
+                if (player != null && player.isPlaying()
+                        && currentPlaybackUrl != null && !currentPlaybackUrl.isEmpty()
+                        && playbackPrefs != null) {
+                    playbackPrefs.edit()
+                            .putLong("position_" + currentPlaybackUrl.hashCode(), player.getCurrentPosition())
+                            .apply();
+                }
+            }
+            playbackProgressHandler.postDelayed(this, 3000L);
+        }
+    };
 
     // تجميع روابط الفيديو/الصورة والصوت التي تصل كطلبين منفصلين بفاصل قصير.
     private final Handler mediaHandler = new Handler(Looper.getMainLooper());
@@ -128,9 +146,11 @@ public class MainActivity extends Activity {
                 WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON
         );
 
+        playbackPrefs = getSharedPreferences("AboEzzatReceiverPlayback", MODE_PRIVATE);
         buildScreen();
         startReceiver();
         handleExternalIntent(getIntent());
+        playbackProgressHandler.postDelayed(playbackProgressRunnable, 3000L);
     }
 
     @Override
@@ -1374,6 +1394,7 @@ public class MainActivity extends Activity {
             return;
         }
 
+        currentPlaybackUrl = playbackUrl;
         hideImage();
 
         if (fallbackWebView != null) fallbackWebView.setVisibility(View.GONE);
@@ -1426,6 +1447,12 @@ public class MainActivity extends Activity {
                 }
 
                 player.prepare();
+                long savedPosition = playbackPrefs == null ? 0L
+                        : playbackPrefs.getLong("position_" + playbackUrl.hashCode(), 0L);
+                if (savedPosition > 5000L) {
+                    player.seekTo(savedPosition);
+                    Toast.makeText(MainActivity.this, "تم استئناف التشغيل من آخر موضع محفوظ", Toast.LENGTH_SHORT).show();
+                }
                 player.play();
             }
 
@@ -1543,6 +1570,15 @@ public class MainActivity extends Activity {
 
     @Override
     protected void onDestroy() {
+        playbackProgressHandler.removeCallbacks(playbackProgressRunnable);
+        synchronized (playerLock) {
+            if (player != null && playbackPrefs != null
+                    && currentPlaybackUrl != null && !currentPlaybackUrl.isEmpty()) {
+                playbackPrefs.edit()
+                        .putLong("position_" + currentPlaybackUrl.hashCode(), player.getCurrentPosition())
+                        .apply();
+            }
+        }
         running = false;
         heartbeatRunning = false;
         if (pendingPlayback != null) {
