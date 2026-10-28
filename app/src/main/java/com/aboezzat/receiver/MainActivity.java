@@ -582,11 +582,10 @@ public class MainActivity extends Activity {
         root.addView(connectionCard, cardParams);
 
         // مشغل الفيديو والصوت.
-        playerView = new PlayerView(this);
+        // Inflate with surface_type="texture_view" so Media3 can apply rotation metadata
+        // on Android TV devices; PlayerView exposes this setting through XML attributes.
+        playerView = (PlayerView) getLayoutInflater().inflate(R.layout.player_view_texture, root, false);
         playerView.setUseController(true);
-        // TextureView applies 90/180/270-degree rotation metadata more consistently
-        // than SurfaceView on Android TV devices while preserving the source aspect ratio.
-        playerView.setSurfaceType(PlayerView.SURFACE_TYPE_TEXTURE_VIEW);
         playerView.setResizeMode(androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_FIT);
         playerView.setVisibility(View.GONE);
         playerView.setBackgroundColor(Color.BLACK);
