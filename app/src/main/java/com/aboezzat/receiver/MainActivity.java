@@ -315,33 +315,64 @@ public class MainActivity extends Activity {
     }
 
     private void showExtractorSettings() {
+        android.content.SharedPreferences settings =
+                getSharedPreferences("receiver_settings", MODE_PRIVATE);
         EditText field = new EditText(this);
         field.setSingleLine(false);
         field.setMinLines(2);
-        field.setInputType(android.text.InputType.TYPE_CLASS_TEXT | android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE | android.text.InputType.TYPE_TEXT_VARIATION_URI);
-        field.setHint("https://cobalt-one.example/\nhttps://cobalt-two.example/");
-        field.setText(getSharedPreferences("receiver_settings", MODE_PRIVATE).getString("cobalt_endpoint", ""));
+        field.setInputType(android.text.InputType.TYPE_CLASS_TEXT
+                | android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE
+                | android.text.InputType.TYPE_TEXT_VARIATION_URI);
+        field.setHint("https://cobalt-one.example/\\nhttps://cobalt-two.example/");
+        field.setText(settings.getString("cobalt_endpoint", ""));
+
+        android.widget.CheckBox cobalt = new android.widget.CheckBox(this);
+        cobalt.setText("تشغيل محركات Cobalt (كل الخوادم بالتوازي)");
+        cobalt.setChecked(settings.getBoolean("receiver_engine_cobalt", true));
+        android.widget.CheckBox page = new android.widget.CheckBox(this);
+        page.setText("تشغيل تحليل الصفحة ونوع المحتوى");
+        page.setChecked(settings.getBoolean("receiver_engine_page", true));
+        android.widget.CheckBox social = new android.widget.CheckBox(this);
+        social.setText("تشغيل المحرك المتخصص للمنصات الاجتماعية");
+        social.setChecked(settings.getBoolean("receiver_engine_social", true));
+
+        LinearLayout panel = new LinearLayout(this);
+        panel.setOrientation(LinearLayout.VERTICAL);
+        int pad = (int) (16 * getResources().getDisplayMetrics().density + 0.5f);
+        panel.setPadding(pad, pad / 2, pad, 0);
+        TextView help = new TextView(this);
+        help.setText("فعّل أو أوقف كل محرك بشكل مستقل. المحركات المفعّلة تعمل بالتوازي، وتُختار أفضل نتيجة متاحة. أضف خوادم Cobalt تملكها أو لديك إذن باستخدامها، كل عنوان في سطر منفصل.");
+        help.setTextSize(13);
+        panel.addView(help);
+        panel.addView(cobalt);
+        panel.addView(page);
+        panel.addView(social);
+        panel.addView(field);
+
         new AlertDialog.Builder(this).setTitle("إعدادات محركات استخراج الفيديو")
-                .setMessage("أضف خوادم Cobalt تملكها أو لديك إذن باستخدامها، كل عنوان في سطر منفصل؛ يجربها التطبيق بالترتيب. yt-dlp وStreamlink يحتاجان خدمة خلفية مستقلة، ولا يعملان بمجرد إضافة مكتبة Python إلى أندرويد.")
-                .setView(field).setNeutralButton("مسح", (d,w) -> getSharedPreferences("receiver_settings", MODE_PRIVATE).edit().remove("cobalt_endpoint").apply())
+                .setView(panel)
+                .setNeutralButton("مسح خوادم Cobalt", (d,w) ->
+                        settings.edit().remove("cobalt_endpoint").apply())
                 .setNegativeButton("إلغاء", null)
                 .setPositiveButton("حفظ", (d,w) -> {
                     String endpoint = field.getText().toString().trim();
-                    if (endpoint.isEmpty()) {
-                        getSharedPreferences("receiver_settings", MODE_PRIVATE).edit().remove("cobalt_endpoint").apply();
-                    } else {
-                        String[] endpoints = endpoint.split("[,;\\s]+");
-                        for (String candidate : endpoints) {
-                            Uri u = Uri.parse(candidate);
-                            String scheme = u.getScheme();
-                            if (u.getHost() == null || !("https".equalsIgnoreCase(scheme) || "http".equalsIgnoreCase(scheme))) {
-                                Toast.makeText(this, "عنوان غير صحيح: " + candidate, Toast.LENGTH_LONG).show();
-                                return;
-                            }
+                    String[] endpoints = endpoint.isEmpty() ? new String[0] : endpoint.split("[,;\\s]+");
+                    for (String candidate : endpoints) {
+                        Uri u = Uri.parse(candidate);
+                        String scheme = u.getScheme();
+                        if (u.getHost() == null || !("https".equalsIgnoreCase(scheme)
+                                || "http".equalsIgnoreCase(scheme))) {
+                            Toast.makeText(this, "عنوان غير صحيح: " + candidate, Toast.LENGTH_LONG).show();
+                            return;
                         }
-                        getSharedPreferences("receiver_settings", MODE_PRIVATE).edit().putString("cobalt_endpoint", String.join("\n", endpoints)).apply();
                     }
-                    Toast.makeText(this, "تم حفظ إعدادات الاستخراج", Toast.LENGTH_SHORT).show();
+                    settings.edit()
+                            .putString("cobalt_endpoint", String.join("\\n", endpoints))
+                            .putBoolean("receiver_engine_cobalt", cobalt.isChecked())
+                            .putBoolean("receiver_engine_page", page.isChecked())
+                            .putBoolean("receiver_engine_social", social.isChecked())
+                            .apply();
+                    Toast.makeText(this, "تم حفظ إعدادات المحركات", Toast.LENGTH_SHORT).show();
                 }).show();
     }
 
@@ -1502,56 +1533,96 @@ public class MainActivity extends Activity {
         return null;
     }
 
+    private volatile int extractionGeneration = 0;
+
     private void resolveSharedVideoToStream(String pageUrl) {
+        final int generation = ++extractionGeneration;
+        android.content.SharedPreferences settings =
+                getSharedPreferences("receiver_settings", MODE_PRIVATE);
+        boolean useCobalt = settings.getBoolean("receiver_engine_cobalt", true);
+        boolean usePage = settings.getBoolean("receiver_engine_page", true);
+        boolean useSocial = settings.getBoolean("receiver_engine_social", true);
+        String configured = settings.getString("cobalt_endpoint", "").trim();
+        java.util.ArrayList<String> endpoints = new java.util.ArrayList<>();
+        if (useCobalt && !configured.isEmpty()) {
+            for (String endpoint : configured.split("[,;\\s]+")) {
+                if (isHttpUrl(endpoint)) endpoints.add(endpoint);
+            }
+        }
+
+        int tasks = endpoints.size() + (usePage ? 1 : 0) + (useSocial ? 1 : 0);
         extractionInProgress = true;
         extractionAttemptCount = 0;
-        extractionStatus = "starting";
+        extractionStatus = "starting_parallel";
         persistExtractionState();
         runOnUiThread(() -> {
             if (receiverStatusText != null) {
-                receiverStatusText.setText("جارٍ تجهيز محركات استخراج الفيديو…");
+                receiverStatusText.setText("تشغيل محركات الاستخراج المفعّلة بالتوازي…");
             }
         });
-        Thread extractor = new Thread(() -> {
-            String resolved = null;
-            boolean resolvedByCobalt = false;
-            boolean resolvedByContentType = false;
-            HttpURLConnection connection = null;
-            try {
-                extractionAttemptCount = 1;
-                extractionStatus = "محاولة محرك Cobalt (إذا كان مضبوطًا)";
-                persistExtractionState();
-                resolved = resolveWithConfiguredCobalt(pageUrl);
-                resolvedByCobalt = resolved != null;
-            } catch (Exception e) {
-                Log.w(TAG, "Configured Cobalt resolver failed; falling back to page metadata", e);
+        if (tasks == 0) {
+            extractionInProgress = false;
+            extractionStatus = "web_fallback";
+            persistExtractionState();
+            showExtractionFailureFallback(pageUrl);
+            return;
+        }
+
+        final ReceiverParallelExtractionRun run =
+                new ReceiverParallelExtractionRun(pageUrl, generation, tasks);
+
+        // Each configured/self-hosted Cobalt endpoint gets its own worker.
+        if (useCobalt) {
+            if (endpoints.isEmpty()) {
+                run.failed();
+            } else {
+                for (String endpoint : endpoints) {
+                    Thread worker = new Thread(() -> {
+                        try {
+                            String result = resolveWithCobaltEndpoint(pageUrl, endpoint);
+                            if (result != null && isHttpUrl(result)) {
+                                run.candidate(result, "Cobalt", true, false);
+                            } else {
+                                run.failed();
+                            }
+                        } catch (Exception e) {
+                            Log.w(TAG, "Parallel Cobalt resolver failed", e);
+                            run.failed();
+                        }
+                    }, "CobaltResolver");
+                    worker.setDaemon(true);
+                    worker.start();
+                }
             }
-            if (resolved == null) try {
-                extractionAttemptCount = 2;
-                extractionStatus = "محاولة استخراج بيانات صفحة الفيديو";
-                persistExtractionState();
-                URL url = new URL(pageUrl);
-                connection = (HttpURLConnection) url.openConnection();
-                connection.setInstanceFollowRedirects(true);
-                connection.setConnectTimeout(10000);
-                connection.setReadTimeout(12000);
-                connection.setRequestProperty("User-Agent",
-                        "Mozilla/5.0 (Linux; Android 12; TV) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36");
-                connection.setRequestProperty("Accept",
-                        "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8");
-                connection.setRequestProperty("Accept-Language", "en-US,en;q=0.8");
-                int status = connection.getResponseCode();
-                if (status >= 200 && status < 400) {
-                    String type = connection.getContentType();
-                    if (type != null && (type.toLowerCase(Locale.ROOT).startsWith("video/")
-                            || type.toLowerCase(Locale.ROOT).startsWith("audio/")
-                            || type.toLowerCase(Locale.ROOT).contains("application/vnd.apple.mpegurl")
-                            || type.toLowerCase(Locale.ROOT).contains("application/x-mpegurl")
-                            || type.toLowerCase(Locale.ROOT).contains("application/dash+xml")
-                            || type.toLowerCase(Locale.ROOT).contains("application/x-flv"))) {
-                        resolved = connection.getURL().toString();
-                        resolvedByContentType = true;
-                    } else {
+        }
+
+        // Generic page metadata/content-type parsing runs independently.
+        if (usePage) {
+            Thread worker = new Thread(() -> {
+                HttpURLConnection connection = null;
+                try {
+                    URL url = new URL(pageUrl);
+                    connection = (HttpURLConnection) url.openConnection();
+                    connection.setInstanceFollowRedirects(true);
+                    connection.setConnectTimeout(10000);
+                    connection.setReadTimeout(12000);
+                    connection.setRequestProperty("User-Agent",
+                            "Mozilla/5.0 (Linux; Android 12; TV) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36");
+                    connection.setRequestProperty("Accept",
+                            "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8");
+                    connection.setRequestProperty("Accept-Language", "en-US,en;q=0.8");
+                    int status = connection.getResponseCode();
+                    if (status >= 200 && status < 400) {
+                        String type = connection.getContentType();
+                        if (type != null && (type.toLowerCase(Locale.ROOT).startsWith("video/")
+                                || type.toLowerCase(Locale.ROOT).startsWith("audio/")
+                                || type.toLowerCase(Locale.ROOT).contains("application/vnd.apple.mpegurl")
+                                || type.toLowerCase(Locale.ROOT).contains("application/x-mpegurl")
+                                || type.toLowerCase(Locale.ROOT).contains("application/dash+xml")
+                                || type.toLowerCase(Locale.ROOT).contains("application/x-flv"))) {
+                            run.candidate(connection.getURL().toString(), "Content-Type", false, true);
+                            return;
+                        }
                         StringBuilder html = new StringBuilder();
                         try (BufferedReader reader = new BufferedReader(
                                 new InputStreamReader(connection.getInputStream(), StandardCharsets.UTF_8))) {
@@ -1561,78 +1632,121 @@ public class MainActivity extends Activity {
                                 html.append(buffer, 0, count);
                             }
                         }
-                        resolved = extractDirectMediaFromHtml(html.toString(), pageUrl);
-                    }
-                }
-            } catch (Exception e) {
-                Log.w(TAG, "Direct media extraction failed for shared URL", e);
-            } finally {
-                if (connection != null) connection.disconnect();
-            }
-
-            // Last extraction fallback: use the social-platform-aware parser before offering browser-only playback.
-            if (resolved == null) {
-                extractionAttemptCount = 3;
-                extractionStatus = "محاولة استخراج متخصصة للمنصات الاجتماعية";
-                persistExtractionState();
-                FastMediaExtractor.extractDirectMedia(pageUrl, new FastMediaExtractor.ExtractorCallback() {
-                    @Override public void onSuccess(String mediaUrl, String platform) {
-                        extractionInProgress = false;
-                        extractionStatus = "resolved";
-                        extractionAttemptCount = 3;
-                        persistExtractionState();
-                        if (receiverStatusText != null) {
-                            receiverStatusText.setText("تم استخراج فيديو " + platform + " مباشر؛ جارٍ التشغيل");
+                        String result = extractDirectMediaFromHtml(html.toString(), pageUrl);
+                        if (result != null && isDirectStreamUrl(result)) {
+                            run.candidate(result, "Page Metadata", false, false);
+                            return;
                         }
-                        playContent(mediaUrl, null);
                     }
-                    @Override public void onError(String reason) {
-                        extractionInProgress = false;
-                        extractionAttemptCount = 3;
-                        extractionStatus = "web_fallback";
-                        persistExtractionState();
-                        showExtractionFailureFallback(pageUrl);
-                    }
-                });
-                return;
-            }
-
-            final String directUrl = resolved;
-            final boolean cobaltResult = resolvedByCobalt;
-            final boolean contentTypeResult = resolvedByContentType;
-            extractionInProgress = false;
-            extractionAttemptCount = directUrl != null ? extractionAttemptCount : 3;
-            extractionStatus = directUrl != null ? "resolved" : "web_fallback";
-            persistExtractionState();
-            runOnUiThread(() -> {
-                if (directUrl != null && (isDirectStreamUrl(directUrl) || cobaltResult || contentTypeResult)) {
-                    if (receiverStatusText != null) {
-                        receiverStatusText.setText("تم استخراج الفيديو المباشر، جارٍ التشغيل");
-                    }
-                    // The resolver may have verified a media response by Content-Type even
-                    // when its signed URL has no recognizable file extension. Play it
-                    // directly so queueIncomingMedia does not mistake it for a page URL
-                    // and start extraction again.
-                    playContent(directUrl, null);
-                } else {
-                    // Do not automatically display or interact with a full website on TV.
-                    // Keep the page URL available only through the explicit browser shortcut.
-                    pendingBrowserUrl = pageUrl;
-                    showWelcome();
-                    if (browserShortcut != null) browserShortcut.setVisibility(View.VISIBLE);
-                    if (receiverStatusText != null) {
-                        receiverStatusText.setText("تعذّر استخراج بث مباشر؛ اضغط أيقونة المتصفح أسفل اليسار لو حابب تفتح صفحة الموقع");
-                    }
-                    Toast.makeText(MainActivity.this,
-                            "تعذّر استخراج فيديو مباشر للتشغيل. المتصفح متاح اختياريًا من أسفل اليسار.",
-                            Toast.LENGTH_LONG).show();
+                } catch (Exception e) {
+                    Log.w(TAG, "Parallel page extraction failed", e);
+                } finally {
+                    if (connection != null) connection.disconnect();
                 }
+                run.failed();
+            }, "PageMetadataExtractor");
+            worker.setDaemon(true);
+            worker.start();
+        }
+
+        // Social-platform parsing is independent of the generic HTML request.
+        if (useSocial) {
+            FastMediaExtractor.extractDirectMedia(pageUrl, new FastMediaExtractor.ExtractorCallback() {
+                @Override public void onSuccess(String mediaUrl, String platform) {
+                    run.candidate(mediaUrl, "Social " + platform, false, false);
+                }
+                @Override public void onError(String reason) { run.failed(); }
             });
-        }, "DirectMediaExtractor");
-        extractor.setDaemon(true);
-        extractor.start();
+        }
     }
 
+    private final class ReceiverParallelExtractionRun {
+        private final String pageUrl;
+        private final int generation;
+        private int pending;
+        private String bestUrl;
+        private String bestEngine;
+        private int bestScore = -1;
+        private boolean finishScheduled;
+        private boolean finished;
+        private final Handler handler = new Handler(Looper.getMainLooper());
+        private final Runnable finishRunnable = this::finish;
+
+        ReceiverParallelExtractionRun(String pageUrl, int generation, int pending) {
+            this.pageUrl = pageUrl;
+            this.generation = generation;
+            this.pending = pending;
+        }
+
+        void candidate(String url, String engine, boolean cobaltResult, boolean contentTypeResult) {
+            runOnUiThread(() -> {
+                if (finished || generation != extractionGeneration || isFinishing()) return;
+                if (!isHttpUrl(url) || pageUrl.equals(url)) {
+                    failedOnMain();
+                    return;
+                }
+                int score = receiverMediaQualityHintScore(url);
+                if (cobaltResult) score = Math.max(score, 1080);
+                if (bestUrl == null || score > bestScore) {
+                    bestUrl = url;
+                    bestEngine = engine;
+                    bestScore = score;
+                }
+                if (!finishScheduled) {
+                    finishScheduled = true;
+                    handler.postDelayed(finishRunnable, 1100L);
+                }
+                if (pending <= 0) finish();
+            });
+        }
+
+        void failed() { runOnUiThread(this::failedOnMain); }
+
+        private void failedOnMain() {
+            if (finished || generation != extractionGeneration || isFinishing()) return;
+            if (pending > 0) pending--;
+            if (pending == 0) finish();
+        }
+
+        private void finish() {
+            if (finished || generation != extractionGeneration || isFinishing()) return;
+            finished = true;
+            handler.removeCallbacks(finishRunnable);
+            extractionInProgress = false;
+            extractionAttemptCount = Math.max(1, extractionAttemptCount);
+            if (bestUrl != null) {
+                extractionStatus = "resolved";
+                persistExtractionState();
+                runOnUiThread(() -> {
+                    if (generation != extractionGeneration || isFinishing()) return;
+                    if (receiverStatusText != null) {
+                        receiverStatusText.setText("نجح " + bestEngine + "؛ جارٍ تشغيل أفضل رابط متاح");
+                    }
+                    playContent(bestUrl, null);
+                });
+            } else {
+                extractionStatus = "web_fallback";
+                extractionAttemptCount = pending;
+                persistExtractionState();
+                showExtractionFailureFallback(pageUrl);
+            }
+        }
+    }
+
+    private int receiverMediaQualityHintScore(String mediaUrl) {
+        String value = mediaUrl == null ? "" : mediaUrl.toLowerCase(Locale.ROOT);
+        int[] heights = {2160, 1440, 1080, 720, 540, 480, 360, 240};
+        for (int height : heights) {
+            String number = String.valueOf(height);
+            if (value.contains(number + "p") || value.contains("height=" + number)
+                    || value.contains("quality=" + number) || value.contains("res=" + number)) {
+                return height;
+            }
+        }
+        if (value.contains("quality=hd") || value.contains("high")) return 700;
+        if (value.contains("quality=sd") || value.contains("medium")) return 400;
+        return 0;
+    }
 
     private void showExtractionFailureFallback(String pageUrl) {
         pendingBrowserUrl = pageUrl;
