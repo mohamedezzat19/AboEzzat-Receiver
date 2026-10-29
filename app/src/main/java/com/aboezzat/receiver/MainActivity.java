@@ -1565,7 +1565,7 @@ public class MainActivity extends Activity {
             extractionInProgress = false;
             extractionStatus = "web_fallback";
             persistExtractionState();
-            showExtractionFailureFallback(pageUrl);
+            runOnUiThread(() -> showExtractionFailureFallback(pageUrl));
             return;
         }
 
