@@ -185,6 +185,7 @@ public class MainActivity extends Activity {
         );
 
         playbackPrefs = getSharedPreferences("AboEzzatReceiverPlayback", MODE_PRIVATE);
+        loadPlaybackHistory();
         buildScreen();
         startReceiverService();
         handleExternalIntent(getIntent());
@@ -206,6 +207,7 @@ public class MainActivity extends Activity {
                 "🔌  إعدادات الاستقبال والبورت",
                 "♻  إعادة تشغيل خدمة الاستقبال",
                 "🧪  تشخيص الاتصال",
+                "🕘  سجل المشاهدة",
                 "ℹ  معلومات الإصدار"
         };
         new AlertDialog.Builder(this)
@@ -221,7 +223,8 @@ public class MainActivity extends Activity {
                             Toast.makeText(this, "جارٍ إعادة تشغيل خدمة الاستقبال…", Toast.LENGTH_LONG).show();
                             break;
                         case 4: showConnectionDiagnostics(); break;
-                        case 5:
+                        case 5: showPlaybackHistory(); break;
+                        case 6:
                             try {
                                 android.content.pm.PackageInfo info = getPackageManager().getPackageInfo(getPackageName(), 0);
                                 String version = info.versionName == null ? "غير معروف" : info.versionName;
@@ -2159,11 +2162,75 @@ public class MainActivity extends Activity {
         }
         playbackQueue.add(url);
         playbackQueueIndex = playbackQueue.size() - 1;
-        // Bound the in-memory history so a long-running receiver cannot grow indefinitely.
+        // Persist a bounded history so recent items survive app restarts.
         if (playbackQueue.size() > 100) {
             playbackQueue.remove(0);
             playbackQueueIndex = Math.max(0, playbackQueueIndex - 1);
         }
+        savePlaybackHistory();
+    }
+
+    private void loadPlaybackHistory() {
+        if (playbackPrefs == null) return;
+        String raw = playbackPrefs.getString("recent_playback_urls", "[]");
+        try {
+            org.json.JSONArray array = new org.json.JSONArray(raw);
+            playbackQueue.clear();
+            for (int i = 0; i < array.length() && playbackQueue.size() < 100; i++) {
+                String url = array.optString(i, "");
+                if (isHttpUrl(url) && !playbackQueue.contains(url)) playbackQueue.add(url);
+            }
+            playbackQueueIndex = playbackQueue.size() - 1;
+        } catch (Exception e) {
+            Log.w(TAG, "Unable to load playback history", e);
+            playbackQueue.clear();
+            playbackQueueIndex = -1;
+        }
+    }
+
+    private void savePlaybackHistory() {
+        if (playbackPrefs == null) return;
+        org.json.JSONArray array = new org.json.JSONArray();
+        for (String url : playbackQueue) array.put(url);
+        playbackPrefs.edit().putString("recent_playback_urls", array.toString()).apply();
+    }
+
+    private void showPlaybackHistory() {
+        if (playbackQueue.isEmpty()) {
+            new AlertDialog.Builder(this).setTitle("سجل المشاهدة")
+                    .setMessage("لسه مفيش روابط محفوظة. الروابط اللي تشغّلها هتظهر هنا.")
+                    .setPositiveButton("حسنًا", null).show();
+            return;
+        }
+        java.util.ArrayList<String> recent = new java.util.ArrayList<>();
+        for (int i = playbackQueue.size() - 1; i >= 0; i--) recent.add(playbackQueue.get(i));
+        String[] labels = new String[recent.size()];
+        for (int i = 0; i < recent.size(); i++) {
+            String url = recent.get(i);
+            try {
+                Uri uri = Uri.parse(url);
+                String host = uri.getHost() == null ? url : uri.getHost();
+                String path = uri.getPath() == null ? "" : uri.getPath();
+                labels[i] = host + path + "\n" + url;
+            } catch (Exception e) { labels[i] = url; }
+        }
+        new AlertDialog.Builder(this).setTitle("سجل المشاهدة — الأحدث أولًا")
+                .setItems(labels, (dialog, which) -> {
+                    String selected = recent.get(which);
+                    clearPendingServerMedia();
+                    queueIncomingMedia(selected, null);
+                })
+                .setNeutralButton("مسح السجل", (dialog, which) -> new AlertDialog.Builder(this)
+                        .setTitle("مسح سجل المشاهدة؟")
+                        .setMessage("سيتم حذف الروابط المحفوظة من هذا الجهاز.")
+                        .setNegativeButton("إلغاء", null)
+                        .setPositiveButton("مسح", (d, w) -> {
+                            playbackQueue.clear();
+                            playbackQueueIndex = -1;
+                            savePlaybackHistory();
+                            Toast.makeText(this, "تم مسح سجل المشاهدة", Toast.LENGTH_SHORT).show();
+                        }).show())
+                .setNegativeButton("إغلاق", null).show();
     }
 
     private void playQueueRelative(int delta) {
