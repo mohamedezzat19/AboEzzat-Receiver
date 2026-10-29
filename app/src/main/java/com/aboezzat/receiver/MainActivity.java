@@ -91,6 +91,8 @@ public class MainActivity extends Activity {
     private int playbackQueueIndex = -1;
     private WebView fallbackWebView;
     private TextView browserShortcut;
+    private TextView settingsHomeButton;
+    private TextView browserHomeButton;
     private String pendingBrowserUrl = "";
     private volatile boolean fallbackStreamCaptured = false;
     private volatile String fallbackPageUrl = "";
@@ -885,8 +887,9 @@ public class MainActivity extends Activity {
         root.addView(connectionCard, cardParams);
 
         // أزرار رئيسية متجاورة لتسهيل الوصول بالريموت: الإعدادات ثم المتصفح.
-        TextView settingsButton = makeText("⚙", 25, Color.rgb(255, 207, 94), true);
-        TextView browserHomeButton = makeText("🌐", 23, Color.WHITE, true);
+        settingsHomeButton = makeText("⚙", 25, Color.rgb(255, 207, 94), true);
+        browserHomeButton = makeText("🌐", 23, Color.WHITE, true);
+        TextView settingsButton = settingsHomeButton;
         settingsButton.setId(View.generateViewId());
         browserHomeButton.setId(View.generateViewId());
         TextView[] homeButtons = {settingsButton, browserHomeButton};
@@ -907,15 +910,15 @@ public class MainActivity extends Activity {
         }
         settingsButton.setContentDescription("الإعدادات");
         browserHomeButton.setContentDescription("المتصفح");
-        settingsButton.setNextFocusLeftId(browserHomeButton.getId());
-        browserHomeButton.setNextFocusRightId(settingsButton.getId());
+        settingsButton.setNextFocusDownId(browserHomeButton.getId());
+        browserHomeButton.setNextFocusUpId(settingsButton.getId());
         settingsButton.setOnClickListener(v -> showReceiverSettings());
         browserHomeButton.setOnClickListener(v -> browserShortcut.performClick());
         FrameLayout.LayoutParams settingsButtonParams = new FrameLayout.LayoutParams(dp(58), dp(52), Gravity.TOP | Gravity.END);
         settingsButtonParams.setMargins(dp(8), dp(12), dp(12), dp(8));
         root.addView(settingsButton, settingsButtonParams);
         FrameLayout.LayoutParams browserHomeParams = new FrameLayout.LayoutParams(dp(58), dp(52), Gravity.TOP | Gravity.END);
-        browserHomeParams.setMargins(dp(8), dp(12), dp(78), dp(8));
+        browserHomeParams.setMargins(dp(8), dp(72), dp(12), dp(8));
         root.addView(browserHomeButton, browserHomeParams);
 
         // مشغل الفيديو والصوت.
@@ -1029,11 +1032,7 @@ public class MainActivity extends Activity {
         // Keep the original shortcut available internally, but the visible home entry
         // is the compact top-row browser icon beside Settings.
         browserShortcut.setVisibility(View.GONE);
-        FrameLayout.LayoutParams browserShortcutParams = new FrameLayout.LayoutParams(
-                FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT,
-                Gravity.BOTTOM | Gravity.START);
-        browserShortcutParams.setMargins(dp(18), dp(8), dp(8), dp(18));
-        root.addView(browserShortcut, browserShortcutParams);
+        // The old lower-left browser shortcut is deliberately not attached to the screen.
 
         setContentView(root);
         settingsButton.requestFocus();
@@ -1623,6 +1622,8 @@ public class MainActivity extends Activity {
     // HTML5 video fullscreen requests. Existing ExoPlayer remains the first choice.
     private void showWebFallback(String pageUrl) {
         if (browserShortcut != null) browserShortcut.setVisibility(View.GONE);
+        if (settingsHomeButton != null) settingsHomeButton.setVisibility(View.GONE);
+        if (browserHomeButton != null) browserHomeButton.setVisibility(View.GONE);
         if (!isHttpUrl(pageUrl)) {
             showWelcome();
             Toast.makeText(this, "الرابط غير صالح للتشغيل", Toast.LENGTH_LONG).show();
@@ -1658,10 +1659,11 @@ public class MainActivity extends Activity {
             // use a readable but compact default zoom for D-pad navigation.
             settings.setUseWideViewPort(true);
             settings.setLoadWithOverviewMode(true);
-            settings.setTextZoom(80);
-            // Start zoomed out enough for TV screens; the user can still zoom in with
-            // the WebView's built-in controls or the site's own player controls.
-            fallbackWebView.setInitialScale(80);
+            // Request the desktop website layout on TV instead of the narrow phone layout.
+            // Keep this isolated to the fallback browser; media extraction/playback is unchanged.
+            settings.setUserAgentString("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36");
+            settings.setTextZoom(100);
+            fallbackWebView.setInitialScale(0);
             settings.setSupportZoom(true);
             settings.setBuiltInZoomControls(true);
             settings.setDisplayZoomControls(false);
@@ -1730,11 +1732,11 @@ public class MainActivity extends Activity {
                                 + "var h=document.head||document.getElementsByTagName('head')[0];"
                                 + "if(h&&!document.querySelector('meta[name=viewport]')){"
                                 + "var m=document.createElement('meta');m.name='viewport';"
-                                + "m.content='width=device-width,initial-scale=1,maximum-scale=2';h.appendChild(m);}"
-                                + "document.documentElement.style.maxWidth='100vw';"
-                                + "document.documentElement.style.overflowX='hidden';"
-                                + "if(document.body){document.body.style.maxWidth='100vw';"
-                                + "document.body.style.overflowX='hidden';}"
+                                + "m.content='width=1024,initial-scale=1';h.appendChild(m);}"
+                                + "document.documentElement.style.maxWidth='100%';"
+                                + "document.documentElement.style.overflowX='auto';"
+                                + "if(document.body){document.body.style.maxWidth='100%';"
+                                + "document.body.style.overflowX='auto';}"
                                 + "}catch(e){}})();";
                         view.evaluateJavascript(fitScript, null);
                     }
@@ -2533,7 +2535,9 @@ public class MainActivity extends Activity {
         welcomeScreen.setVisibility(View.GONE);
         welcomeBackground.setVisibility(View.VISIBLE);
         connectionCard.setVisibility(View.VISIBLE);
-        if (browserShortcut != null) browserShortcut.setVisibility(View.VISIBLE);
+        if (browserShortcut != null) browserShortcut.setVisibility(View.GONE);
+        if (settingsHomeButton != null) settingsHomeButton.setVisibility(View.VISIBLE);
+        if (browserHomeButton != null) browserHomeButton.setVisibility(View.VISIBLE);
 
         updateConnectionInfo();
     }
