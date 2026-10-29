@@ -1307,7 +1307,10 @@ public class MainActivity extends Activity {
             // use a readable but compact default zoom for D-pad navigation.
             settings.setUseWideViewPort(true);
             settings.setLoadWithOverviewMode(true);
-            settings.setTextZoom(85);
+            settings.setTextZoom(80);
+            // Start zoomed out enough for TV screens; the user can still zoom in with
+            // the WebView's built-in controls or the site's own player controls.
+            fallbackWebView.setInitialScale(80);
             settings.setSupportZoom(true);
             settings.setBuiltInZoomControls(true);
             settings.setDisplayZoomControls(false);
@@ -1341,6 +1344,29 @@ public class MainActivity extends Activity {
                         });
                     }
                     return super.shouldInterceptRequest(view, request);
+                }
+
+                @Override
+                public boolean onRenderProcessGone(WebView view, android.webkit.RenderProcessGoneDetail detail) {
+                    // Never keep a WebView whose renderer Android has already killed.
+                    // Keep the failed URL so the user can retry from the optional browser shortcut.
+                    String failedUrl = fallbackPageUrl;
+                    Log.e(TAG, "Fallback browser renderer exited; didCrash="
+                            + (detail != null && detail.didCrash()));
+                    if (fallbackWebView == view) fallbackWebView = null;
+                    fallbackStreamCaptured = false;
+                    if (failedUrl != null && isHttpUrl(failedUrl)) pendingBrowserUrl = failedUrl;
+                    runOnUiThread(() -> {
+                        if (webFullscreenView != null) closeWebFullscreen();
+                        if (!isFinishing()) {
+                            showWelcome();
+                            Toast.makeText(MainActivity.this,
+                                    "أندرويد أوقف محرك صفحة الويب. رجّعنا الشاشة الرئيسية؛ اضغط المتصفح لإعادة المحاولة.",
+                                    Toast.LENGTH_LONG).show();
+                        }
+                    });
+                    try { view.destroy(); } catch (Exception ignored) { }
+                    return true;
                 }
 
                 @Override
