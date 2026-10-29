@@ -309,7 +309,7 @@ public class MainActivity extends Activity {
                                 return;
                             }
                         }
-                        getSharedPreferences("receiver_settings", MODE_PRIVATE).edit().putString("cobalt_endpoint", String.join("\\n", endpoints)).apply();
+                        getSharedPreferences("receiver_settings", MODE_PRIVATE).edit().putString("cobalt_endpoint", String.join("\n", endpoints)).apply();
                     }
                     Toast.makeText(this, "تم حفظ إعدادات الاستخراج", Toast.LENGTH_SHORT).show();
                 }).show();
