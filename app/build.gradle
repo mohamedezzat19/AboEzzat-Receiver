@@ -1,9 +1,10 @@
-def ciVersionCode = (System.getenv('GITHUB_RUN_NUMBER') ?: '1').toInteger()
-def ciVersionName = "1.0.${ciVersionCode}"
-
 plugins {
     id 'com.android.application'
 }
+
+def ciVersionCode = (System.getenv('GITHUB_RUN_NUMBER') ?: '1').toInteger()
+def ciVersionName = "1.0.${ciVersionCode}"
+
 
 android {
     namespace 'com.aboezzat.receiver'
