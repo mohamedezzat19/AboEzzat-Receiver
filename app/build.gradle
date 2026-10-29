@@ -10,8 +10,8 @@ android {
         applicationId 'com.aboezzat.receiver'
         minSdk 23
         targetSdk 32
-        versionCode 1
-        versionName '1.0'
+        versionCode ciVersionCode
+        versionName ciVersionName
     }
 
     compileOptions {
@@ -19,9 +19,22 @@ android {
         targetCompatibility JavaVersion.VERSION_17
     }
 
+    signingConfigs {
+        release {
+            def ks = System.getenv('KEYSTORE_FILE')
+            if (ks) {
+                storeFile file(ks)
+                storePassword System.getenv('KEYSTORE_PASSWORD')
+                keyAlias System.getenv('KEY_ALIAS')
+                keyPassword System.getenv('KEY_PASSWORD')
+            }
+        }
+    }
+
     buildTypes {
         release {
             minifyEnabled false
+            if (System.getenv('KEYSTORE_FILE')) signingConfig signingConfigs.release
         }
     }
 }
