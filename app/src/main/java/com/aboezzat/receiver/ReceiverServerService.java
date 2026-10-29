@@ -39,7 +39,13 @@ public class ReceiverServerService extends Service {
     public static final String EXTRA_AUDIO = "server_audio";
     public static final String EXTRA_COMMAND = "server_command";
 
-    private static final int PORT = 8081;
+    private static final int DEFAULT_PORT = 8081;
+    private volatile int activePort = DEFAULT_PORT;
+
+    private int getConfiguredPort() {
+        return getSharedPreferences("receiver_settings", MODE_PRIVATE)
+                .getInt("receiver_port", DEFAULT_PORT);
+    }
     private static final int DISCOVERY_PORT = 37020;
     private static final String DISCOVERY_GROUP = "239.255.42.99";
     private static final String CHANNEL_ID = "aboezzat_receiver_service";
@@ -57,6 +63,7 @@ public class ReceiverServerService extends Service {
     public void onCreate() {
         super.onCreate();
         createNotificationChannel();
+        activePort = getConfiguredPort();
         startForeground(NOTIFICATION_ID, buildNotification());
         startServer();
         startDiscoveryHeartbeat();
@@ -67,6 +74,7 @@ public class ReceiverServerService extends Service {
         // START_STICKY lets Android recreate the listener after reclaiming the process.
         // It cannot override force-stop or device/OEM background restrictions.
         if (!running) {
+            activePort = getConfiguredPort();
             startForeground(NOTIFICATION_ID, buildNotification());
             startServer();
             startDiscoveryHeartbeat();
@@ -98,7 +106,7 @@ public class ReceiverServerService extends Service {
         return builder
                 .setSmallIcon(android.R.drawable.stat_notify_sync_noanim)
                 .setContentTitle("AboEzzat Receiver")
-                .setContentText("استقبال الروابط يعمل على المنفذ 8081")
+                .setContentText("استقبال الروابط يعمل على المنفذ " + activePort + "")
                 .setContentIntent(pendingIntent)
                 .setOngoing(true)
                 .setOnlyAlertOnce(true)
@@ -113,9 +121,9 @@ public class ReceiverServerService extends Service {
             try {
                 ServerSocket listener = new ServerSocket();
                 listener.setReuseAddress(true);
-                listener.bind(new InetSocketAddress(PORT));
+                listener.bind(new InetSocketAddress(activePort));
                 serverSocket = listener;
-                Log.i(TAG, "Background receiver listening on port " + PORT);
+                Log.i(TAG, "Background receiver listening on port " + activePort);
                 while (running) {
                     try {
                         Socket client = listener.accept();
@@ -141,7 +149,7 @@ public class ReceiverServerService extends Service {
                     }
                 }
             } catch (Exception e) {
-                Log.e(TAG, "Could not start background receiver on port " + PORT, e);
+                Log.e(TAG, "Could not start background receiver on port " + activePort, e);
                 running = false;
                 stopSelf();
             }
@@ -156,7 +164,7 @@ public class ReceiverServerService extends Service {
             while (running) {
                 try (DatagramSocket socket = new DatagramSocket()) {
                     socket.setBroadcast(true);
-                    byte[] data = ("ABOEZZAT_RECEIVER|" + getCurrentIpAddress() + "|" + PORT)
+                    byte[] data = ("ABOEZZAT_RECEIVER|" + getCurrentIpAddress() + "|" + activePort)
                             .getBytes(StandardCharsets.UTF_8);
                     DatagramPacket packet = new DatagramPacket(
                             data, data.length, InetAddress.getByName(DISCOVERY_GROUP), DISCOVERY_PORT);
