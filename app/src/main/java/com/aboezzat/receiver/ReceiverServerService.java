@@ -211,34 +211,72 @@ public class ReceiverServerService extends Service {
         boolean invalidMediaUrl = false;
         try (Socket socket = client) {
             socket.setSoTimeout(5000);
-            String requestLine = readBoundedRequestLine(socket.getInputStream());
-            if (requestLine != null) {
-                String[] parts = requestLine.split(" ");
-                if (parts.length >= 2) {
-                    String target = parts[1];
-                    int questionIndex = target.indexOf('?');
-                    if (questionIndex >= 0) {
-                        for (String pair : target.substring(questionIndex + 1).split("&")) {
-                            String[] item = pair.split("=", 2);
-                            if (item.length != 2) continue;
-                            String key = URLDecoder.decode(item[0], "UTF-8");
-                            String value = URLDecoder.decode(item[1], "UTF-8");
-                            if ("url".equals(key) || "video".equals(key)) mediaUrl = value;
-                            else if ("audio".equals(key)) audioUrl = value;
-                            else if ("command".equals(key)) command = value;
-                        }
+            InputStream input = socket.getInputStream();
+            String requestLine = readBoundedRequestLine(input);
+            if (requestLine == null) return;
+            String[] parts = requestLine.split(" ");
+            String method = parts.length > 0 ? parts[0] : "GET";
+            String target = parts.length > 1 ? parts[1] : "/";
+            int contentLength = 0;
+            String header;
+            while ((header = readBoundedRequestLine(input)) != null && !header.isEmpty()) {
+                if (header.regionMatches(true, 0, "Content-Length:", 0, 15)) {
+                    try { contentLength = Integer.parseInt(header.substring(15).trim()); }
+                    catch (Exception ignored) { contentLength = -1; }
+                }
+            }
+
+            if ("POST".equalsIgnoreCase(method)
+                    && ("/pair".equals(target) || "/sync".equals(target))) {
+                if (contentLength < 1 || contentLength > 32768) {
+                    writeHttpResponse(socket, "400 Bad Request", "text/plain; charset=utf-8", "Invalid request size");
+                    return;
+                }
+                byte[] bodyBytes = new byte[contentLength];
+                int offset = 0;
+                while (offset < contentLength) {
+                    int count = input.read(bodyBytes, offset, contentLength - offset);
+                    if (count < 0) throw new IOException("Incomplete request body");
+                    offset += count;
+                }
+                String response;
+                try {
+                    JSONObject request = new JSONObject(new String(bodyBytes, StandardCharsets.UTF_8));
+                    if ("/pair".equals(target)) {
+                        response = pairShare(request);
+                    } else {
+                        response = applySessionSync(request);
+                    }
+                    writeHttpResponse(socket, "200 OK", "application/json; charset=utf-8", response);
+                } catch (SecurityException denied) {
+                    writeHttpResponse(socket, "403 Forbidden", "application/json; charset=utf-8",
+                            new JSONObject().put("ok", false).put("error", "pairing_or_auth_failed").toString());
+                } catch (Exception invalid) {
+                    Log.w(TAG, "Session sync request rejected", invalid);
+                    writeHttpResponse(socket, "400 Bad Request", "application/json; charset=utf-8",
+                            new JSONObject().put("ok", false).put("error", "invalid_request").toString());
+                }
+                return;
+            }
+
+            if (target.startsWith("/")) {
+                int questionIndex = target.indexOf('?');
+                if (questionIndex >= 0) {
+                    for (String pair : target.substring(questionIndex + 1).split("&")) {
+                        String[] item = pair.split("=", 2);
+                        if (item.length != 2) continue;
+                        String key = URLDecoder.decode(item[0], "UTF-8");
+                        String value = URLDecoder.decode(item[1], "UTF-8");
+                        if ("url".equals(key) || "video".equals(key)) mediaUrl = value;
+                        else if ("audio".equals(key)) audioUrl = value;
+                        else if ("command".equals(key)) command = value;
                     }
                 }
             }
 
-            // The local HTTP endpoint accepts network URLs only. Reject malformed or
-            // non-HTTP schemes before saving a request or asking the UI to play it.
-            invalidMediaUrl = (mediaUrl != null && !mediaUrl.trim().isEmpty()
-                    && !isHttpUrl(mediaUrl))
-                    || (audioUrl != null && !audioUrl.trim().isEmpty()
-                    && !isHttpUrl(audioUrl));
+            invalidMediaUrl = (mediaUrl != null && !mediaUrl.trim().isEmpty() && !isHttpUrl(mediaUrl))
+                    || (audioUrl != null && !audioUrl.trim().isEmpty() && !isHttpUrl(audioUrl));
             String body = invalidMediaUrl ? "Invalid media URL" : "OK";
-            String responseStatus = invalidMediaUrl ? "400 Bad Request" : "200 OK";
             String contentType = "text/plain; charset=utf-8";
             if ("status".equals(command)) {
                 SharedPreferences state = getSharedPreferences("AboEzzatReceiverState", MODE_PRIVATE);
@@ -249,58 +287,101 @@ public class ReceiverServerService extends Service {
                 body = json.toString();
                 contentType = "application/json; charset=utf-8";
             }
-            byte[] bodyBytes = body.getBytes(StandardCharsets.UTF_8);
-            byte[] headers = ("HTTP/1.1 " + responseStatus + "\r\n"
-                    + "Content-Type: " + contentType + "\r\n"
-                    + "Access-Control-Allow-Origin: *\r\n"
-                    + "Access-Control-Allow-Methods: GET, OPTIONS\r\n"
-                    + "Connection: close\r\n"
-                    + "Content-Length: " + bodyBytes.length + "\r\n\r\n")
-                    .getBytes(StandardCharsets.UTF_8);
-            OutputStream output = socket.getOutputStream();
-            output.write(headers);
-            output.write(bodyBytes);
-            output.flush();
+            writeHttpResponse(socket, invalidMediaUrl ? "400 Bad Request" : "200 OK", contentType, body);
         } catch (Exception e) {
             Log.w(TAG, "Request handling failed", e);
             return;
         }
 
-        if (invalidMediaUrl) {
-            Log.w(TAG, "Rejected non-HTTP or malformed media URL");
-            return;
-        }
-        if ("ping".equals(command) || "status".equals(command)) return;
+        if (invalidMediaUrl || "ping".equals(command) || "status".equals(command)) return;
         if ((mediaUrl == null || mediaUrl.trim().isEmpty())
                 && (audioUrl == null || audioUrl.trim().isEmpty())
                 && (command == null || command.trim().isEmpty())) return;
-
-        // Keep the latest incoming media request in case Android blocks starting
-        // an Activity from the background. MainActivity consumes and clears it later.
         if ((mediaUrl != null && !mediaUrl.trim().isEmpty())
                 || (audioUrl != null && !audioUrl.trim().isEmpty())) {
             getSharedPreferences("AboEzzatReceiverPending", MODE_PRIVATE).edit()
                     .putString("url", mediaUrl == null ? "" : mediaUrl)
                     .putString("audio", audioUrl == null ? "" : audioUrl)
-                    .putLong("received_at", System.currentTimeMillis())
-                    .apply();
+                    .putLong("received_at", System.currentTimeMillis()).apply();
         }
-
         Intent request = new Intent(this, MainActivity.class);
         request.setAction(ACTION_SERVER_REQUEST);
         request.putExtra(EXTRA_URL, mediaUrl);
         request.putExtra(EXTRA_AUDIO, audioUrl);
         request.putExtra(EXTRA_COMMAND, command);
-        request.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK
-                | Intent.FLAG_ACTIVITY_CLEAR_TOP
-                | Intent.FLAG_ACTIVITY_SINGLE_TOP);
-        try {
-            startActivity(request);
-        } catch (Exception e) {
-            // Some Android/TV builds can block activity launches from the background.
-            // The foreground notification remains available to reopen the receiver.
-            Log.e(TAG, "OS blocked opening Receiver for incoming request", e);
+        request.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+        try { startActivity(request); }
+        catch (Exception e) { Log.e(TAG, "OS blocked opening Receiver for incoming request", e); }
+    }
+
+    private String pairShare(JSONObject request) throws Exception {
+        SharedPreferences pairing = getSharedPreferences("AboEzzatPairing", MODE_PRIVATE);
+        String supplied = request.optString("code", "");
+        String expected = pairing.getString("pairing_code", "");
+        long expires = pairing.getLong("code_expires_at", 0L);
+        int attempts = pairing.getInt("failed_attempts", 0);
+        if (attempts >= 5 || expected.isEmpty() || System.currentTimeMillis() > expires
+                || supplied.length() != 8 || !supplied.equals(expected)) {
+            pairing.edit().putInt("failed_attempts", attempts + 1).apply();
+            throw new SecurityException("Pairing rejected");
         }
+        byte[] secret = ReceiverSessionCrypto.randomBytes(32);
+        byte[] salt = ReceiverSessionCrypto.randomBytes(16);
+        byte[] wrappingKey = ReceiverSessionCrypto.derive(supplied, salt);
+        String wrapped = ReceiverSessionCrypto.encrypt(wrappingKey, secret);
+        getSharedPreferences("AboEzzatPairing", MODE_PRIVATE).edit()
+                .putString("session_secret", ReceiverSessionCrypto.b64(secret))
+                .putLong("last_sync_timestamp", 0L)
+                .remove("pairing_code").remove("code_expires_at").remove("failed_attempts").apply();
+        JSONObject result = new JSONObject();
+        result.put("ok", true);
+        result.put("salt", ReceiverSessionCrypto.b64(salt));
+        result.put("wrapped_secret", wrapped);
+        return result.toString();
+    }
+
+    private String applySessionSync(JSONObject request) throws Exception {
+        SharedPreferences pairing = getSharedPreferences("AboEzzatPairing", MODE_PRIVATE);
+        String secretText = pairing.getString("session_secret", "");
+        if (secretText.isEmpty()) throw new SecurityException("Not paired");
+        byte[] secret = ReceiverSessionCrypto.unb64(secretText);
+        JSONObject payload = new JSONObject(new String(
+                ReceiverSessionCrypto.decrypt(secret, request.getString("payload")),
+                StandardCharsets.UTF_8));
+        long timestamp = payload.optLong("timestamp", 0L);
+        long previous = pairing.getLong("last_sync_timestamp", 0L);
+        long now = System.currentTimeMillis();
+        if (timestamp <= previous || Math.abs(now - timestamp) > 5L * 60L * 1000L) {
+            throw new SecurityException("Stale session payload");
+        }
+        String pageUrl = payload.optString("url", "");
+        String cookies = payload.optString("cookies", "");
+        if (!isHttpUrl(pageUrl) || cookies.isEmpty() || cookies.length() > 16000
+                || cookies.indexOf('\n') >= 0 || cookies.indexOf('\r') >= 0) {
+            throw new SecurityException("Invalid session data");
+        }
+        android.webkit.CookieManager manager = android.webkit.CookieManager.getInstance();
+        manager.setAcceptCookie(true);
+        manager.setCookie(pageUrl, cookies);
+        manager.flush();
+        pairing.edit().putLong("last_sync_timestamp", timestamp).apply();
+        return new JSONObject().put("ok", true).put("synced", true).toString();
+    }
+
+    private void writeHttpResponse(Socket socket, String status, String contentType, String body)
+            throws IOException {
+        byte[] bodyBytes = body.getBytes(StandardCharsets.UTF_8);
+        byte[] headers = ("HTTP/1.1 " + status + "\r\n"
+                + "Content-Type: " + contentType + "\r\n"
+                + "Cache-Control: no-store\r\n"
+                + "Access-Control-Allow-Origin: *\r\n"
+                + "Connection: close\r\n"
+                + "Content-Length: " + bodyBytes.length + "\r\n\r\n")
+                .getBytes(StandardCharsets.UTF_8);
+        OutputStream output = socket.getOutputStream();
+        output.write(headers);
+        output.write(bodyBytes);
+        output.flush();
     }
 
     // Never let an untrusted LAN client force an unbounded request-line allocation.
