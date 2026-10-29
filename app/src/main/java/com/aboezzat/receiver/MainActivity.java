@@ -398,6 +398,20 @@ public class MainActivity extends Activity {
                     byte[] buffer = new byte[16384]; int count;
                     while ((count = in.read(buffer)) != -1) out.write(buffer, 0, count);
                 }
+                // Validate the downloaded package before launching Android's installer.
+                android.content.pm.PackageInfo archive = getPackageManager().getPackageArchiveInfo(
+                        apk.getAbsolutePath(), android.content.pm.PackageManager.GET_META_DATA);
+                if (archive == null || !getPackageName().equals(archive.packageName)) {
+                    throw new Exception("Downloaded APK is not the Receiver package");
+                }
+                android.content.pm.PackageInfo installedInfo = getPackageManager().getPackageInfo(getPackageName(), 0);
+                long downloadedCode = android.os.Build.VERSION.SDK_INT >= 28
+                        ? archive.getLongVersionCode() : archive.versionCode;
+                long installedCode = android.os.Build.VERSION.SDK_INT >= 28
+                        ? installedInfo.getLongVersionCode() : installedInfo.versionCode;
+                if (downloadedCode <= installedCode) {
+                    throw new Exception("Downloaded APK is not newer than installed version");
+                }
                 runOnUiThread(() -> {
                     try {
                         if (android.os.Build.VERSION.SDK_INT >= 26 && !getPackageManager().canRequestPackageInstalls()) {
@@ -418,8 +432,10 @@ public class MainActivity extends Activity {
                     }
                 });
             } catch (Exception e) {
-                Log.e(TAG, "Receiver update download failed", e);
-                runOnUiThread(() -> Toast.makeText(this, "فشل تنزيل التحديث. حاول مرة أخرى.", Toast.LENGTH_LONG).show());
+                Log.e(TAG, "Receiver update download/validation failed", e);
+                runOnUiThread(() -> new AlertDialog.Builder(this).setTitle("تعذّر اعتماد ملف التحديث")
+                        .setMessage("لم يتم تثبيت أي ملف. قد يكون التنزيل غير مكتمل أو الملف ليس إصدارًا أحدث من الريسيفر.")
+                        .setPositiveButton("حسنًا", null).show());
             } finally { if (connection != null) connection.disconnect(); }
         }, "receiver-update-download").start();
     }
