@@ -211,7 +211,7 @@ public class MainActivity extends Activity {
                 "🧪  تشخيص الاتصال",
                 "🕘  سجل المشاهدة",
                 "ℹ  معلومات الإصدار",
-                "🔐  اقتران Share ومزامنة تسجيل الدخول"
+                "🔐  اقتران Share (قيد التطوير)"
         };
         new AlertDialog.Builder(this)
                 .setTitle("⚙ إعدادات الريسيفر")
@@ -256,10 +256,10 @@ public class MainActivity extends Activity {
                     .putLong("code_expires_at", expiresAt).putInt("failed_attempts", 0).apply();
         }
         long remaining = Math.max(0L, (expiresAt - System.currentTimeMillis() + 59999L) / 60000L);
-        String message = "اكتب الكود ده مرة واحدة في تطبيق AboEzzat Share على موبايلك:\n\n"
+        String message = "ده كود تجريبي لواجهة الاقتران فقط:\n\n"
                 + code + "\n\nصالح لمدة تصل إلى " + remaining + " دقائق.\n"
-                + "لا تشارك الكود مع أي شخص على شبكة أخرى. لن يتم نقل كلمة مرور الموقع.";
-        new AlertDialog.Builder(this).setTitle("🔐 اقتران Share")
+                + "تنبيه: الاقتران الفعلي غير مفعّل حاليًا، والكود لا يربط Share ولا ينقل تسجيل الدخول أو بيانات المواقع. لا تشاركه مع أي شخص.";
+        new AlertDialog.Builder(this).setTitle("🔐 الاقتران — قيد التطوير")
                 .setMessage(message)
                 .setPositiveButton("توليد كود جديد", (d, w) -> {
                     pairing.edit().remove("pairing_code").remove("code_expires_at")
