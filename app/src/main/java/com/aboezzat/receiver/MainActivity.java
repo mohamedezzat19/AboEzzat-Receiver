@@ -560,13 +560,41 @@ public class MainActivity extends Activity {
         connectionCard.addView(ipText, ipParams);
 
         TextView portText = makeText(
-                "PORT: " + PORT,
+                "PORT: " + getSharedPreferences("receiver_settings", MODE_PRIVATE).getInt("receiver_port", 8081),
                 10,
                 Color.rgb(255, 207, 94),
                 true
         );
 
         portText.setTextIsSelectable(true);
+        portText.setOnClickListener(v -> {
+            EditText portInput = new EditText(this);
+            portInput.setSingleLine(true);
+            portInput.setInputType(android.text.InputType.TYPE_CLASS_NUMBER);
+            portInput.setText(String.valueOf(getSharedPreferences("receiver_settings", MODE_PRIVATE)
+                    .getInt("receiver_port", 8081)));
+            new AlertDialog.Builder(this)
+                    .setTitle("تغيير بورت الاستقبال")
+                    .setMessage("القيمة الافتراضية 8081. اختَر رقمًا بين 1024 و65535، ثم اضغط حفظ. لازم تضع الرقم نفسه في AboEzzat Share.")
+                    .setView(portInput)
+                    .setNegativeButton("إلغاء", null)
+                    .setPositiveButton("حفظ وإعادة تشغيل", (dialog, which) -> {
+                        String value = portInput.getText().toString().trim();
+                        int port;
+                        try { port = Integer.parseInt(value); }
+                        catch (Exception e) { port = -1; }
+                        if (port < 1024 || port > 65535) {
+                            Toast.makeText(this, "اختَر بورتًا بين 1024 و65535", Toast.LENGTH_LONG).show();
+                            return;
+                        }
+                        getSharedPreferences("receiver_settings", MODE_PRIVATE).edit()
+                                .putInt("receiver_port", port).apply();
+                        portText.setText("PORT: " + port);
+                        stopService(new android.content.Intent(this, ReceiverServerService.class));
+                        portText.postDelayed(() -> startReceiverService(), 500L);
+                        Toast.makeText(this, "تم حفظ البورت. اضبط الرقم نفسه في Share.", Toast.LENGTH_LONG).show();
+                    }).show();
+        });
 
         LinearLayout.LayoutParams portParams =
                 new LinearLayout.LayoutParams(
