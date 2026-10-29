@@ -884,24 +884,37 @@ public class MainActivity extends Activity {
 
         root.addView(connectionCard, cardParams);
 
-        // زر إعدادات واضح مناسب للتحكم بالريموت.
+        // أزرار رئيسية متجاورة لتسهيل الوصول بالريموت: الإعدادات ثم المتصفح.
         TextView settingsButton = makeText("⚙", 25, Color.rgb(255, 207, 94), true);
-        settingsButton.setGravity(Gravity.CENTER);
-        settingsButton.setFocusable(true);
-        settingsButton.setClickable(true);
+        TextView browserHomeButton = makeText("🌐", 23, Color.WHITE, true);
+        TextView[] homeButtons = {settingsButton, browserHomeButton};
+        for (TextView homeButton : homeButtons) {
+            homeButton.setGravity(Gravity.CENTER);
+            homeButton.setFocusable(true);
+            homeButton.setFocusableInTouchMode(true);
+            homeButton.setClickable(true);
+            homeButton.setPadding(dp(6), dp(4), dp(6), dp(4));
+            homeButton.setBackground(roundedBackground(Color.rgb(20, 34, 61), Color.rgb(86, 132, 255), 14));
+            homeButton.setOnFocusChangeListener((v, focused) -> {
+                v.setScaleX(focused ? 1.12f : 1f);
+                v.setScaleY(focused ? 1.12f : 1f);
+                v.setElevation(focused ? dp(12) : dp(3));
+                v.setBackground(roundedBackground(focused ? Color.rgb(43, 66, 108) : Color.rgb(20, 34, 61),
+                        focused ? Color.rgb(255, 196, 87) : Color.rgb(86, 132, 255), 14));
+            });
+        }
         settingsButton.setContentDescription("الإعدادات");
-        settingsButton.setPadding(dp(8), dp(4), dp(8), dp(4));
-        settingsButton.setBackground(roundedBackground(Color.rgb(20, 34, 61), Color.rgb(86, 132, 255), 14));
-        settingsButton.setOnFocusChangeListener((v, focused) -> {
-            v.setScaleX(focused ? 1.08f : 1f);
-            v.setScaleY(focused ? 1.08f : 1f);
-            v.setBackground(roundedBackground(focused ? Color.rgb(35, 55, 91) : Color.rgb(20, 34, 61),
-                    focused ? Color.rgb(255, 196, 87) : Color.rgb(86, 132, 255), 14));
-        });
+        browserHomeButton.setContentDescription("المتصفح");
+        settingsButton.setNextFocusLeftId(browserHomeButton.getId());
+        browserHomeButton.setNextFocusRightId(settingsButton.getId());
         settingsButton.setOnClickListener(v -> showReceiverSettings());
-        FrameLayout.LayoutParams settingsButtonParams = new FrameLayout.LayoutParams(dp(54), dp(48), Gravity.TOP | Gravity.END);
+        browserHomeButton.setOnClickListener(v -> browserShortcut.performClick());
+        FrameLayout.LayoutParams settingsButtonParams = new FrameLayout.LayoutParams(dp(58), dp(52), Gravity.TOP | Gravity.END);
         settingsButtonParams.setMargins(dp(8), dp(12), dp(12), dp(8));
         root.addView(settingsButton, settingsButtonParams);
+        FrameLayout.LayoutParams browserHomeParams = new FrameLayout.LayoutParams(dp(58), dp(52), Gravity.TOP | Gravity.END);
+        browserHomeParams.setMargins(dp(8), dp(12), dp(78), dp(8));
+        root.addView(browserHomeButton, browserHomeParams);
 
         // مشغل الفيديو والصوت.
         // Inflate with surface_type="texture_view" so Media3 can apply rotation metadata
@@ -1011,6 +1024,9 @@ public class MainActivity extends Activity {
                         }
                     }).show();
         });
+        // Keep the original shortcut available internally, but the visible home entry
+        // is the compact top-row browser icon beside Settings.
+        browserShortcut.setVisibility(View.GONE);
         FrameLayout.LayoutParams browserShortcutParams = new FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT,
                 Gravity.BOTTOM | Gravity.START);
@@ -1018,6 +1034,7 @@ public class MainActivity extends Activity {
         root.addView(browserShortcut, browserShortcutParams);
 
         setContentView(root);
+        settingsButton.requestFocus();
     }
 
     // قراءة عنوان IP الحالي من الشبكة.
