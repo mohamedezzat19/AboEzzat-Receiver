@@ -1550,7 +1550,8 @@ public class MainActivity extends Activity {
             }
         }
 
-        int tasks = endpoints.size() + (usePage ? 1 : 0) + (useSocial ? 1 : 0);
+        int tasks = (useCobalt ? Math.max(1, endpoints.size()) : 0)
+                + (usePage ? 1 : 0) + (useSocial ? 1 : 0);
         extractionInProgress = true;
         extractionAttemptCount = 0;
         extractionStatus = "starting_parallel";
