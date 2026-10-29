@@ -90,6 +90,8 @@ public class MainActivity extends Activity {
     private final java.util.ArrayList<String> playbackQueue = new java.util.ArrayList<>();
     private int playbackQueueIndex = -1;
     private WebView fallbackWebView;
+    private TextView browserShortcut;
+    private String pendingBrowserUrl = "";
     private volatile boolean fallbackStreamCaptured = false;
     private volatile String fallbackPageUrl = "";
     private final Handler backPressHandler = new Handler(Looper.getMainLooper());
@@ -678,6 +680,26 @@ public class MainActivity extends Activity {
 
         root.addView(imageLoading, loadingParams);
 
+        // Optional TV browser shortcut, pinned to the lower-left corner.
+        // It only appears after direct media resolution fails; it never opens automatically.
+        browserShortcut = makeText("🌐  المتصفح", 14, Color.WHITE, true);
+        browserShortcut.setPadding(dp(18), dp(10), dp(18), dp(10));
+        browserShortcut.setBackground(roundedBackground(
+                Color.argb(235, 17, 27, 49), Color.rgb(86, 132, 255), 24));
+        browserShortcut.setFocusable(true);
+        browserShortcut.setClickable(true);
+        browserShortcut.setVisibility(View.GONE);
+        browserShortcut.setOnClickListener(v -> {
+            String url = pendingBrowserUrl;
+            if (isHttpUrl(url)) showWebFallback(url);
+            else Toast.makeText(this, "مفيش صفحة فيديو متاحة للفتح دلوقتي", Toast.LENGTH_SHORT).show();
+        });
+        FrameLayout.LayoutParams browserShortcutParams = new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT,
+                Gravity.BOTTOM | Gravity.START);
+        browserShortcutParams.setMargins(dp(18), dp(8), dp(8), dp(18));
+        root.addView(browserShortcut, browserShortcutParams);
+
         setContentView(root);
     }
 
@@ -1203,15 +1225,16 @@ public class MainActivity extends Activity {
                     // and start extraction again.
                     playContent(directUrl, null);
                 } else {
-                    // Direct extraction can fail for authenticated/social pages or DRM-backed streams.
-                    // Keep direct ExoPlayer playback as first choice, but do not leave the user at
-                    // the welcome screen: try the page's own HTML5 player on the TV as a fallback.
+                    // Do not automatically display or interact with a full website on TV.
+                    // Keep the page URL available only through the explicit browser shortcut.
+                    pendingBrowserUrl = pageUrl;
+                    showWelcome();
+                    if (browserShortcut != null) browserShortcut.setVisibility(View.VISIBLE);
                     if (receiverStatusText != null) {
-                        receiverStatusText.setText("تعذّر استخراج رابط مباشر؛ جاري فتح مشغّل الموقع على الشاشة");
+                        receiverStatusText.setText("تعذّر استخراج بث مباشر؛ اضغط أيقونة المتصفح أسفل اليسار لو حابب تفتح صفحة الموقع");
                     }
-                    showWebFallback(pageUrl);
                     Toast.makeText(MainActivity.this,
-                            "الموقع لم يكشف رابط بث مباشر؛ بجرب تشغيل الفيديو من صفحة الموقع على الشاشة.",
+                            "تعذّر استخراج فيديو مباشر للتشغيل. المتصفح متاح اختياريًا من أسفل اليسار.",
                             Toast.LENGTH_LONG).show();
                 }
             });
@@ -1224,6 +1247,7 @@ public class MainActivity extends Activity {
     // Last-resort browser playback: show the page without browser chrome and honor
     // HTML5 video fullscreen requests. Existing ExoPlayer remains the first choice.
     private void showWebFallback(String pageUrl) {
+        if (browserShortcut != null) browserShortcut.setVisibility(View.GONE);
         if (!isHttpUrl(pageUrl)) {
             showWelcome();
             Toast.makeText(this, "الرابط غير صالح للتشغيل", Toast.LENGTH_LONG).show();
@@ -1464,6 +1488,8 @@ public class MainActivity extends Activity {
 
     // natively play media URLs; resolve page URLs to a direct stream instead of opening another app.
     private void queueIncomingMedia(String mediaUrl, String audioUrl) {
+        pendingBrowserUrl = "";
+        if (browserShortcut != null) browserShortcut.setVisibility(View.GONE);
         // The receiver is reachable on the local network, so accept only remote HTTP(S)
         // URLs from incoming requests; never pass file/content/javascript or other schemes
         // to ExoPlayer or the social-video resolver.
