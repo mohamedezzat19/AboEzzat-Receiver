@@ -1798,13 +1798,16 @@ public class MainActivity extends Activity {
                     if (audioManager != null) {
                         if ("volume_up".equals(command)) {
                             audioManager.adjustStreamVolume(android.media.AudioManager.STREAM_MUSIC,
-                                    android.media.AudioManager.ADJUST_RAISE, 0);
+                                    android.media.AudioManager.ADJUST_RAISE,
+                                    android.media.AudioManager.FLAG_SHOW_UI | android.media.AudioManager.FLAG_PLAY_SOUND);
                         } else if ("volume_down".equals(command)) {
                             audioManager.adjustStreamVolume(android.media.AudioManager.STREAM_MUSIC,
-                                    android.media.AudioManager.ADJUST_LOWER, 0);
+                                    android.media.AudioManager.ADJUST_LOWER,
+                                    android.media.AudioManager.FLAG_SHOW_UI | android.media.AudioManager.FLAG_PLAY_SOUND);
                         } else {
                             audioManager.adjustStreamVolume(android.media.AudioManager.STREAM_MUSIC,
-                                    android.media.AudioManager.ADJUST_TOGGLE_MUTE, 0);
+                                    android.media.AudioManager.ADJUST_TOGGLE_MUTE,
+                                    android.media.AudioManager.FLAG_SHOW_UI | android.media.AudioManager.FLAG_PLAY_SOUND);
                         }
                     }
                     return;
