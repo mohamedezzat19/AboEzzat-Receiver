@@ -52,23 +52,23 @@ jobs:
         env:
           KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
           STORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
-          KEY_ALIAS_INPUT: ${{ secrets.ANDROID_KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         shell: bash
         run: |
-          if [[ -z "$KEYSTORE_BASE64" || -z "$STORE_PASSWORD" || -z "$KEY_ALIAS_INPUT" || -z "$KEY_PASSWORD" ]]; then
+          if [[ -z "$KEYSTORE_BASE64" || -z "$STORE_PASSWORD" || -z "$KEY_PASSWORD" ]]; then
             echo "HAS_SIGNING=false" >> "$GITHUB_ENV"
             echo "Receiver signing secrets missing or unavailable; debug APK only."
             exit 0
           fi
           echo "$KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/release-keystore.jks"
-          if ! keytool -list -keystore "$RUNNER_TEMP/release-keystore.jks" -storepass "$STORE_PASSWORD" >/dev/null 2>&1; then
+          ALIAS="$(keytool -list -keystore "$RUNNER_TEMP/release-keystore.jks" -storepass "$STORE_PASSWORD" -v 2>/dev/null | sed -n 's/^Alias name: //p' | head -n 1)"
+          if [[ -z "$ALIAS" ]]; then
             echo "HAS_SIGNING=false" >> "$GITHUB_ENV"
-            echo "::warning::Receiver keystore could not be opened; check the keystore and store password."
+            echo "::warning::Receiver keystore could not be opened or contains no readable alias; check the keystore and store password."
             exit 0
           fi
           echo "KEYSTORE_FILE=$RUNNER_TEMP/release-keystore.jks" >> "$GITHUB_ENV"
-          echo "KEY_ALIAS=$KEY_ALIAS_INPUT" >> "$GITHUB_ENV"
+          echo "KEY_ALIAS=$ALIAS" >> "$GITHUB_ENV"
           echo "HAS_SIGNING=true" >> "$GITHUB_ENV"
           echo "Receiver signing configuration detected; secret values are not printed."
 
@@ -77,7 +77,7 @@ jobs:
         env:
           KEYSTORE_FILE: ${{ runner.temp }}/release-keystore.jks
           KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
-          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_ALIAS: ${{ env.KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: gradle assembleRelease --stacktrace
 
