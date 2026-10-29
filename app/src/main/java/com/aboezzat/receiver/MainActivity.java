@@ -205,6 +205,7 @@ public class MainActivity extends Activity {
                 "🌐  إعدادات استخراج الفيديو",
                 "🔌  إعدادات الاستقبال والبورت",
                 "♻  إعادة تشغيل خدمة الاستقبال",
+                "🧪  تشخيص الاتصال",
                 "ℹ  معلومات الإصدار"
         };
         new AlertDialog.Builder(this)
@@ -219,7 +220,8 @@ public class MainActivity extends Activity {
                             new Handler(Looper.getMainLooper()).postDelayed(this::startReceiverService, 500L);
                             Toast.makeText(this, "جارٍ إعادة تشغيل خدمة الاستقبال…", Toast.LENGTH_LONG).show();
                             break;
-                        case 4:
+                        case 4: showConnectionDiagnostics(); break;
+                        case 5:
                             try {
                                 android.content.pm.PackageInfo info = getPackageManager().getPackageInfo(getPackageName(), 0);
                                 String version = info.versionName == null ? "غير معروف" : info.versionName;
@@ -231,6 +233,52 @@ public class MainActivity extends Activity {
                             break;
                     }
                 }).setNegativeButton("إغلاق", null).show();
+    }
+
+
+    private void showConnectionDiagnostics() {
+        String ip = "غير معروف";
+        try {
+            java.util.Enumeration<java.net.NetworkInterface> interfaces = java.net.NetworkInterface.getNetworkInterfaces();
+            while (interfaces != null && interfaces.hasMoreElements()) {
+                java.net.NetworkInterface ni = interfaces.nextElement();
+                if (!ni.isUp() || ni.isLoopback()) continue;
+                java.util.Enumeration<java.net.InetAddress> addresses = ni.getInetAddresses();
+                while (addresses.hasMoreElements()) {
+                    java.net.InetAddress address = addresses.nextElement();
+                    if (address instanceof java.net.Inet4Address && !address.isLoopbackAddress()) {
+                        ip = address.getHostAddress();
+                        break;
+                    }
+                }
+                if (!"غير معروف".equals(ip)) break;
+            }
+        } catch (Exception e) { Log.w(TAG, "Unable to inspect receiver IP", e); }
+        int port = getSharedPreferences("receiver_settings", MODE_PRIVATE).getInt("receiver_port", 8081);
+        android.net.ConnectivityManager cm = (android.net.ConnectivityManager) getSystemService(CONNECTIVITY_SERVICE);
+        boolean networkConnected = false;
+        if (cm != null) {
+            android.net.Network active = cm.getActiveNetwork();
+            android.net.NetworkCapabilities caps = active == null ? null : cm.getNetworkCapabilities(active);
+            networkConnected = caps != null && (caps.hasTransport(android.net.NetworkCapabilities.TRANSPORT_WIFI)
+                    || caps.hasTransport(android.net.NetworkCapabilities.TRANSPORT_ETHERNET)
+                    || caps.hasTransport(android.net.NetworkCapabilities.TRANSPORT_CELLULAR));
+        }
+        String details = "عنوان IP: " + ip + "\\nبورت الاستقبال: " + port
+                + "\\nالشبكة: " + (networkConnected ? "متصل" : "غير متصل أو لم تُكتشف")
+                + "\\nإصدار أندرويد: " + android.os.Build.VERSION.RELEASE
+                + "\\nالجهاز: " + android.os.Build.MANUFACTURER + " " + android.os.Build.MODEL
+                + "\\n\\nلو Share لا يتصل، تأكد أن الجهازين على نفس الشبكة وأن البورت متطابق في التطبيقين.";
+        new AlertDialog.Builder(this).setTitle("تشخيص الاتصال")
+                .setMessage(details)
+                .setPositiveButton("نسخ المعلومات", (d,w) -> {
+                    android.content.ClipboardManager clipboard = (android.content.ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
+                    if (clipboard != null) {
+                        clipboard.setPrimaryClip(android.content.ClipData.newPlainText("Receiver diagnostics", details));
+                        Toast.makeText(this, "تم نسخ معلومات التشخيص", Toast.LENGTH_SHORT).show();
+                    }
+                })
+                .setNegativeButton("إغلاق", null).show();
     }
 
     private void showExtractorSettings() {
