@@ -250,11 +250,11 @@ public class ReceiverServerService extends Service {
                     writeHttpResponse(socket, "200 OK", "application/json; charset=utf-8", response);
                 } catch (SecurityException denied) {
                     writeHttpResponse(socket, "403 Forbidden", "application/json; charset=utf-8",
-                            new JSONObject().put("ok", false).put("error", "pairing_or_auth_failed").toString());
+                            "{\\"ok\\":false,\\"error\\":\\"pairing_or_auth_failed\\"}");
                 } catch (Exception invalid) {
                     Log.w(TAG, "Session sync request rejected", invalid);
                     writeHttpResponse(socket, "400 Bad Request", "application/json; charset=utf-8",
-                            new JSONObject().put("ok", false).put("error", "invalid_request").toString());
+                            "{\\"ok\\":false,\\"error\\":\\"invalid_request\\"}");
                 }
                 return;
             }
