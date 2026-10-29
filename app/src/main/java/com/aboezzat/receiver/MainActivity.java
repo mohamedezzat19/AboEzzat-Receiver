@@ -688,11 +688,35 @@ public class MainActivity extends Activity {
                 Color.argb(235, 17, 27, 49), Color.rgb(86, 132, 255), 24));
         browserShortcut.setFocusable(true);
         browserShortcut.setClickable(true);
-        browserShortcut.setVisibility(View.GONE);
+        browserShortcut.setVisibility(View.VISIBLE);
         browserShortcut.setOnClickListener(v -> {
             String url = pendingBrowserUrl;
-            if (isHttpUrl(url)) showWebFallback(url);
-            else Toast.makeText(this, "مفيش صفحة فيديو متاحة للفتح دلوقتي", Toast.LENGTH_SHORT).show();
+            if (isHttpUrl(url)) {
+                showWebFallback(url);
+                return;
+            }
+            EditText addressInput = new EditText(this);
+            addressInput.setSingleLine(true);
+            addressInput.setInputType(android.text.InputType.TYPE_CLASS_TEXT
+                    | android.text.InputType.TYPE_TEXT_VARIATION_URI);
+            addressInput.setHint("https://example.com");
+            new AlertDialog.Builder(this)
+                    .setTitle("المتصفح المدمج")
+                    .setMessage("اكتب رابط الموقع لفتحه على التلفزيون. المتصفح اختياري ولن يفتح تلقائيًا.")
+                    .setView(addressInput)
+                    .setNegativeButton("إلغاء", null)
+                    .setPositiveButton("فتح", (dialog, which) -> {
+                        String entered = addressInput.getText().toString().trim();
+                        if (!entered.isEmpty() && !entered.matches("(?i)^https?://.*")) {
+                            entered = "https://" + entered;
+                        }
+                        if (isHttpUrl(entered)) {
+                            pendingBrowserUrl = entered;
+                            showWebFallback(entered);
+                        } else {
+                            Toast.makeText(this, "اكتب رابط HTTP أو HTTPS صحيح", Toast.LENGTH_LONG).show();
+                        }
+                    }).show();
         });
         FrameLayout.LayoutParams browserShortcutParams = new FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT,
@@ -1852,6 +1876,7 @@ public class MainActivity extends Activity {
 
         currentPlaybackUrl = playbackUrl;
         rememberPlaybackUrl(playbackUrl);
+        if (browserShortcut != null) browserShortcut.setVisibility(View.GONE);
         hideImage();
 
         if (fallbackWebView != null) fallbackWebView.setVisibility(View.GONE);
@@ -1988,6 +2013,7 @@ public class MainActivity extends Activity {
         welcomeBackground.setVisibility(View.GONE);
         connectionCard.setVisibility(View.GONE);
 
+        if (browserShortcut != null) browserShortcut.setVisibility(View.GONE);
         imageView.setVisibility(View.VISIBLE);
         imageLoading.setVisibility(View.VISIBLE);
         imageView.setImageDrawable(null);
@@ -2052,6 +2078,7 @@ public class MainActivity extends Activity {
         welcomeScreen.setVisibility(View.GONE);
         welcomeBackground.setVisibility(View.VISIBLE);
         connectionCard.setVisibility(View.VISIBLE);
+        if (browserShortcut != null) browserShortcut.setVisibility(View.VISIBLE);
 
         updateConnectionInfo();
     }
