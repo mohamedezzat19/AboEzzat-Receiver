@@ -1259,6 +1259,33 @@ public class MainActivity extends Activity {
                 if (connection != null) connection.disconnect();
             }
 
+            // Last extraction fallback: use the social-platform-aware parser before offering browser-only playback.
+            if (resolved == null) {
+                extractionAttemptCount = 3;
+                extractionStatus = "محاولة استخراج متخصصة للمنصات الاجتماعية";
+                persistExtractionState();
+                FastMediaExtractor.extractDirectMedia(pageUrl, new FastMediaExtractor.ExtractorCallback() {
+                    @Override public void onSuccess(String mediaUrl, String platform) {
+                        extractionInProgress = false;
+                        extractionStatus = "resolved";
+                        extractionAttemptCount = 3;
+                        persistExtractionState();
+                        if (receiverStatusText != null) {
+                            receiverStatusText.setText("تم استخراج فيديو " + platform + " مباشر؛ جارٍ التشغيل");
+                        }
+                        playContent(mediaUrl, null);
+                    }
+                    @Override public void onError(String reason) {
+                        extractionInProgress = false;
+                        extractionAttemptCount = 3;
+                        extractionStatus = "web_fallback";
+                        persistExtractionState();
+                        showExtractionFailureFallback(pageUrl);
+                    }
+                });
+                return;
+            }
+
             final String directUrl = resolved;
             final boolean cobaltResult = resolvedByCobalt;
             final boolean contentTypeResult = resolvedByContentType;
@@ -1295,6 +1322,18 @@ public class MainActivity extends Activity {
         extractor.start();
     }
 
+
+    private void showExtractionFailureFallback(String pageUrl) {
+        pendingBrowserUrl = pageUrl;
+        showWelcome();
+        if (browserShortcut != null) browserShortcut.setVisibility(View.VISIBLE);
+        if (receiverStatusText != null) {
+            receiverStatusText.setText("تعذّر استخراج بث مباشر؛ اضغط أيقونة المتصفح أسفل اليسار لو حابب تفتح صفحة الموقع");
+        }
+        Toast.makeText(MainActivity.this,
+                "تعذّر استخراج فيديو مباشر للتشغيل. المتصفح متاح اختياريًا من أسفل اليسار.",
+                Toast.LENGTH_LONG).show();
+    }
 
     // Last-resort browser playback: show the page without browser chrome and honor
     // HTML5 video fullscreen requests. Existing ExoPlayer remains the first choice.
