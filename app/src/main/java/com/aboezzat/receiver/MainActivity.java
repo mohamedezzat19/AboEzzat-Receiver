@@ -90,6 +90,8 @@ public class MainActivity extends Activity {
     private final java.util.ArrayList<String> playbackQueue = new java.util.ArrayList<>();
     private int playbackQueueIndex = -1;
     private WebView fallbackWebView;
+    private TextView browserShortcut;
+    private String pendingBrowserUrl = "";
     private volatile boolean fallbackStreamCaptured = false;
     private volatile String fallbackPageUrl = "";
     private final Handler backPressHandler = new Handler(Looper.getMainLooper());
@@ -678,6 +680,50 @@ public class MainActivity extends Activity {
 
         root.addView(imageLoading, loadingParams);
 
+        // Optional TV browser shortcut, pinned to the lower-left corner.
+        // It only appears after direct media resolution fails; it never opens automatically.
+        browserShortcut = makeText("🌐  المتصفح", 14, Color.WHITE, true);
+        browserShortcut.setPadding(dp(18), dp(10), dp(18), dp(10));
+        browserShortcut.setBackground(roundedBackground(
+                Color.argb(235, 17, 27, 49), Color.rgb(86, 132, 255), 24));
+        browserShortcut.setFocusable(true);
+        browserShortcut.setClickable(true);
+        browserShortcut.setVisibility(View.VISIBLE);
+        browserShortcut.setOnClickListener(v -> {
+            String url = pendingBrowserUrl;
+            if (isHttpUrl(url)) {
+                showWebFallback(url);
+                return;
+            }
+            EditText addressInput = new EditText(this);
+            addressInput.setSingleLine(true);
+            addressInput.setInputType(android.text.InputType.TYPE_CLASS_TEXT
+                    | android.text.InputType.TYPE_TEXT_VARIATION_URI);
+            addressInput.setHint("https://example.com");
+            new AlertDialog.Builder(this)
+                    .setTitle("المتصفح المدمج")
+                    .setMessage("اكتب رابط الموقع لفتحه على التلفزيون. المتصفح اختياري ولن يفتح تلقائيًا.")
+                    .setView(addressInput)
+                    .setNegativeButton("إلغاء", null)
+                    .setPositiveButton("فتح", (dialog, which) -> {
+                        String entered = addressInput.getText().toString().trim();
+                        if (!entered.isEmpty() && !entered.matches("(?i)^https?://.*")) {
+                            entered = "https://" + entered;
+                        }
+                        if (isHttpUrl(entered)) {
+                            pendingBrowserUrl = entered;
+                            showWebFallback(entered);
+                        } else {
+                            Toast.makeText(this, "اكتب رابط HTTP أو HTTPS صحيح", Toast.LENGTH_LONG).show();
+                        }
+                    }).show();
+        });
+        FrameLayout.LayoutParams browserShortcutParams = new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT,
+                Gravity.BOTTOM | Gravity.START);
+        browserShortcutParams.setMargins(dp(18), dp(8), dp(8), dp(18));
+        root.addView(browserShortcut, browserShortcutParams);
+
         setContentView(root);
     }
 
@@ -1203,15 +1249,16 @@ public class MainActivity extends Activity {
                     // and start extraction again.
                     playContent(directUrl, null);
                 } else {
-                    // Direct extraction can fail for authenticated/social pages or DRM-backed streams.
-                    // Keep direct ExoPlayer playback as first choice, but do not leave the user at
-                    // the welcome screen: try the page's own HTML5 player on the TV as a fallback.
+                    // Do not automatically display or interact with a full website on TV.
+                    // Keep the page URL available only through the explicit browser shortcut.
+                    pendingBrowserUrl = pageUrl;
+                    showWelcome();
+                    if (browserShortcut != null) browserShortcut.setVisibility(View.VISIBLE);
                     if (receiverStatusText != null) {
-                        receiverStatusText.setText("تعذّر استخراج رابط مباشر؛ جاري فتح مشغّل الموقع على الشاشة");
+                        receiverStatusText.setText("تعذّر استخراج بث مباشر؛ اضغط أيقونة المتصفح أسفل اليسار لو حابب تفتح صفحة الموقع");
                     }
-                    showWebFallback(pageUrl);
                     Toast.makeText(MainActivity.this,
-                            "الموقع لم يكشف رابط بث مباشر؛ بجرب تشغيل الفيديو من صفحة الموقع على الشاشة.",
+                            "تعذّر استخراج فيديو مباشر للتشغيل. المتصفح متاح اختياريًا من أسفل اليسار.",
                             Toast.LENGTH_LONG).show();
                 }
             });
@@ -1224,6 +1271,7 @@ public class MainActivity extends Activity {
     // Last-resort browser playback: show the page without browser chrome and honor
     // HTML5 video fullscreen requests. Existing ExoPlayer remains the first choice.
     private void showWebFallback(String pageUrl) {
+        if (browserShortcut != null) browserShortcut.setVisibility(View.GONE);
         if (!isHttpUrl(pageUrl)) {
             showWelcome();
             Toast.makeText(this, "الرابط غير صالح للتشغيل", Toast.LENGTH_LONG).show();
@@ -1259,7 +1307,10 @@ public class MainActivity extends Activity {
             // use a readable but compact default zoom for D-pad navigation.
             settings.setUseWideViewPort(true);
             settings.setLoadWithOverviewMode(true);
-            settings.setTextZoom(85);
+            settings.setTextZoom(80);
+            // Start zoomed out enough for TV screens; the user can still zoom in with
+            // the WebView's built-in controls or the site's own player controls.
+            fallbackWebView.setInitialScale(80);
             settings.setSupportZoom(true);
             settings.setBuiltInZoomControls(true);
             settings.setDisplayZoomControls(false);
@@ -1293,6 +1344,29 @@ public class MainActivity extends Activity {
                         });
                     }
                     return super.shouldInterceptRequest(view, request);
+                }
+
+                @Override
+                public boolean onRenderProcessGone(WebView view, android.webkit.RenderProcessGoneDetail detail) {
+                    // Never keep a WebView whose renderer Android has already killed.
+                    // Keep the failed URL so the user can retry from the optional browser shortcut.
+                    String failedUrl = fallbackPageUrl;
+                    Log.e(TAG, "Fallback browser renderer exited; didCrash="
+                            + (detail != null && detail.didCrash()));
+                    if (fallbackWebView == view) fallbackWebView = null;
+                    fallbackStreamCaptured = false;
+                    if (failedUrl != null && isHttpUrl(failedUrl)) pendingBrowserUrl = failedUrl;
+                    runOnUiThread(() -> {
+                        if (webFullscreenView != null) closeWebFullscreen();
+                        if (!isFinishing()) {
+                            showWelcome();
+                            Toast.makeText(MainActivity.this,
+                                    "أندرويد أوقف محرك صفحة الويب. رجّعنا الشاشة الرئيسية؛ اضغط المتصفح لإعادة المحاولة.",
+                                    Toast.LENGTH_LONG).show();
+                        }
+                    });
+                    try { view.destroy(); } catch (Exception ignored) { }
+                    return true;
                 }
 
                 @Override
@@ -1464,6 +1538,8 @@ public class MainActivity extends Activity {
 
     // natively play media URLs; resolve page URLs to a direct stream instead of opening another app.
     private void queueIncomingMedia(String mediaUrl, String audioUrl) {
+        pendingBrowserUrl = "";
+        if (browserShortcut != null) browserShortcut.setVisibility(View.GONE);
         // The receiver is reachable on the local network, so accept only remote HTTP(S)
         // URLs from incoming requests; never pass file/content/javascript or other schemes
         // to ExoPlayer or the social-video resolver.
@@ -1826,6 +1902,7 @@ public class MainActivity extends Activity {
 
         currentPlaybackUrl = playbackUrl;
         rememberPlaybackUrl(playbackUrl);
+        if (browserShortcut != null) browserShortcut.setVisibility(View.GONE);
         hideImage();
 
         if (fallbackWebView != null) fallbackWebView.setVisibility(View.GONE);
@@ -1962,6 +2039,7 @@ public class MainActivity extends Activity {
         welcomeBackground.setVisibility(View.GONE);
         connectionCard.setVisibility(View.GONE);
 
+        if (browserShortcut != null) browserShortcut.setVisibility(View.GONE);
         imageView.setVisibility(View.VISIBLE);
         imageLoading.setVisibility(View.VISIBLE);
         imageView.setImageDrawable(null);
@@ -2026,6 +2104,7 @@ public class MainActivity extends Activity {
         welcomeScreen.setVisibility(View.GONE);
         welcomeBackground.setVisibility(View.VISIBLE);
         connectionCard.setVisibility(View.VISIBLE);
+        if (browserShortcut != null) browserShortcut.setVisibility(View.VISIBLE);
 
         updateConnectionInfo();
     }
