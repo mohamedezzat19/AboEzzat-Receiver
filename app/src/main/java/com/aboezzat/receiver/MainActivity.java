@@ -198,6 +198,181 @@ public class MainActivity extends Activity {
         handleExternalIntent(intent);
     }
 
+
+    private void showReceiverSettings() {
+        String[] options = {
+                "🔄  البحث عن التحديثات",
+                "🌐  إعدادات استخراج الفيديو",
+                "🔌  إعدادات الاستقبال والبورت",
+                "♻  إعادة تشغيل خدمة الاستقبال",
+                "ℹ  معلومات الإصدار"
+        };
+        new AlertDialog.Builder(this)
+                .setTitle("⚙ إعدادات الريسيفر")
+                .setItems(options, (dialog, which) -> {
+                    switch (which) {
+                        case 0: checkReceiverUpdate(); break;
+                        case 1: showExtractorSettings(); break;
+                        case 2: showReceiverPortSettings(); break;
+                        case 3:
+                            stopService(new android.content.Intent(this, ReceiverServerService.class));
+                            new Handler(Looper.getMainLooper()).postDelayed(this::startReceiverService, 500L);
+                            Toast.makeText(this, "جارٍ إعادة تشغيل خدمة الاستقبال…", Toast.LENGTH_LONG).show();
+                            break;
+                        case 4:
+                            try {
+                                android.content.pm.PackageInfo info = getPackageManager().getPackageInfo(getPackageName(), 0);
+                                String version = info.versionName == null ? "غير معروف" : info.versionName;
+                                long code = android.os.Build.VERSION.SDK_INT >= 28 ? info.getLongVersionCode() : info.versionCode;
+                                new AlertDialog.Builder(this).setTitle("معلومات الريسيفر")
+                                        .setMessage("AboEzzat Receiver\nالإصدار: " + version + "\nرقم البناء: " + code)
+                                        .setPositiveButton("حسنًا", null).show();
+                            } catch (Exception e) { Toast.makeText(this, "تعذّر قراءة معلومات الإصدار", Toast.LENGTH_SHORT).show(); }
+                            break;
+                    }
+                }).setNegativeButton("إغلاق", null).show();
+    }
+
+    private void showExtractorSettings() {
+        EditText field = new EditText(this);
+        field.setSingleLine(true);
+        field.setInputType(android.text.InputType.TYPE_CLASS_TEXT | android.text.InputType.TYPE_TEXT_VARIATION_URI);
+        field.setHint("https://your-cobalt-instance/");
+        field.setText(getSharedPreferences("receiver_settings", MODE_PRIVATE).getString("cobalt_endpoint", ""));
+        new AlertDialog.Builder(this).setTitle("إعدادات استخراج الفيديو")
+                .setMessage("أضف عنوان Cobalt API اختياريًا إذا كان لديك خادم مسموح لك باستخدامه. اتركه فارغًا لتعطيله.")
+                .setView(field).setNeutralButton("مسح", (d,w) -> getSharedPreferences("receiver_settings", MODE_PRIVATE).edit().remove("cobalt_endpoint").apply())
+                .setNegativeButton("إلغاء", null)
+                .setPositiveButton("حفظ", (d,w) -> {
+                    String endpoint = field.getText().toString().trim();
+                    if (endpoint.isEmpty()) {
+                        getSharedPreferences("receiver_settings", MODE_PRIVATE).edit().remove("cobalt_endpoint").apply();
+                    } else {
+                        Uri u = Uri.parse(endpoint);
+                        String scheme = u.getScheme();
+                        if (u.getHost() == null || !("https".equalsIgnoreCase(scheme) || "http".equalsIgnoreCase(scheme))) {
+                            Toast.makeText(this, "أدخل عنوان HTTP أو HTTPS صحيحًا", Toast.LENGTH_LONG).show();
+                            return;
+                        }
+                        getSharedPreferences("receiver_settings", MODE_PRIVATE).edit().putString("cobalt_endpoint", endpoint).apply();
+                    }
+                    Toast.makeText(this, "تم حفظ إعدادات الاستخراج", Toast.LENGTH_SHORT).show();
+                }).show();
+    }
+
+    private void showReceiverPortSettings() {
+        EditText field = new EditText(this);
+        field.setSingleLine(true);
+        field.setInputType(android.text.InputType.TYPE_CLASS_NUMBER);
+        field.setText(String.valueOf(getSharedPreferences("receiver_settings", MODE_PRIVATE).getInt("receiver_port", 8081)));
+        new AlertDialog.Builder(this).setTitle("إعدادات الاستقبال")
+                .setMessage("غيّر البورت عند الحاجة فقط. يجب أن يكون نفس الرقم مضبوطًا في تطبيق Share.")
+                .setView(field).setNegativeButton("إلغاء", null)
+                .setPositiveButton("حفظ وإعادة التشغيل", (d,w) -> {
+                    int port;
+                    try { port = Integer.parseInt(field.getText().toString().trim()); } catch (Exception e) { port = -1; }
+                    if (port < 1024 || port > 65535) {
+                        Toast.makeText(this, "اختَر بورتًا بين 1024 و65535", Toast.LENGTH_LONG).show();
+                        return;
+                    }
+                    getSharedPreferences("receiver_settings", MODE_PRIVATE).edit().putInt("receiver_port", port).apply();
+                    stopService(new android.content.Intent(this, ReceiverServerService.class));
+                    new Handler(Looper.getMainLooper()).postDelayed(this::startReceiverService, 500L);
+                    Toast.makeText(this, "تم حفظ البورت وإعادة تشغيل الخدمة. اضبط نفس الرقم في Share.", Toast.LENGTH_LONG).show();
+                }).show();
+    }
+
+    private void checkReceiverUpdate() {
+        Toast.makeText(this, "جارٍ البحث عن تحديث للريسيفر…", Toast.LENGTH_SHORT).show();
+        new Thread(() -> {
+            java.net.HttpURLConnection connection = null;
+            try {
+                URL url = new URL("https://api.github.com/repos/mohamedezzat19/AboEzzat-Receiver/releases/latest");
+                connection = (java.net.HttpURLConnection) url.openConnection();
+                connection.setConnectTimeout(12000);
+                connection.setReadTimeout(12000);
+                connection.setRequestProperty("Accept", "application/vnd.github+json");
+                int status = connection.getResponseCode();
+                if (status < 200 || status >= 300) throw new Exception("HTTP " + status);
+                StringBuilder body = new StringBuilder();
+                try (java.io.BufferedReader reader = new java.io.BufferedReader(new java.io.InputStreamReader(connection.getInputStream(), java.nio.charset.StandardCharsets.UTF_8))) {
+                    String line; while ((line = reader.readLine()) != null) body.append(line);
+                }
+                org.json.JSONObject release = new org.json.JSONObject(body.toString());
+                java.util.regex.Matcher matcher = java.util.regex.Pattern.compile("versionCode\\s*:\\s*(\\d+)").matcher(release.optString("body", ""));
+                long latest = matcher.find() ? Long.parseLong(matcher.group(1)) : 0L;
+                android.content.pm.PackageInfo installedInfo = getPackageManager().getPackageInfo(getPackageName(), 0);
+                long installed = android.os.Build.VERSION.SDK_INT >= 28 ? installedInfo.getLongVersionCode() : installedInfo.versionCode;
+                String apkUrl = null;
+                org.json.JSONArray assets = release.optJSONArray("assets");
+                if (assets != null) for (int i = 0; i < assets.length(); i++) {
+                    org.json.JSONObject asset = assets.optJSONObject(i);
+                    if (asset != null && "app-release.apk".equals(asset.optString("name"))) { apkUrl = asset.optString("browser_download_url", null); break; }
+                }
+                final long latestCode = latest;
+                final long installedCode = installed;
+                final String downloadUrl = apkUrl;
+                runOnUiThread(() -> {
+                    if (latestCode <= installedCode || downloadUrl == null || downloadUrl.isEmpty()) {
+                        new AlertDialog.Builder(this).setTitle("البحث عن التحديثات")
+                                .setMessage("أنت على أحدث إصدار متاح، أو لم تُنشر نسخة APK موقّعة بعد.\nالإصدار المثبت: " + installedCode + "\nأحدث إصدار: " + latestCode)
+                                .setPositiveButton("حسنًا", null).show();
+                        return;
+                    }
+                    new AlertDialog.Builder(this).setTitle("تحديث جديد متاح")
+                            .setMessage("الإصدار المثبت: " + installedCode + "\nالإصدار الجديد: " + latestCode + "\nهل تريد تنزيله وتثبيته؟")
+                            .setNegativeButton("لاحقًا", null)
+                            .setPositiveButton("تنزيل وتثبيت", (d,w) -> downloadAndInstallReceiver(downloadUrl))
+                            .show();
+                });
+            } catch (Exception e) {
+                Log.e(TAG, "Receiver update check failed", e);
+                runOnUiThread(() -> new AlertDialog.Builder(this).setTitle("تعذّر البحث عن التحديث")
+                        .setMessage("تأكد من اتصال الإنترنت ثم حاول مرة أخرى.").setPositiveButton("حسنًا", null).show());
+            } finally { if (connection != null) connection.disconnect(); }
+        }, "receiver-update-check").start();
+    }
+
+    private void downloadAndInstallReceiver(String apkUrl) {
+        new Thread(() -> {
+            java.net.HttpURLConnection connection = null;
+            java.io.File apk = new java.io.File(getExternalCacheDir() != null ? getExternalCacheDir() : getCacheDir(), "aboezzat-receiver-update.apk");
+            try {
+                connection = (java.net.HttpURLConnection) new URL(apkUrl).openConnection();
+                connection.setConnectTimeout(15000);
+                connection.setReadTimeout(30000);
+                connection.setInstanceFollowRedirects(true);
+                if (connection.getResponseCode() < 200 || connection.getResponseCode() >= 300) throw new Exception("Download failed");
+                try (java.io.InputStream in = connection.getInputStream(); java.io.FileOutputStream out = new java.io.FileOutputStream(apk)) {
+                    byte[] buffer = new byte[16384]; int count;
+                    while ((count = in.read(buffer)) != -1) out.write(buffer, 0, count);
+                }
+                runOnUiThread(() -> {
+                    try {
+                        if (android.os.Build.VERSION.SDK_INT >= 26 && !getPackageManager().canRequestPackageInstalls()) {
+                            Toast.makeText(this, "اسمح للتطبيق بتثبيت التحديثات من هذا المصدر ثم أعد المحاولة.", Toast.LENGTH_LONG).show();
+                            android.content.Intent settings = new android.content.Intent(android.provider.Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+                                    Uri.parse("package:" + getPackageName()));
+                            startActivity(settings);
+                            return;
+                        }
+                        android.net.Uri uri = androidx.core.content.FileProvider.getUriForFile(this, getPackageName() + ".fileprovider", apk);
+                        android.content.Intent install = new android.content.Intent(android.content.Intent.ACTION_VIEW);
+                        install.setDataAndType(uri, "application/vnd.android.package-archive");
+                        install.addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION | android.content.Intent.FLAG_ACTIVITY_NEW_TASK);
+                        startActivity(install);
+                    } catch (Exception e) {
+                        Log.e(TAG, "Could not launch receiver installer", e);
+                        Toast.makeText(this, "تعذّر فتح مثبت التحديث. افتح إعدادات التطبيق وتأكد من السماح بالتثبيت.", Toast.LENGTH_LONG).show();
+                    }
+                });
+            } catch (Exception e) {
+                Log.e(TAG, "Receiver update download failed", e);
+                runOnUiThread(() -> Toast.makeText(this, "فشل تنزيل التحديث. حاول مرة أخرى.", Toast.LENGTH_LONG).show());
+            } finally { if (connection != null) connection.disconnect(); }
+        }, "receiver-update-download").start();
+    }
+
     private void startReceiverService() {
         android.content.Intent serviceIntent = new android.content.Intent(this, ReceiverServerService.class);
         try {
@@ -637,6 +812,25 @@ public class MainActivity extends Activity {
         );
 
         root.addView(connectionCard, cardParams);
+
+        // زر إعدادات واضح مناسب للتحكم بالريموت.
+        TextView settingsButton = makeText("⚙", 25, Color.rgb(255, 207, 94), true);
+        settingsButton.setGravity(Gravity.CENTER);
+        settingsButton.setFocusable(true);
+        settingsButton.setClickable(true);
+        settingsButton.setContentDescription("الإعدادات");
+        settingsButton.setPadding(dp(8), dp(4), dp(8), dp(4));
+        settingsButton.setBackground(roundedBackground(Color.rgb(20, 34, 61), Color.rgb(86, 132, 255), 14));
+        settingsButton.setOnFocusChangeListener((v, focused) -> {
+            v.setScaleX(focused ? 1.08f : 1f);
+            v.setScaleY(focused ? 1.08f : 1f);
+            v.setBackground(roundedBackground(focused ? Color.rgb(35, 55, 91) : Color.rgb(20, 34, 61),
+                    focused ? Color.rgb(255, 196, 87) : Color.rgb(86, 132, 255), 14));
+        });
+        settingsButton.setOnClickListener(v -> showReceiverSettings());
+        FrameLayout.LayoutParams settingsButtonParams = new FrameLayout.LayoutParams(dp(54), dp(48), Gravity.TOP | Gravity.END);
+        settingsButtonParams.setMargins(dp(8), dp(12), dp(12), dp(8));
+        root.addView(settingsButton, settingsButtonParams);
 
         // مشغل الفيديو والصوت.
         // Inflate with surface_type="texture_view" so Media3 can apply rotation metadata
