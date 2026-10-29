@@ -887,6 +887,8 @@ public class MainActivity extends Activity {
         // أزرار رئيسية متجاورة لتسهيل الوصول بالريموت: الإعدادات ثم المتصفح.
         TextView settingsButton = makeText("⚙", 25, Color.rgb(255, 207, 94), true);
         TextView browserHomeButton = makeText("🌐", 23, Color.WHITE, true);
+        settingsButton.setId(View.generateViewId());
+        browserHomeButton.setId(View.generateViewId());
         TextView[] homeButtons = {settingsButton, browserHomeButton};
         for (TextView homeButton : homeButtons) {
             homeButton.setGravity(Gravity.CENTER);
