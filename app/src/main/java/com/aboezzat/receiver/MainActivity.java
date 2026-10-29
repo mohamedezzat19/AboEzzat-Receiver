@@ -838,7 +838,7 @@ public class MainActivity extends Activity {
             );
         } else {
             ipText.setText(
-                    "IP الحالي: " + ip + ":" + PORT
+                    "IP الحالي: " + ip + ":" + getSharedPreferences("receiver_settings", MODE_PRIVATE).getInt("receiver_port", 8081)
             );
         }
     }
