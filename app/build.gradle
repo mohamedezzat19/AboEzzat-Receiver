@@ -13,7 +13,7 @@ android {
     defaultConfig {
         applicationId 'com.aboezzat.receiver'
         minSdk 23
-        targetSdk 32
+        targetSdk 33
         versionCode ciVersionCode
         versionName ciVersionName
     }
