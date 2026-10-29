@@ -210,7 +210,8 @@ public class MainActivity extends Activity {
                 "♻  إعادة تشغيل خدمة الاستقبال",
                 "🧪  تشخيص الاتصال",
                 "🕘  سجل المشاهدة",
-                "ℹ  معلومات الإصدار"
+                "ℹ  معلومات الإصدار",
+                "🔐  اقتران Share ومزامنة تسجيل الدخول"
         };
         new AlertDialog.Builder(this)
                 .setTitle("⚙ إعدادات الريسيفر")
@@ -236,10 +237,37 @@ public class MainActivity extends Activity {
                                         .setPositiveButton("حسنًا", null).show();
                             } catch (Exception e) { Toast.makeText(this, "تعذّر قراءة معلومات الإصدار", Toast.LENGTH_SHORT).show(); }
                             break;
+                        case 7: showSharePairingCode(); break;
                     }
                 }).setNegativeButton("إغلاق", null).show();
     }
 
+
+    // A short-lived one-time code for pairing Share with this Receiver.
+    private void showSharePairingCode() {
+        SharedPreferences pairing = getSharedPreferences("AboEzzatPairing", MODE_PRIVATE);
+        long expiresAt = pairing.getLong("code_expires_at", 0L);
+        String code = pairing.getString("pairing_code", "");
+        if (code.isEmpty() || System.currentTimeMillis() >= expiresAt) {
+            java.security.SecureRandom random = new java.security.SecureRandom();
+            code = String.format(java.util.Locale.US, "%08d", random.nextInt(100000000));
+            expiresAt = System.currentTimeMillis() + 5L * 60L * 1000L;
+            pairing.edit().putString("pairing_code", code)
+                    .putLong("code_expires_at", expiresAt).putInt("failed_attempts", 0).apply();
+        }
+        long remaining = Math.max(0L, (expiresAt - System.currentTimeMillis() + 59999L) / 60000L);
+        String message = "اكتب الكود ده مرة واحدة في تطبيق AboEzzat Share على موبايلك:\n\n"
+                + code + "\n\nصالح لمدة تصل إلى " + remaining + " دقائق.\n"
+                + "لا تشارك الكود مع أي شخص على شبكة أخرى. لن يتم نقل كلمة مرور الموقع.";
+        new AlertDialog.Builder(this).setTitle("🔐 اقتران Share")
+                .setMessage(message)
+                .setPositiveButton("توليد كود جديد", (d, w) -> {
+                    pairing.edit().remove("pairing_code").remove("code_expires_at")
+                            .remove("failed_attempts").apply();
+                    showSharePairingCode();
+                })
+                .setNegativeButton("إغلاق", null).show();
+    }
 
     private void showConnectionDiagnostics() {
         String ip = "غير معروف";
