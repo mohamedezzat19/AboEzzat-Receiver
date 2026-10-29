@@ -76,7 +76,8 @@ public final class FastMediaExtractor {
                     String html = closeable.body().string();
                     String media = findMeta(html);
                     if (media == null) media = findJson(html, platform);
-                    if (media == null) media = findMp4(html);
+                    // Do not accept the first arbitrary .mp4 in the page: social pages can
+                    // contain unrelated previews/ads, which caused the wrong short clip to play.
                     media = clean(media);
                     if (!isHttp(media)) {
                         error(callback, "لم يتم العثور على رابط فيديو مباشر صالح");
