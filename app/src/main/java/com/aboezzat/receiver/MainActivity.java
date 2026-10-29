@@ -286,12 +286,13 @@ public class MainActivity extends Activity {
 
     private void showExtractorSettings() {
         EditText field = new EditText(this);
-        field.setSingleLine(true);
-        field.setInputType(android.text.InputType.TYPE_CLASS_TEXT | android.text.InputType.TYPE_TEXT_VARIATION_URI);
-        field.setHint("https://your-cobalt-instance/");
+        field.setSingleLine(false);
+        field.setMinLines(2);
+        field.setInputType(android.text.InputType.TYPE_CLASS_TEXT | android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE | android.text.InputType.TYPE_TEXT_VARIATION_URI);
+        field.setHint("https://cobalt-one.example/\nhttps://cobalt-two.example/");
         field.setText(getSharedPreferences("receiver_settings", MODE_PRIVATE).getString("cobalt_endpoint", ""));
-        new AlertDialog.Builder(this).setTitle("إعدادات استخراج الفيديو")
-                .setMessage("أضف عنوان Cobalt API اختياريًا إذا كان لديك خادم مسموح لك باستخدامه. اتركه فارغًا لتعطيله.")
+        new AlertDialog.Builder(this).setTitle("إعدادات محركات استخراج الفيديو")
+                .setMessage("أضف خوادم Cobalt تملكها أو لديك إذن باستخدامها، كل عنوان في سطر منفصل؛ يجربها التطبيق بالترتيب. yt-dlp وStreamlink يحتاجان خدمة خلفية مستقلة، ولا يعملان بمجرد إضافة مكتبة Python إلى أندرويد.")
                 .setView(field).setNeutralButton("مسح", (d,w) -> getSharedPreferences("receiver_settings", MODE_PRIVATE).edit().remove("cobalt_endpoint").apply())
                 .setNegativeButton("إلغاء", null)
                 .setPositiveButton("حفظ", (d,w) -> {
@@ -299,13 +300,16 @@ public class MainActivity extends Activity {
                     if (endpoint.isEmpty()) {
                         getSharedPreferences("receiver_settings", MODE_PRIVATE).edit().remove("cobalt_endpoint").apply();
                     } else {
-                        Uri u = Uri.parse(endpoint);
-                        String scheme = u.getScheme();
-                        if (u.getHost() == null || !("https".equalsIgnoreCase(scheme) || "http".equalsIgnoreCase(scheme))) {
-                            Toast.makeText(this, "أدخل عنوان HTTP أو HTTPS صحيحًا", Toast.LENGTH_LONG).show();
-                            return;
+                        String[] endpoints = endpoint.split("[,;\\s]+");
+                        for (String candidate : endpoints) {
+                            Uri u = Uri.parse(candidate);
+                            String scheme = u.getScheme();
+                            if (u.getHost() == null || !("https".equalsIgnoreCase(scheme) || "http".equalsIgnoreCase(scheme))) {
+                                Toast.makeText(this, "عنوان غير صحيح: " + candidate, Toast.LENGTH_LONG).show();
+                                return;
+                            }
                         }
-                        getSharedPreferences("receiver_settings", MODE_PRIVATE).edit().putString("cobalt_endpoint", endpoint).apply();
+                        getSharedPreferences("receiver_settings", MODE_PRIVATE).edit().putString("cobalt_endpoint", String.join("\\n", endpoints)).apply();
                     }
                     Toast.makeText(this, "تم حفظ إعدادات الاستخراج", Toast.LENGTH_SHORT).show();
                 }).show();
@@ -1798,9 +1802,20 @@ public class MainActivity extends Activity {
 
     // Use an explicitly configured Cobalt instance; never hardcode an untrusted public API.
     private String resolveWithConfiguredCobalt(String pageUrl) {
-        String endpoint = getSharedPreferences("receiver_settings", MODE_PRIVATE)
+        String configured = getSharedPreferences("receiver_settings", MODE_PRIVATE)
                 .getString("cobalt_endpoint", "").trim();
-        if (endpoint.isEmpty()) return null;
+        if (configured.isEmpty()) return null;
+        // Try authorized/self-hosted Cobalt endpoints in order until one succeeds.
+        String[] endpoints = configured.split("[,;\\s]+");
+        for (String endpoint : endpoints) {
+            if (!isHttpUrl(endpoint)) continue;
+            String resolved = resolveWithCobaltEndpoint(pageUrl, endpoint);
+            if (resolved != null) return resolved;
+        }
+        return null;
+    }
+
+    private String resolveWithCobaltEndpoint(String pageUrl, String endpoint) {
         HttpURLConnection api = null;
         try {
             api = (HttpURLConnection) new URL(endpoint).openConnection();
