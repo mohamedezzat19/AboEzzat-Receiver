@@ -38,7 +38,7 @@ public final class FastMediaExtractor {
     private static final Pattern META_TAG = Pattern.compile("<meta\\b[^>]*>", Pattern.CASE_INSENSITIVE | Pattern.DOTALL);
     private static final Pattern PROP = Pattern.compile("(?:property|name)\\s*=\\s*['\\\"]([^'\\\"]+)['\\\"]", Pattern.CASE_INSENSITIVE);
     private static final Pattern CONTENT = Pattern.compile("content\\s*=\\s*['\\\"]([^'\\\"]*)['\\\"]", Pattern.CASE_INSENSITIVE);
-    private static final Pattern JSON_VIDEO = Pattern.compile("['\\\"](browser_native_hd_url|browser_native_sd_url|playable_url_quality_hd|playable_url|playAddr|play_addr|downloadAddr)['\\\"]\\s*:\\s*['\\\"]((?:\\\\.|[^'\\\"])*)['\\\"]", Pattern.CASE_INSENSITIVE);
+    private static final Pattern JSON_VIDEO = Pattern.compile("['\\\"](browser_native_hd_url|browser_native_sd_url|playable_url_quality_hd|playable_url|playAddr|play_addr|downloadAddr|video_url|video_url_https)['\\\"]\\s*:\\s*['\\\"]((?:\\\\.|[^'\\\"])*)['\\\"]", Pattern.CASE_INSENSITIVE);
     private static final Pattern MP4 = Pattern.compile("https?:\\\\?/\\\\?/[^\\\"'\\s<>]+?\\.mp4(?:[^\\\"'\\s<>]*)?", Pattern.CASE_INSENSITIVE);
 
     private FastMediaExtractor() {}
@@ -101,6 +101,7 @@ public final class FastMediaExtractor {
             if (host.equals("threads.net") || host.endsWith(".threads.net") || host.equals("threads.com") || host.endsWith(".threads.com")) return "Threads";
             if (host.equals("instagram.com") || host.endsWith(".instagram.com")) return "Instagram";
             if (host.equals("tiktok.com") || host.endsWith(".tiktok.com")) return "TikTok";
+            if (host.equals("x.com") || host.endsWith(".x.com") || host.equals("twitter.com") || host.endsWith(".twitter.com")) return "X";
         } catch (Exception ignored) {}
         return null;
     }
@@ -126,7 +127,7 @@ public final class FastMediaExtractor {
             String key = m.group(1);
             if ("TikTok".equals(platform) && !(key.equalsIgnoreCase("playAddr") || key.equalsIgnoreCase("play_addr") || key.equalsIgnoreCase("downloadAddr"))) continue;
             String value = clean(m.group(2));
-            if (isHttp(value) && (value.toLowerCase(Locale.ROOT).contains(".mp4") || key.toLowerCase(Locale.ROOT).contains("playable") || key.toLowerCase(Locale.ROOT).contains("playaddr") || key.equalsIgnoreCase("downloadAddr"))) return value;
+            if (isHttp(value) && (value.toLowerCase(Locale.ROOT).contains(".mp4") || key.toLowerCase(Locale.ROOT).contains("playable") || key.toLowerCase(Locale.ROOT).contains("playaddr") || key.equalsIgnoreCase("downloadAddr") || key.equalsIgnoreCase("video_url") || key.equalsIgnoreCase("video_url_https"))) return value;
         }
         return null;
     }
