@@ -1462,8 +1462,24 @@ public class MainActivity extends Activity {
         }
     }
 
+    // Share New serves selected phone files through /media?id=... on port 8082.
+    // Such URLs have no file extension and must bypass social-page extraction.
+    private boolean isPhoneLocalMediaUrl(String value) {
+        if (value == null || value.trim().isEmpty()) return false;
+        try {
+            Uri uri = Uri.parse(value.trim());
+            String path = uri.getPath();
+            return "http".equalsIgnoreCase(uri.getScheme())
+                    && uri.getPort() == 8082
+                    && path != null && "/media".equals(path);
+        } catch (Exception ignored) {
+            return false;
+        }
+    }
+
     private boolean isDirectStreamUrl(String value) {
         if (value == null || value.trim().isEmpty()) return false;
+        if (isPhoneLocalMediaUrl(value)) return true;
         try {
             Uri uri = Uri.parse(value.trim());
             String path = uri.getPath();
@@ -2154,6 +2170,7 @@ public class MainActivity extends Activity {
         }
         if (mediaUrl != null && !mediaUrl.trim().isEmpty()
                 && !isImageUrl(mediaUrl) && !isDirectStreamUrl(mediaUrl)
+                && !isPhoneLocalMediaUrl(mediaUrl)
                 && (mediaUrl.startsWith("http://") || mediaUrl.startsWith("https://"))) {
             if (pendingPlayback != null) {
                 mediaHandler.removeCallbacks(pendingPlayback);
