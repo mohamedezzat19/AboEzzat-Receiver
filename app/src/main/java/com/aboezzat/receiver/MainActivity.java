@@ -2578,6 +2578,9 @@ public class MainActivity extends Activity {
         }
 
         currentPlaybackUrl = playbackUrl;
+        // Home shortcuts must never sit above or steal DPAD focus from ExoPlayer.
+        if (settingsHomeButton != null) settingsHomeButton.setVisibility(View.GONE);
+        if (browserHomeButton != null) browserHomeButton.setVisibility(View.GONE);
         rememberPlaybackUrl(playbackUrl);
         if (browserShortcut != null) browserShortcut.setVisibility(View.GONE);
         hideImage();
@@ -2588,6 +2591,9 @@ public class MainActivity extends Activity {
         welcomeScreen.setVisibility(View.GONE);
         connectionCard.setVisibility(View.GONE);
         playerView.setVisibility(View.VISIBLE);
+        playerView.setFocusable(true);
+        playerView.setFocusableInTouchMode(true);
+        playerView.requestFocus();
 
         try {
             synchronized (playerLock) {
@@ -2722,6 +2728,8 @@ public class MainActivity extends Activity {
     // الصورة تظل ظاهرة بينما يشغّل ExoPlayer الصوت في الخلفية.
     private void playAudioAlongsideImage(String audioUrl) {
         currentPlaybackUrl = audioUrl;
+        if (settingsHomeButton != null) settingsHomeButton.setVisibility(View.GONE);
+        if (browserHomeButton != null) browserHomeButton.setVisibility(View.GONE);
         try {
             synchronized (playerLock) {
                 if (player == null) {
@@ -2776,6 +2784,8 @@ public class MainActivity extends Activity {
     }
 
     private void showImage(String imageUrl) {
+        if (settingsHomeButton != null) settingsHomeButton.setVisibility(View.GONE);
+        if (browserHomeButton != null) browserHomeButton.setVisibility(View.GONE);
         stopCurrentPlayer();
         resetImageTransform();
 
