@@ -1286,45 +1286,49 @@ public class MainActivity extends Activity {
         String audioUrl = null;
         String command = null;
         java.util.Map<String, String> mediaHeaders = new java.util.LinkedHashMap<>();
+        boolean requestAccepted = false;
 
         try (Socket socket = client) {
             socket.setSoTimeout(5000);
-
-            BufferedReader reader = new BufferedReader(
-                    new InputStreamReader(
-                            socket.getInputStream(),
-                            StandardCharsets.UTF_8
-                    )
-            );
-
-            String requestLine = reader.readLine();
-
+            java.io.InputStream input = new java.io.BufferedInputStream(socket.getInputStream());
+            String requestLine = readHttpLine(input, 4096);
             if (requestLine != null) {
-                String[] parts = requestLine.split(" ");
-                String method = parts.length > 0 ? parts[0] : "GET";
+                String[] parts = requestLine.split(" ", 3);
+                String method = parts.length > 0 ? parts[0] : "";
                 int contentLength = 0;
+                int totalHeaderBytes = 0;
                 String headerLine;
-                while ((headerLine = reader.readLine()) != null && !headerLine.isEmpty()) {
+                while ((headerLine = readHttpLine(input, 8192)) != null && !headerLine.isEmpty()) {
+                    totalHeaderBytes += headerLine.length();
+                    if (totalHeaderBytes > 16384) throw new java.io.IOException("HTTP headers too large");
                     int colon = headerLine.indexOf(':');
                     if (colon > 0 && "content-length".equalsIgnoreCase(headerLine.substring(0, colon).trim())) {
-                        try { contentLength = Math.min(16384, Math.max(0, Integer.parseInt(headerLine.substring(colon + 1).trim()))); }
-                        catch (NumberFormatException ignored) { contentLength = 0; }
+                        try {
+                            contentLength = Integer.parseInt(headerLine.substring(colon + 1).trim());
+                            if (contentLength < 0 || contentLength > 16384) throw new java.io.IOException("Invalid content length");
+                        } catch (NumberFormatException invalidLength) {
+                            throw new java.io.IOException("Invalid content length");
+                        }
                     }
                 }
-                if ("POST".equalsIgnoreCase(method) && parts.length >= 2 && "/play".equals(parts[1]) && contentLength > 0) {
-                    StringBuilder body = new StringBuilder();
-                    while (body.length() < contentLength) {
-                        int ch = reader.read();
-                        if (ch < 0) break;
-                        body.append((char) ch);
+
+                if ("POST".equalsIgnoreCase(method) && parts.length >= 2 && "/play".equals(parts[1])) {
+                    if (contentLength <= 0) throw new java.io.IOException("Empty playback request");
+                    byte[] bodyBytes = new byte[contentLength];
+                    int offset = 0;
+                    while (offset < contentLength) {
+                        int count = input.read(bodyBytes, offset, contentLength - offset);
+                        if (count < 0) break;
+                        offset += count;
                     }
-                    JSONObject payload = new JSONObject(body.toString());
+                    if (offset != contentLength) throw new java.io.IOException("Incomplete playback request");
+                    JSONObject payload = new JSONObject(new String(bodyBytes, StandardCharsets.UTF_8));
                     mediaUrl = payload.optString("url", null);
                     audioUrl = payload.optString("audio", null);
                     JSONObject headers = payload.optJSONObject("headers");
                     if (headers != null) {
                         java.util.Iterator<String> keys = headers.keys();
-                        while (keys.hasNext() && mediaHeaders.size() < 12) {
+                        while (keys.hasNext() && mediaHeaders.size() < 5) {
                             String key = keys.next();
                             String lower = key.toLowerCase(Locale.ROOT);
                             String value = headers.optString(key, "");
@@ -1335,47 +1339,31 @@ public class MainActivity extends Activity {
                             }
                         }
                     }
-                } else if (parts.length >= 2) {
+                } else if ("GET".equalsIgnoreCase(method) && parts.length >= 2) {
                     String target = parts[1];
                     int questionIndex = target.indexOf('?');
-
                     if (questionIndex >= 0) {
-                        String query = target.substring(
-                                questionIndex + 1
-                        );
-
+                        String query = target.substring(questionIndex + 1);
                         for (String pair : query.split("&")) {
                             String[] item = pair.split("=", 2);
-
-                            if (item.length != 2) {
-                                continue;
-                            }
-
-                            String key = URLDecoder.decode(
-                                    item[0],
-                                    "UTF-8"
-                            );
-
-                            String value = URLDecoder.decode(
-                                    item[1],
-                                    "UTF-8"
-                            );
-
-                            if ("url".equals(key)
-                                    || "video".equals(key)) {
-                                mediaUrl = value;
-
-                            } else if ("audio".equals(key)) {
-                                audioUrl = value;
-                            } else if ("command".equals(key)) {
-                                command = value;
-                            }
+                            if (item.length != 2) continue;
+                            String key = URLDecoder.decode(item[0], "UTF-8");
+                            String value = URLDecoder.decode(item[1], "UTF-8");
+                            if ("url".equals(key) || "video".equals(key)) mediaUrl = value;
+                            else if ("audio".equals(key)) audioUrl = value;
+                            else if ("command".equals(key)) command = value;
                         }
                     }
                 }
+
+                boolean hasMedia = mediaUrl != null && !mediaUrl.trim().isEmpty();
+                boolean hasAudio = audioUrl != null && !audioUrl.trim().isEmpty();
+                boolean validMedia = (!hasMedia || isHttpUrl(mediaUrl)) && (!hasAudio || isHttpUrl(audioUrl));
+                requestAccepted = ("ping".equals(command) || "status".equals(command))
+                        || (validMedia && (hasMedia || hasAudio));
             }
 
-            String responseBody = "OK";
+            String responseBody = requestAccepted ? "OK" : "Invalid or unsupported request";
             String contentType = "text/plain; charset=utf-8";
             if ("status".equals(command)) {
                 JSONObject statusJson = new JSONObject();
@@ -1386,30 +1374,24 @@ public class MainActivity extends Activity {
                 contentType = "application/json; charset=utf-8";
             }
             byte[] bodyBytes = responseBody.getBytes(StandardCharsets.UTF_8);
-            byte[] response = (
-                    "HTTP/1.1 200 OK\r\n" +
-                    "Content-Type: " + contentType + "\r\n" +
-                    "Access-Control-Allow-Origin: *\r\n" +
-                    "Connection: close\r\n" +
-                    "Content-Length: " + bodyBytes.length + "\r\n\r\n"
-            ).getBytes(StandardCharsets.UTF_8);
-
+            String statusLine = requestAccepted ? "HTTP/1.1 200 OK\r\n" : "HTTP/1.1 400 Bad Request\r\n";
+            byte[] response = (statusLine
+                    + "Content-Type: " + contentType + "\r\n"
+                    + "Connection: close\r\n"
+                    + "Content-Length: " + bodyBytes.length + "\r\n\r\n")
+                    .getBytes(StandardCharsets.UTF_8);
             OutputStream output = socket.getOutputStream();
             output.write(response);
             output.write(bodyBytes);
             output.flush();
-
         } catch (Exception e) {
             Log.e(TAG, "Request error", e);
+            return;
         }
 
-        if ("ping".equals(command) || "status".equals(command)) {
-            return; // Identity/status probe only; do not send it to the playback remote.
-        }
+        if ("ping".equals(command) || "status".equals(command)) return;
         if (command != null && !command.trim().isEmpty()) {
             final String requestedCommand = command.trim();
-            // Log the exact command reaching the receiver. This makes it possible to
-            // distinguish a network/IP problem from a playback-control problem.
             Log.i(TAG, "Remote command received: " + requestedCommand
                     + ", playerAvailable=" + (player != null));
             runOnUiThread(() -> {
@@ -1424,14 +1406,25 @@ public class MainActivity extends Activity {
             });
             return;
         }
-
-        if ((mediaUrl != null && !mediaUrl.trim().isEmpty())
-                || (audioUrl != null && !audioUrl.trim().isEmpty())) {
+        if (requestAccepted && ((mediaUrl != null && !mediaUrl.trim().isEmpty())
+                || (audioUrl != null && !audioUrl.trim().isEmpty()))) {
             final String receivedMediaUrl = mediaUrl;
             final String receivedAudioUrl = audioUrl;
             final java.util.Map<String, String> receivedHeaders = new java.util.LinkedHashMap<>(mediaHeaders);
             runOnUiThread(() -> queueIncomingMedia(receivedMediaUrl, receivedAudioUrl, receivedHeaders));
         }
+    }
+
+    private String readHttpLine(java.io.InputStream input, int maxBytes) throws java.io.IOException {
+        java.io.ByteArrayOutputStream line = new java.io.ByteArrayOutputStream();
+        int value;
+        while ((value = input.read()) != -1) {
+            if (value == '\n') break;
+            if (value != '\r') line.write(value);
+            if (line.size() > maxBytes) throw new java.io.IOException("HTTP line too long");
+        }
+        if (value == -1 && line.size() == 0) return null;
+        return line.toString("UTF-8");
     }
 
     private boolean isYouTubeUrl(String value) {
