@@ -2150,8 +2150,13 @@ public class MainActivity extends Activity {
             path = path.toLowerCase(Locale.ROOT);
 
             String lowerUrl = url.toLowerCase(Locale.ROOT);
+            String decodedUrl = Uri.decode(lowerUrl);
             String query = Uri.parse(url).getQuery();
             String lowerQuery = query == null ? "" : query.toLowerCase(Locale.ROOT);
+            boolean imageMimeParameter = decodedUrl.contains("media_type=image/")
+                    || decodedUrl.contains("mime=image/")
+                    || lowerQuery.contains("media_type=image/")
+                    || lowerQuery.contains("mime=image/");
             return path.endsWith(".jpg")
                     || path.endsWith(".jpeg")
                     || path.endsWith(".png")
@@ -2164,6 +2169,7 @@ public class MainActivity extends Activity {
                     || path.endsWith(".tif")
                     || path.endsWith(".tiff")
                     || lowerQuery.matches(".*(?:format|fm|type)=(?:jpg|jpeg|png|webp|gif|bmp|avif|heic|heif)(?:&.*)?")
+                    || imageMimeParameter
                     || lowerUrl.matches(".*[?&](?:media_type|mime)=image%2f[a-z0-9.+-]+.*");
 
         } catch (Exception e) {
