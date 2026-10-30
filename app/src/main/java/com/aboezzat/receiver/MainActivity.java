@@ -211,7 +211,8 @@ public class MainActivity extends Activity {
                 "🧪  تشخيص الاتصال",
                 "🕘  سجل المشاهدة",
                 "ℹ  معلومات الإصدار",
-                "🔐  اقتران Share (قيد التطوير)"
+                "🔐  اقتران Share (قيد التطوير)",
+                "🛡  مانع الإعلانات: " + (getSharedPreferences("AboEzzatBrowser", MODE_PRIVATE).getBoolean("adblock_enabled", true) ? "مفعّل" : "متوقف")
         };
         new AlertDialog.Builder(this)
                 .setTitle("⚙ إعدادات الريسيفر")
@@ -238,6 +239,13 @@ public class MainActivity extends Activity {
                             } catch (Exception e) { Toast.makeText(this, "تعذّر قراءة معلومات الإصدار", Toast.LENGTH_SHORT).show(); }
                             break;
                         case 7: showSharePairingCode(); break;
+                        case 8:
+                            android.content.SharedPreferences browserPrefs = getSharedPreferences("AboEzzatBrowser", MODE_PRIVATE);
+                            boolean adBlockEnabled = !browserPrefs.getBoolean("adblock_enabled", true);
+                            browserPrefs.edit().putBoolean("adblock_enabled", adBlockEnabled).apply();
+                            Toast.makeText(this, "مانع الإعلانات " + (adBlockEnabled ? "مفعّل" : "متوقف")
+                                    + "؛ أعد تحميل صفحة المتصفح لتطبيق التغيير", Toast.LENGTH_LONG).show();
+                            break;
                     }
                 }).setNegativeButton("إغلاق", null).show();
     }
@@ -1825,7 +1833,9 @@ public class MainActivity extends Activity {
                     // A page can expose its real media only after JavaScript/player
                     // startup. Watch subresource requests as well as static page HTML.
                     // Never intercept or replay the page URL itself.
-                    if (!candidate.isEmpty() && isKnownBrowserAdRequest(candidate)) {
+                    if (!candidate.isEmpty()
+                            && getSharedPreferences("AboEzzatBrowser", MODE_PRIVATE).getBoolean("adblock_enabled", true)
+                            && isKnownBrowserAdRequest(candidate)) {
                         return new android.webkit.WebResourceResponse("text/plain", "UTF-8",
                                 new java.io.ByteArrayInputStream(new byte[0]));
                     }
@@ -2637,7 +2647,13 @@ public class MainActivity extends Activity {
                     "googleadservices.com", "adnxs.com", "criteo.com", "outbrain.com",
                     "taboola.com", "popads.net", "popcash.net", "propellerads.com",
                     "exoclick.com", "smartadserver.com", "scorecardresearch.com",
-                    "zedo.com", "adroll.com", "pubmatic.com", "rubiconproject.com"
+                    "zedo.com", "adroll.com", "pubmatic.com", "rubiconproject.com",
+                    "adsrvr.org", "advertising.com", "adform.net", "amazon-adsystem.com",
+                    "bidswitch.net", "casalemedia.com", "contextweb.com", "demdex.net",
+                    "everesttech.net", "flashtalking.com", "lijit.com", "media.net",
+                    "moatads.com", "openx.net", "quantserve.com", "rlcdn.com",
+                    "sharethrough.com", "simpli.fi", "teads.tv", "thetradedesk.com",
+                    "triplelift.com", "undertone.com", "yieldmo.com", "33across.com"
             };
             for (String domain : domains) if (host.equals(domain) || host.endsWith("." + domain)) return true;
         } catch (Exception ignored) { }
