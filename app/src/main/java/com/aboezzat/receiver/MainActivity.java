@@ -1826,6 +1826,14 @@ public class MainActivity extends Activity {
             }
             fallbackWebView.setWebViewClient(new WebViewClient() {
                 @Override
+                public boolean shouldOverrideUrlLoading(WebView view, android.webkit.WebResourceRequest request) {
+                    android.net.Uri uri = request == null ? null : request.getUrl();
+                    return uri != null
+                            && getSharedPreferences("AboEzzatBrowser", MODE_PRIVATE).getBoolean("adblock_enabled", true)
+                            && isKnownBrowserAdRequest(uri.toString());
+                }
+
+                @Override
                 public android.webkit.WebResourceResponse shouldInterceptRequest(
                         WebView view, android.webkit.WebResourceRequest request) {
                     String candidate = request == null || request.getUrl() == null
