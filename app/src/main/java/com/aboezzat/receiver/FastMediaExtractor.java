@@ -44,6 +44,10 @@ public final class FastMediaExtractor {
     private FastMediaExtractor() {}
 
     public static void extractDirectMedia(String inputUrl, ExtractorCallback callback) {
+        extractDirectMedia(inputUrl, null, callback);
+    }
+
+    public static void extractDirectMedia(String inputUrl, String cookies, ExtractorCallback callback) {
         if (callback == null) return;
         final String url = inputUrl == null ? "" : inputUrl.trim();
         final String platform = platformFor(url);
@@ -54,8 +58,13 @@ public final class FastMediaExtractor {
         String ua = "TikTok".equals(platform) ? MOBILE_UA : DESKTOP_UA;
         Request request;
         try {
-            request = new Request.Builder().url(url)
+            Request.Builder requestBuilder = new Request.Builder().url(url)
                     .header("User-Agent", ua)
+                    .header("Referer", url);
+            if (cookies != null && !cookies.trim().isEmpty()) {
+                requestBuilder.header("Cookie", cookies);
+            }
+            request = requestBuilder
                     .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
                     .header("Accept-Language", "en-US,en;q=0.8")
                     .get().build();
