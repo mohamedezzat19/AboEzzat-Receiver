@@ -2661,7 +2661,10 @@ public class MainActivity extends Activity {
                     "everesttech.net", "flashtalking.com", "lijit.com", "media.net",
                     "moatads.com", "openx.net", "quantserve.com", "rlcdn.com",
                     "sharethrough.com", "simpli.fi", "teads.tv", "thetradedesk.com",
-                    "triplelift.com", "undertone.com", "yieldmo.com", "33across.com"
+                    "triplelift.com", "undertone.com", "yieldmo.com", "33across.com",
+                    "adsterra.com", "trafficstars.com", "hilltopads.net", "adcash.com",
+                    "clickadu.com", "admaven.com", "monetag.com", "mgid.com",
+                    "revcontent.com", "trafficjunky.net", "juicyads.com", "exdynsrv.com"
             };
             for (String domain : domains) if (host.equals(domain) || host.endsWith("." + domain)) return true;
         } catch (Exception ignored) { }
