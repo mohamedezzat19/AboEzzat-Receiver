@@ -127,7 +127,7 @@ public final class FastMediaExtractor {
             String key = m.group(1);
             if ("TikTok".equals(platform) && !(key.equalsIgnoreCase("playAddr") || key.equalsIgnoreCase("play_addr") || key.equalsIgnoreCase("downloadAddr"))) continue;
             String value = clean(m.group(2));
-            if (isHttp(value) && (value.toLowerCase(Locale.ROOT).contains(".mp4") || key.toLowerCase(Locale.ROOT).contains("playable") || key.toLowerCase(Locale.ROOT).contains("playaddr") || key.equalsIgnoreCase("downloadAddr") || key.equalsIgnoreCase("video_url") || key.equalsIgnoreCase("video_url_https") || key.equalsIgnoreCase("playbackUrl") || key.equalsIgnoreCase("hlsUrl") || key.equalsIgnoreCase("manifestUrl"))) return value;
+            if (isHttp(value) && ((value.toLowerCase(Locale.ROOT).contains(".mp4") || value.toLowerCase(Locale.ROOT).contains(".m3u8") || value.toLowerCase(Locale.ROOT).contains(".mpd") || value.toLowerCase(Locale.ROOT).contains(".webm")) || key.toLowerCase(Locale.ROOT).contains("playable") || key.toLowerCase(Locale.ROOT).contains("playaddr") || key.equalsIgnoreCase("downloadAddr") || key.equalsIgnoreCase("video_url") || key.equalsIgnoreCase("video_url_https") || key.equalsIgnoreCase("playbackUrl") || key.equalsIgnoreCase("hlsUrl") || key.equalsIgnoreCase("manifestUrl"))) return value;
         }
         return null;
     }
