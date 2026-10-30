@@ -1813,8 +1813,10 @@ public class MainActivity extends Activity {
             // Request the desktop website layout on TV instead of the narrow phone layout.
             // Keep this isolated to the fallback browser; media extraction/playback is unchanged.
             settings.setUserAgentString("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36");
-            settings.setTextZoom(100);
-            fallbackWebView.setInitialScale(0);
+            // Keep the fallback browser compact on TV screens; users can still
+            // zoom in with the remote when a particular site needs it.
+            settings.setTextZoom(85);
+            fallbackWebView.setInitialScale(75);
             settings.setSupportZoom(true);
             settings.setBuiltInZoomControls(true);
             settings.setDisplayZoomControls(false);
@@ -1907,7 +1909,7 @@ public class MainActivity extends Activity {
                                 + "var h=document.head||document.getElementsByTagName('head')[0];"
                                 + "if(h&&!document.querySelector('meta[name=viewport]')){"
                                 + "var m=document.createElement('meta');m.name='viewport';"
-                                + "m.content='width=1024,initial-scale=1';h.appendChild(m);}"
+                                + "m.content='width=1280,initial-scale=0.8,maximum-scale=2,user-scalable=yes';h.appendChild(m);}"
                                 + "document.documentElement.style.maxWidth='100%';"
                                 + "document.documentElement.style.overflowX='auto';"
                                 + "if(document.body){document.body.style.maxWidth='100%';"
