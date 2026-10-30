@@ -2609,6 +2609,7 @@ public class MainActivity extends Activity {
         resetImageTransform();
 
         playerView.setVisibility(View.GONE);
+        if (fallbackWebView != null) fallbackWebView.setVisibility(View.GONE);
         welcomeScreen.setVisibility(View.GONE);
         welcomeBackground.setVisibility(View.GONE);
         connectionCard.setVisibility(View.GONE);
@@ -2620,41 +2621,78 @@ public class MainActivity extends Activity {
 
         Thread imageThread = new Thread(() -> {
             Bitmap bitmap = null;
-
+            HttpURLConnection connection = null;
             try {
-                URL url = new URL(imageUrl);
-
-                java.net.URLConnection connection =
-                        url.openConnection();
-
-                connection.setConnectTimeout(10000);
-                connection.setReadTimeout(15000);
-
-                try (java.io.InputStream input =
-                             connection.getInputStream()) {
-
-                    bitmap = BitmapFactory.decodeStream(input);
+                // Read dimensions first, then decode near the actual display resolution.
+                // This avoids allocating hundreds of megabytes for 4K/8K phone photos.
+                BitmapFactory.Options bounds = new BitmapFactory.Options();
+                bounds.inJustDecodeBounds = true;
+                connection = (HttpURLConnection) new URL(imageUrl).openConnection();
+                connection.setConnectTimeout(15000);
+                connection.setReadTimeout(30000);
+                connection.setInstanceFollowRedirects(true);
+                connection.setRequestProperty("Accept", "image/avif,image/webp,image/apng,image/*,*/*;q=0.8");
+                connection.connect();
+                int response = connection.getResponseCode();
+                if (response < 200 || response >= 300) {
+                    throw new java.io.IOException("Image server returned HTTP " + response);
+                }
+                try (java.io.InputStream input = connection.getInputStream()) {
+                    BitmapFactory.decodeStream(input, null, bounds);
+                } finally {
+                    connection.disconnect();
+                    connection = null;
                 }
 
+                int targetWidth = Math.max(1, getResources().getDisplayMetrics().widthPixels);
+                int targetHeight = Math.max(1, getResources().getDisplayMetrics().heightPixels);
+                int sample = 1;
+                if (bounds.outWidth > 0 && bounds.outHeight > 0) {
+                    while ((bounds.outWidth / (sample * 2)) >= targetWidth
+                            && (bounds.outHeight / (sample * 2)) >= targetHeight) {
+                        sample *= 2;
+                    }
+                }
+
+                BitmapFactory.Options decode = new BitmapFactory.Options();
+                decode.inSampleSize = sample;
+                decode.inPreferredConfig = Bitmap.Config.ARGB_8888;
+                decode.inScaled = false;
+                connection = (HttpURLConnection) new URL(imageUrl).openConnection();
+                connection.setConnectTimeout(15000);
+                connection.setReadTimeout(30000);
+                connection.setInstanceFollowRedirects(true);
+                connection.setRequestProperty("Accept", "image/avif,image/webp,image/apng,image/*,*/*;q=0.8");
+                connection.connect();
+                int response = connection.getResponseCode();
+                if (response < 200 || response >= 300) {
+                    throw new java.io.IOException("Image download returned HTTP " + response);
+                }
+                try (java.io.InputStream input = connection.getInputStream()) {
+                    bitmap = BitmapFactory.decodeStream(input, null, decode);
+                }
             } catch (Exception e) {
-                Log.e(TAG, "Image loading error", e);
+                Log.e(TAG, "Image loading error for " + imageUrl, e);
+            } finally {
+                if (connection != null) connection.disconnect();
             }
 
             final Bitmap result = bitmap;
-
             runOnUiThread(() -> {
                 imageLoading.setVisibility(View.GONE);
-
                 if (result != null && !isFinishing()) {
+                    imageView.setScaleType(ImageView.ScaleType.FIT_CENTER);
                     imageView.setImageBitmap(result);
                     imageView.setVisibility(View.VISIBLE);
-
                 } else {
                     showWelcome();
+                    Toast.makeText(MainActivity.this,
+                            "تعذّر تحميل الصورة من Share. تأكد أن الجهازين على نفس شبكة Wi-Fi وأن Share ما زال مفتوحًا.",
+                            Toast.LENGTH_LONG).show();
                 }
             });
         }, "ReceiverImageLoader");
-
+        imageThread.setDaemon(true);
         imageThread.start();
     }
 
