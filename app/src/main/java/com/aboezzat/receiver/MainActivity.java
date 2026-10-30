@@ -1825,6 +1825,10 @@ public class MainActivity extends Activity {
                     // A page can expose its real media only after JavaScript/player
                     // startup. Watch subresource requests as well as static page HTML.
                     // Never intercept or replay the page URL itself.
+                    if (!candidate.isEmpty() && isKnownBrowserAdRequest(candidate)) {
+                        return new android.webkit.WebResourceResponse("text/plain", "UTF-8",
+                                new java.io.ByteArrayInputStream(new byte[0]));
+                    }
                     if (!candidate.isEmpty() && isDirectStreamUrl(candidate) && !isImageUrl(candidate)
                             && !candidate.equals(fallbackPageUrl) && !fallbackStreamCaptured) {
                         fallbackStreamCaptured = true;
@@ -1840,6 +1844,16 @@ public class MainActivity extends Activity {
                         });
                     }
                     return super.shouldInterceptRequest(view, request);
+                }
+
+                @Override
+                public void onSafeBrowsingHit(WebView view, android.webkit.WebResourceRequest request,
+                        int threatType, android.webkit.SafeBrowsingResponse response) {
+                    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O_MR1) {
+                        response.backToSafety(true);
+                        runOnUiThread(() -> Toast.makeText(MainActivity.this,
+                                "تم حظر موقع تحذر منه ميزة التصفح الآمن", Toast.LENGTH_LONG).show());
+                    }
                 }
 
                 @Override
@@ -2608,6 +2622,26 @@ public class MainActivity extends Activity {
             Log.e(TAG, "Audio with image playback error", e);
             showWelcome();
         }
+    }
+
+    // Conservative host-based ad filter for the optional fallback browser.
+    // It targets known ad/analytics domains only and avoids generic media/CDN hosts.
+    private boolean isKnownBrowserAdRequest(String requestUrl) {
+        try {
+            android.net.Uri uri = android.net.Uri.parse(requestUrl);
+            String host = uri.getHost();
+            if (host == null) return false;
+            host = host.toLowerCase(java.util.Locale.ROOT);
+            String[] domains = {
+                    "doubleclick.net", "googlesyndication.com", "adservice.google.com",
+                    "googleadservices.com", "adnxs.com", "criteo.com", "outbrain.com",
+                    "taboola.com", "popads.net", "popcash.net", "propellerads.com",
+                    "exoclick.com", "smartadserver.com", "scorecardresearch.com",
+                    "zedo.com", "adroll.com", "pubmatic.com", "rubiconproject.com"
+            };
+            for (String domain : domains) if (host.equals(domain) || host.endsWith("." + domain)) return true;
+        } catch (Exception ignored) { }
+        return false;
     }
 
     private void showImage(String imageUrl) {
