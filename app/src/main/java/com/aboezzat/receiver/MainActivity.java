@@ -2664,9 +2664,9 @@ public class MainActivity extends Activity {
                 connection.setInstanceFollowRedirects(true);
                 connection.setRequestProperty("Accept", "image/avif,image/webp,image/apng,image/*,*/*;q=0.8");
                 connection.connect();
-                int response = connection.getResponseCode();
-                if (response < 200 || response >= 300) {
-                    throw new java.io.IOException("Image download returned HTTP " + response);
+                int imageResponse = connection.getResponseCode();
+                if (imageResponse < 200 || imageResponse >= 300) {
+                    throw new java.io.IOException("Image download returned HTTP " + imageResponse);
                 }
                 try (java.io.InputStream input = connection.getInputStream()) {
                     bitmap = BitmapFactory.decodeStream(input, null, decode);
