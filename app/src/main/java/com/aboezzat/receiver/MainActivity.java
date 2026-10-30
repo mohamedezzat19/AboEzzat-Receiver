@@ -1411,7 +1411,10 @@ public class MainActivity extends Activity {
             final String receivedMediaUrl = mediaUrl;
             final String receivedAudioUrl = audioUrl;
             final java.util.Map<String, String> receivedHeaders = new java.util.LinkedHashMap<>(mediaHeaders);
-            runOnUiThread(() -> queueIncomingMedia(receivedMediaUrl, receivedAudioUrl, receivedHeaders));
+            runOnUiThread(() -> {
+                Toast.makeText(MainActivity.this, "وصل طلب فيديو من Share New؛ جاري تجهيز التشغيل…", Toast.LENGTH_LONG).show();
+                queueIncomingMedia(receivedMediaUrl, receivedAudioUrl, receivedHeaders);
+            });
         }
     }
 
@@ -2594,6 +2597,16 @@ public class MainActivity extends Activity {
                             if (playerView != null) {
                                 playerView.setResizeMode(androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_FIT);
                             }
+                        }
+
+                        @Override
+                        public void onPlayerError(androidx.media3.common.PlaybackException error) {
+                            String detail = error == null ? "خطأ غير معروف" : error.getErrorCodeName();
+                            Log.e(TAG, "Media3 playback failed: " + detail,
+                                    error == null ? null : error);
+                            runOnUiThread(() -> Toast.makeText(MainActivity.this,
+                                    "وصل الفيديو لكن فشل تشغيله: " + detail,
+                                    Toast.LENGTH_LONG).show());
                         }
 
                         @Override
