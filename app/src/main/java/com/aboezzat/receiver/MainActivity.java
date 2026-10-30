@@ -1660,7 +1660,7 @@ public class MainActivity extends Activity {
 
         // Social-platform parsing is independent of the generic HTML request.
         if (useSocial) {
-            FastMediaExtractor.extractDirectMedia(pageUrl, new FastMediaExtractor.ExtractorCallback() {
+            FastMediaExtractor.extractDirectMedia(pageUrl, android.webkit.CookieManager.getInstance().getCookie(pageUrl), new FastMediaExtractor.ExtractorCallback() {
                 @Override public void onSuccess(String mediaUrl, String platform) {
                     run.candidate(mediaUrl, "Social " + platform, false, false);
                 }
