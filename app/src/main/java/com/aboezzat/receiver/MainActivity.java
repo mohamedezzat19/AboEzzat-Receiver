@@ -41,6 +41,8 @@ import androidx.media3.common.MediaItem;
 import androidx.media3.common.Player;
 import androidx.media3.common.util.UnstableApi;
 import androidx.media3.exoplayer.ExoPlayer;
+import androidx.media3.datasource.DefaultHttpDataSource;
+import androidx.media3.datasource.DefaultDataSource;
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory;
 import androidx.media3.exoplayer.source.MergingMediaSource;
 import androidx.media3.exoplayer.source.MediaSource;
@@ -77,6 +79,7 @@ public class MainActivity extends Activity {
     private volatile boolean extractionInProgress = false;
     private volatile int extractionAttemptCount = 0;
     private volatile String extractionStatus = "idle";
+    private volatile java.util.Map<String, String> pendingPlaybackHeaders = java.util.Collections.emptyMap();
 
     private FrameLayout root;
     private LinearLayout welcomeScreen;
@@ -1282,6 +1285,7 @@ public class MainActivity extends Activity {
         String mediaUrl = null;
         String audioUrl = null;
         String command = null;
+        java.util.Map<String, String> mediaHeaders = new java.util.LinkedHashMap<>();
 
         try (Socket socket = client) {
             socket.setSoTimeout(5000);
@@ -1297,8 +1301,41 @@ public class MainActivity extends Activity {
 
             if (requestLine != null) {
                 String[] parts = requestLine.split(" ");
-
-                if (parts.length >= 2) {
+                String method = parts.length > 0 ? parts[0] : "GET";
+                int contentLength = 0;
+                String headerLine;
+                while ((headerLine = reader.readLine()) != null && !headerLine.isEmpty()) {
+                    int colon = headerLine.indexOf(':');
+                    if (colon > 0 && "content-length".equalsIgnoreCase(headerLine.substring(0, colon).trim())) {
+                        try { contentLength = Math.min(16384, Math.max(0, Integer.parseInt(headerLine.substring(colon + 1).trim()))); }
+                        catch (NumberFormatException ignored) { contentLength = 0; }
+                    }
+                }
+                if ("POST".equalsIgnoreCase(method) && parts.length >= 2 && "/play".equals(parts[1]) && contentLength > 0) {
+                    StringBuilder body = new StringBuilder();
+                    while (body.length() < contentLength) {
+                        int ch = reader.read();
+                        if (ch < 0) break;
+                        body.append((char) ch);
+                    }
+                    JSONObject payload = new JSONObject(body.toString());
+                    mediaUrl = payload.optString("url", null);
+                    audioUrl = payload.optString("audio", null);
+                    JSONObject headers = payload.optJSONObject("headers");
+                    if (headers != null) {
+                        java.util.Iterator<String> keys = headers.keys();
+                        while (keys.hasNext() && mediaHeaders.size() < 12) {
+                            String key = keys.next();
+                            String lower = key.toLowerCase(Locale.ROOT);
+                            String value = headers.optString(key, "");
+                            if (value.length() <= 2048 && !value.contains("\\r") && !value.contains("\\n")
+                                    && ("user-agent".equals(lower) || "referer".equals(lower) || "origin".equals(lower)
+                                    || "accept".equals(lower) || "accept-language".equals(lower))) {
+                                mediaHeaders.put(key, value);
+                            }
+                        }
+                    }
+                } else if (parts.length >= 2) {
                     String target = parts[1];
                     int questionIndex = target.indexOf('?');
 
@@ -1392,9 +1429,8 @@ public class MainActivity extends Activity {
                 || (audioUrl != null && !audioUrl.trim().isEmpty())) {
             final String receivedMediaUrl = mediaUrl;
             final String receivedAudioUrl = audioUrl;
-            runOnUiThread(() -> queueIncomingMedia(
-                    receivedMediaUrl, receivedAudioUrl
-            ));
+            final java.util.Map<String, String> receivedHeaders = new java.util.LinkedHashMap<>(mediaHeaders);
+            runOnUiThread(() -> queueIncomingMedia(receivedMediaUrl, receivedAudioUrl, receivedHeaders));
         }
     }
 
@@ -2079,6 +2115,10 @@ public class MainActivity extends Activity {
 
     // natively play media URLs; resolve page URLs to a direct stream instead of opening another app.
     private void queueIncomingMedia(String mediaUrl, String audioUrl) {
+        queueIncomingMedia(mediaUrl, audioUrl, java.util.Collections.emptyMap());
+    }
+
+    private void queueIncomingMedia(String mediaUrl, String audioUrl, java.util.Map<String, String> headers) {
         pendingBrowserUrl = "";
         if (browserShortcut != null) browserShortcut.setVisibility(View.GONE);
         // The receiver is reachable on the local network, so accept only remote HTTP(S)
@@ -2086,6 +2126,7 @@ public class MainActivity extends Activity {
         // to ExoPlayer or the social-video resolver.
         String originalMediaUrl = mediaUrl;
         String originalAudioUrl = audioUrl;
+        pendingPlaybackHeaders = headers == null ? java.util.Collections.emptyMap() : new java.util.LinkedHashMap<>(headers);
         if (mediaUrl != null && !mediaUrl.trim().isEmpty() && !isHttpUrl(mediaUrl)) {
             mediaUrl = null;
         }
@@ -2141,7 +2182,8 @@ public class MainActivity extends Activity {
             pendingVisualUrl = null;
             pendingAudioUrl = null;
             pendingPlayback = null;
-            playContent(visual, audio);
+            playContent(visual, audio, pendingPlaybackHeaders);
+            pendingPlaybackHeaders = java.util.Collections.emptyMap();
         };
         mediaHandler.postDelayed(pendingPlayback, 150);
     }
@@ -2484,9 +2526,11 @@ public class MainActivity extends Activity {
         queueIncomingMedia(url, null);
     }
 
-    private void playContent(
-            String mediaUrl,
-            String audioUrl) {
+    private void playContent(String mediaUrl, String audioUrl) {
+        playContent(mediaUrl, audioUrl, java.util.Collections.emptyMap());
+    }
+
+    private void playContent(String mediaUrl, String audioUrl, java.util.Map<String, String> requestHeaders) {
 
         if (mediaUrl != null
                 && !mediaUrl.trim().isEmpty()
@@ -2573,8 +2617,7 @@ public class MainActivity extends Activity {
                 if (audioUrl != null
                         && !audioUrl.trim().isEmpty()) {
 
-                    DefaultMediaSourceFactory factory =
-                            new DefaultMediaSourceFactory(this);
+                    DefaultMediaSourceFactory factory = createMediaSourceFactory(requestHeaders);
 
                     MediaSource videoSource =
                             factory.createMediaSource(
@@ -2596,9 +2639,8 @@ public class MainActivity extends Activity {
                     player.setMediaSource(merged);
 
                 } else {
-                    player.setMediaItem(
-                            MediaItem.fromUri(playbackUrl)
-                    );
+                    player.setMediaSource(createMediaSourceFactory(requestHeaders)
+                            .createMediaSource(MediaItem.fromUri(playbackUrl)));
                 }
 
                 player.prepare();
@@ -2615,6 +2657,25 @@ public class MainActivity extends Activity {
             Log.e(TAG, "Playback error", e);
             showWelcome();
         }
+    }
+
+    private DefaultMediaSourceFactory createMediaSourceFactory(java.util.Map<String, String> requestHeaders) {
+        DefaultHttpDataSource.Factory httpFactory = new DefaultHttpDataSource.Factory()
+                .setConnectTimeoutMs(15000).setReadTimeoutMs(30000);
+        if (requestHeaders != null && !requestHeaders.isEmpty()) {
+            java.util.Map<String, String> safe = new java.util.LinkedHashMap<>();
+            for (java.util.Map.Entry<String, String> entry : requestHeaders.entrySet()) {
+                String key = entry.getKey() == null ? "" : entry.getKey().toLowerCase(Locale.ROOT);
+                if (("user-agent".equals(key) || "referer".equals(key) || "origin".equals(key)
+                        || "accept".equals(key) || "accept-language".equals(key))
+                        && entry.getValue() != null && entry.getValue().length() <= 2048
+                        && !entry.getValue().contains("\\r") && !entry.getValue().contains("\\n")) {
+                    safe.put(entry.getKey(), entry.getValue());
+                }
+            }
+            httpFactory.setDefaultRequestProperties(safe);
+        }
+        return new DefaultMediaSourceFactory(new DefaultDataSource.Factory(this, httpFactory));
     }
 
     // الصورة تظل ظاهرة بينما يشغّل ExoPlayer الصوت في الخلفية.
