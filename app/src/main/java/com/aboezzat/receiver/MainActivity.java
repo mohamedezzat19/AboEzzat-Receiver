@@ -79,6 +79,7 @@ public class MainActivity extends Activity {
     private volatile boolean extractionInProgress = false;
     private volatile int extractionAttemptCount = 0;
     private volatile String extractionStatus = "idle";
+    private volatile String playbackStatusMessage = "";
     private volatile java.util.Map<String, String> pendingPlaybackHeaders = java.util.Collections.emptyMap();
 
     private FrameLayout root;
@@ -1370,6 +1371,7 @@ public class MainActivity extends Activity {
                 statusJson.put("extracting", extractionInProgress);
                 statusJson.put("attempt", extractionAttemptCount);
                 statusJson.put("status", extractionStatus);
+                statusJson.put("message", playbackStatusMessage == null ? "" : playbackStatusMessage);
                 responseBody = statusJson.toString();
                 contentType = "application/json; charset=utf-8";
             }
@@ -2131,6 +2133,9 @@ public class MainActivity extends Activity {
     }
 
     private void queueIncomingMedia(String mediaUrl, String audioUrl, java.util.Map<String, String> headers) {
+        extractionStatus = "preparing";
+        playbackStatusMessage = "Receiver استلم الرابط؛ جاري تجهيز مشغّل الفيديو.";
+        persistExtractionState();
         pendingBrowserUrl = "";
         if (browserShortcut != null) browserShortcut.setVisibility(View.GONE);
         // The receiver is reachable on the local network, so accept only remote HTTP(S)
@@ -2168,7 +2173,8 @@ public class MainActivity extends Activity {
         if (mediaUrl != null && isDirectStreamUrl(mediaUrl)) {
             extractionInProgress = false;
             extractionAttemptCount = 0;
-            extractionStatus = "direct_playback";
+            extractionStatus = "preparing";
+            playbackStatusMessage = "تم تحديد رابط مباشر؛ جاري تحميله في مشغّل الفيديو.";
             persistExtractionState();
         }
         if (mediaUrl != null && !mediaUrl.trim().isEmpty()
@@ -2589,6 +2595,15 @@ public class MainActivity extends Activity {
                     player = new ExoPlayer.Builder(this).build();
                     player.addListener(new Player.Listener() {
                         @Override
+                        public void onIsPlayingChanged(boolean isPlaying) {
+                            if (isPlaying) {
+                                extractionStatus = "playing";
+                                playbackStatusMessage = "بدأ تشغيل الفيديو على شاشة Receiver.";
+                                persistExtractionState();
+                            }
+                        }
+
+                        @Override
                         public void onVideoSizeChanged(androidx.media3.common.VideoSize videoSize) {
                             // Keep rotation metadata from the stream and let PlayerView fit
                             // the rotated aspect ratio rather than forcing landscape/portrait.
@@ -2602,6 +2617,9 @@ public class MainActivity extends Activity {
                         @Override
                         public void onPlayerError(androidx.media3.common.PlaybackException error) {
                             String detail = error == null ? "خطأ غير معروف" : error.getErrorCodeName();
+                            extractionStatus = "error";
+                            playbackStatusMessage = "فشل تشغيل الفيديو: " + detail;
+                            persistExtractionState();
                             Log.e(TAG, "Media3 playback failed: " + detail,
                                     error == null ? null : error);
                             runOnUiThread(() -> Toast.makeText(MainActivity.this,
