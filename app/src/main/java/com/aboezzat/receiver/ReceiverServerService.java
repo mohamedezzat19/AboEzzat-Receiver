@@ -162,13 +162,19 @@ public class ReceiverServerService extends Service {
         if (heartbeatThread != null && heartbeatThread.isAlive()) return;
         heartbeatThread = new Thread(() -> {
             while (running) {
-                try (DatagramSocket socket = new DatagramSocket()) {
-                    socket.setBroadcast(true);
-                    byte[] data = ("ABOEZZAT_RECEIVER|" + getCurrentIpAddress() + "|" + activePort)
-                            .getBytes(StandardCharsets.UTF_8);
-                    DatagramPacket packet = new DatagramPacket(
-                            data, data.length, InetAddress.getByName(DISCOVERY_GROUP), DISCOVERY_PORT);
-                    socket.send(packet);
+                try {
+                    String lanIp = getCurrentIpAddress();
+                    DatagramSocket socket = "0.0.0.0".equals(lanIp)
+                            ? new DatagramSocket()
+                            : new DatagramSocket(new InetSocketAddress(lanIp, 0));
+                    try (DatagramSocket discoverySocket = socket) {
+                        discoverySocket.setBroadcast(true);
+                        byte[] data = ("ABOEZZAT_RECEIVER|" + lanIp + "|" + activePort)
+                                .getBytes(StandardCharsets.UTF_8);
+                        DatagramPacket packet = new DatagramPacket(
+                                data, data.length, InetAddress.getByName(DISCOVERY_GROUP), DISCOVERY_PORT);
+                        discoverySocket.send(packet);
+                    }
                 } catch (Exception e) {
                     Log.w(TAG, "Discovery heartbeat failed", e);
                 }
@@ -187,21 +193,29 @@ public class ReceiverServerService extends Service {
     private String getCurrentIpAddress() {
         try {
             Enumeration<NetworkInterface> interfaces = NetworkInterface.getNetworkInterfaces();
+            String fallback = null;
             while (interfaces != null && interfaces.hasMoreElements()) {
                 NetworkInterface networkInterface = interfaces.nextElement();
-                if (!networkInterface.isUp() || networkInterface.isLoopback()) continue;
+                if (!networkInterface.isUp() || networkInterface.isLoopback() || networkInterface.isVirtual()) continue;
+                String name = networkInterface.getName() == null ? "" : networkInterface.getName().toLowerCase(java.util.Locale.ROOT);
+                // Do not advertise VPN/tunnel addresses: the phone cannot connect to them as a TV receiver.
+                if (name.contains("tun") || name.contains("tap") || name.contains("vpn")
+                        || name.contains("ppp") || name.contains("wg")) continue;
                 Enumeration<InetAddress> addresses = networkInterface.getInetAddresses();
                 while (addresses.hasMoreElements()) {
                     InetAddress address = addresses.nextElement();
-                    if (address instanceof Inet4Address && !address.isLoopbackAddress()) {
-                        return address.getHostAddress();
-                    }
+                    if (!(address instanceof Inet4Address) || address.isLoopbackAddress()
+                            || address.isLinkLocalAddress() || !address.isSiteLocalAddress()) continue;
+                    String ip = address.getHostAddress();
+                    if (name.contains("wlan") || name.contains("wifi") || name.contains("eth")) return ip;
+                    if (fallback == null) fallback = ip;
                 }
             }
+            return fallback == null ? "0.0.0.0" : fallback;
         } catch (Exception e) {
-            Log.w(TAG, "Unable to resolve local IPv4 address", e);
+            Log.w(TAG, "Unable to resolve local LAN IPv4 address", e);
+            return "0.0.0.0";
         }
-        return "0.0.0.0";
     }
 
     private void handleRequest(Socket client) {
