@@ -1333,10 +1333,10 @@ public class MainActivity extends Activity {
                             String key = keys.next();
                             String lower = key.toLowerCase(Locale.ROOT);
                             String value = headers.optString(key, "");
-                            if (value.length() <= 2048 && !value.contains("\r") && !value.contains("\n")
+                            if (value.length() <= ("cookie".equals(lower) ? 8192 : 2048)
+                                    && !value.contains("\r") && !value.contains("\n")
                                     && ("user-agent".equals(lower) || "referer".equals(lower) || "origin".equals(lower)
-                                    || "accept".equals(lower) || "accept-language".equals(lower) || "cookie".equals(lower))
-                                    && (!"cookie".equals(lower) || value.length() <= 8192)) {
+                                    || "accept".equals(lower) || "accept-language".equals(lower) || "cookie".equals(lower))) {
                                 mediaHeaders.put(key, value);
                             }
                         }
