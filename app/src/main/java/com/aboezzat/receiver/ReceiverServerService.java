@@ -21,6 +21,7 @@ import java.net.DatagramSocket;
 import java.net.Inet4Address;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
+import java.net.MulticastSocket;
 import java.net.NetworkInterface;
 import java.net.ServerSocket;
 import java.net.Socket;
@@ -158,17 +159,46 @@ public class ReceiverServerService extends Service {
         serverThread.start();
     }
 
+    private NetworkInterface getLanInterface() {
+        try {
+            Enumeration<NetworkInterface> interfaces = NetworkInterface.getNetworkInterfaces();
+            NetworkInterface fallback = null;
+            while (interfaces != null && interfaces.hasMoreElements()) {
+                NetworkInterface ni = interfaces.nextElement();
+                if (!ni.isUp() || ni.isLoopback() || ni.isVirtual()) continue;
+                String name = ni.getName() == null ? "" : ni.getName().toLowerCase(java.util.Locale.ROOT);
+                if (name.contains("tun") || name.contains("tap") || name.contains("vpn")
+                        || name.contains("ppp") || name.contains("wg")) continue;
+                boolean hasLanIpv4 = false;
+                Enumeration<InetAddress> addresses = ni.getInetAddresses();
+                while (addresses.hasMoreElements()) {
+                    InetAddress address = addresses.nextElement();
+                    if (address instanceof Inet4Address && address.isSiteLocalAddress()
+                            && !address.isLoopbackAddress() && !address.isLinkLocalAddress()) {
+                        hasLanIpv4 = true;
+                        break;
+                    }
+                }
+                if (!hasLanIpv4) continue;
+                if (name.contains("wlan") || name.contains("wifi") || name.contains("eth")) return ni;
+                if (fallback == null) fallback = ni;
+            }
+            return fallback;
+        } catch (Exception ignored) {
+            return null;
+        }
+    }
+
     private void startDiscoveryHeartbeat() {
         if (heartbeatThread != null && heartbeatThread.isAlive()) return;
         heartbeatThread = new Thread(() -> {
             while (running) {
                 try {
                     String lanIp = getCurrentIpAddress();
-                    DatagramSocket socket = "0.0.0.0".equals(lanIp)
-                            ? new DatagramSocket()
-                            : new DatagramSocket(new InetSocketAddress(lanIp, 0));
-                    try (DatagramSocket discoverySocket = socket) {
-                        discoverySocket.setBroadcast(true);
+                    NetworkInterface lanInterface = getLanInterface();
+                    try (MulticastSocket discoverySocket = new MulticastSocket()) {
+                        if (lanInterface != null) discoverySocket.setNetworkInterface(lanInterface);
+                        discoverySocket.setTimeToLive(1);
                         byte[] data = ("ABOEZZAT_RECEIVER|" + lanIp + "|" + activePort)
                                 .getBytes(StandardCharsets.UTF_8);
                         DatagramPacket packet = new DatagramPacket(
