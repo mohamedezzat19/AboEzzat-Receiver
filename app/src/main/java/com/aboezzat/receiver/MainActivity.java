@@ -2715,8 +2715,9 @@ public class MainActivity extends Activity {
             for (java.util.Map.Entry<String, String> entry : requestHeaders.entrySet()) {
                 String key = entry.getKey() == null ? "" : entry.getKey().toLowerCase(Locale.ROOT);
                 if (("user-agent".equals(key) || "referer".equals(key) || "origin".equals(key)
-                        || "accept".equals(key) || "accept-language".equals(key))
-                        && entry.getValue() != null && entry.getValue().length() <= 2048
+                        || "accept".equals(key) || "accept-language".equals(key) || "cookie".equals(key))
+                        && entry.getValue() != null
+                        && entry.getValue().length() <= ("cookie".equals(key) ? 8192 : 2048)
                         && !entry.getValue().contains("\\r") && !entry.getValue().contains("\\n")) {
                     safe.put(entry.getKey(), entry.getValue());
                 }
