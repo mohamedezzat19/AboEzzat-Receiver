@@ -1335,7 +1335,8 @@ public class MainActivity extends Activity {
                             String value = headers.optString(key, "");
                             if (value.length() <= 2048 && !value.contains("\r") && !value.contains("\n")
                                     && ("user-agent".equals(lower) || "referer".equals(lower) || "origin".equals(lower)
-                                    || "accept".equals(lower) || "accept-language".equals(lower))) {
+                                    || "accept".equals(lower) || "accept-language".equals(lower) || "cookie".equals(lower))
+                                    && (!"cookie".equals(lower) || value.length() <= 8192)) {
                                 mediaHeaders.put(key, value);
                             }
                         }
