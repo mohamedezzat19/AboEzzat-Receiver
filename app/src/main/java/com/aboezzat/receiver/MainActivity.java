@@ -1329,7 +1329,7 @@ public class MainActivity extends Activity {
                     JSONObject headers = payload.optJSONObject("headers");
                     if (headers != null) {
                         java.util.Iterator<String> keys = headers.keys();
-                        while (keys.hasNext() && mediaHeaders.size() < 5) {
+                        while (keys.hasNext() && mediaHeaders.size() < 6) {
                             String key = keys.next();
                             String lower = key.toLowerCase(Locale.ROOT);
                             String value = headers.optString(key, "");
