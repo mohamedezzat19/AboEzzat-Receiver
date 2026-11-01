@@ -253,6 +253,7 @@ public class ReceiverServerService extends Service {
         String audioUrl = null;
         String command = null;
         boolean invalidMediaUrl = false;
+        JSONObject incomingHeaders = new JSONObject();
         try (Socket socket = client) {
             socket.setSoTimeout(5000);
             InputStream input = socket.getInputStream();
@@ -305,6 +306,7 @@ public class ReceiverServerService extends Service {
                     }
                     // Persist playback headers with the pending URL so the player can use
                     // the same authorization context that Share supplied.
+                    incomingHeaders = safeHeaders;
                     getSharedPreferences("AboEzzatReceiverPending", MODE_PRIVATE).edit()
                             .putString("headers", safeHeaders.toString()).apply();
                 }
@@ -376,6 +378,7 @@ public class ReceiverServerService extends Service {
         request.putExtra(EXTRA_URL, mediaUrl);
         request.putExtra(EXTRA_AUDIO, audioUrl);
         request.putExtra(EXTRA_COMMAND, command);
+        request.putExtra("server_headers", incomingHeaders.toString());
         request.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK
                 | Intent.FLAG_ACTIVITY_CLEAR_TOP
                 | Intent.FLAG_ACTIVITY_SINGLE_TOP);

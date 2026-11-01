@@ -539,11 +539,22 @@ public class MainActivity extends Activity {
             String command = intent.getStringExtra(ReceiverServerService.EXTRA_COMMAND);
             String incomingUrl = intent.getStringExtra(ReceiverServerService.EXTRA_URL);
             String incomingAudio = intent.getStringExtra(ReceiverServerService.EXTRA_AUDIO);
+            java.util.Map<String, String> incomingHeaders = new java.util.LinkedHashMap<>();
+            try {
+                JSONObject headerJson = new JSONObject(intent.getStringExtra("server_headers") == null
+                        ? "{}" : intent.getStringExtra("server_headers"));
+                java.util.Iterator<String> keys = headerJson.keys();
+                while (keys.hasNext()) {
+                    String key = keys.next();
+                    String value = headerJson.optString(key, "");
+                    if (!value.isEmpty()) incomingHeaders.put(key, value);
+                }
+            } catch (Exception ignored) { }
             if (command != null && !command.trim().isEmpty()) {
                 handleRemoteCommand(command.trim());
             } else {
                 clearPendingServerMedia();
-                queueIncomingMedia(incomingUrl, incomingAudio);
+                queueIncomingMedia(incomingUrl, incomingAudio, incomingHeaders);
             }
             return;
         }
