@@ -1512,10 +1512,16 @@ public class MainActivity extends Activity {
                     || lowerPath.contains("/tweet_video/")
                     || ((host.contains("tiktokcdn") || host.contains("tiktokv")
                     || host.contains("byteoversea") || host.contains("ibytedtos"))
-                    && (lowerPath.contains("/video/") || lowerPath.contains("/obj/")))
-                    || (host.endsWith("fbcdn.net")
-                    && (host.startsWith("video.") || lowerPath.contains("/t42.")))
-                    || (host.endsWith("cdninstagram.com") && lowerPath.contains("/t50."));
+                    && (lowerPath.contains("/video/") || lowerPath.contains("/obj/")
+                    || lowerPath.contains("/tos/")))
+                    // Facebook frequently serves signed extensionless MP4 streams from
+                    // scontent*.fbcdn.net with /v/t... or /o1/v/t... paths.
+                    || ((host.endsWith("fbcdn.net") || host.endsWith("fbsbx.com"))
+                    && (host.startsWith("video.") || lowerPath.contains("/v/t")
+                    || lowerPath.contains("/t39.") || lowerPath.contains("/t42.")
+                    || lowerPath.contains("/video/") || lowerPath.contains("/reel/")))
+                    || (host.endsWith("cdninstagram.com")
+                    && (lowerPath.contains("/t50.") || lowerPath.contains("/v/t")));
             return knownSocialCdnVideo
                     || lowerPath.endsWith(".mp4") || lowerPath.endsWith(".m4v")
                     || lowerPath.endsWith(".webm") || lowerPath.endsWith(".mov")
