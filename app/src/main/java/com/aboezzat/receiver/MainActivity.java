@@ -1491,7 +1491,22 @@ public class MainActivity extends Activity {
             String path = uri.getPath();
             String lowerPath = path == null ? "" : path.toLowerCase(Locale.ROOT);
             String lower = value.toLowerCase(Locale.ROOT);
-            return lowerPath.endsWith(".mp4") || lowerPath.endsWith(".m4v")
+            String host = uri.getHost() == null ? "" : uri.getHost().toLowerCase(Locale.ROOT);
+            // Social CDNs frequently return signed, extensionless video URLs. Treat
+            // only recognizable video endpoints as direct streams; do not re-run
+            // page extraction for a valid Facebook/Instagram/Threads/TikTok/X stream.
+            boolean knownSocialCdnVideo = host.equals("video.twimg.com")
+                    || lowerPath.contains("/ext_tw_video/")
+                    || lowerPath.contains("/amplify_video/")
+                    || lowerPath.contains("/tweet_video/")
+                    || ((host.contains("tiktokcdn") || host.contains("tiktokv")
+                    || host.contains("byteoversea") || host.contains("ibytedtos"))
+                    && (lowerPath.contains("/video/") || lowerPath.contains("/obj/")))
+                    || (host.endsWith("fbcdn.net")
+                    && (host.startsWith("video.") || lowerPath.contains("/t42.")))
+                    || (host.endsWith("cdninstagram.com") && lowerPath.contains("/t50."));
+            return knownSocialCdnVideo
+                    || lowerPath.endsWith(".mp4") || lowerPath.endsWith(".m4v")
                     || lowerPath.endsWith(".webm") || lowerPath.endsWith(".mov")
                     || lowerPath.endsWith(".flv") || lowerPath.endsWith(".m3u8") || lowerPath.endsWith(".mpd")
                     || lowerPath.endsWith(".mp3") || lowerPath.endsWith(".m4a")
