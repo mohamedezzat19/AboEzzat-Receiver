@@ -2426,7 +2426,16 @@ public class MainActivity extends Activity {
             }
             switch (command) {
                 case "play_pause":
-                    if (player.isPlaying()) player.pause(); else player.play();
+                    if (player.isPlaying()) {
+                        player.pause();
+                    } else {
+                        // ExoPlayer remains in STATE_ENDED after a video finishes.
+                        // Calling play() alone does not rewind an ended item.
+                        if (player.getPlaybackState() == Player.STATE_ENDED) {
+                            player.seekToDefaultPosition();
+                        }
+                        player.play();
+                    }
                     break;
                 case "rw":
                     player.seekTo(Math.max(0L, player.getCurrentPosition() - 10000L));
