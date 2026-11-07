@@ -3,6 +3,7 @@ package com.aboezzat.receiver;
 
 import android.app.Activity;
 import android.content.SharedPreferences;
+import android.content.ActivityNotFoundException;
 import android.app.AlertDialog;
 import android.os.Bundle;
 import android.os.Handler;
@@ -98,6 +99,9 @@ public class MainActivity extends Activity {
     private FrameLayout browserOverlay;
     private EditText browserAddress;
     private ProgressBar browserProgress;
+    private FrameLayout browserHomePanel;
+    private LinearLayout browserBookmarksContainer;
+    private static final int REQUEST_BROWSER_VOICE = 7421;
     private boolean tvBrowserMode = false;
     private WebView pendingPopupWebView;
     private WebView activePopupWebView;
@@ -1853,9 +1857,10 @@ public class MainActivity extends Activity {
     // HTML5 video fullscreen requests. Existing ExoPlayer remains the first choice.
     private void openTvBrowser() {
         tvBrowserMode = true;
-        String initialUrl = isHttpUrl(pendingBrowserUrl) ? pendingBrowserUrl : "https://www.google.com";
+        String initialUrl = isHttpUrl(pendingBrowserUrl) ? pendingBrowserUrl : "";
         if (browserOverlay == null) createTvBrowserChrome();
-        showWebFallback(initialUrl);
+        // Keep the normal browser home visible unless we are opening a pending shared URL.
+        showWebFallback(isHttpUrl(initialUrl) ? initialUrl : "https://www.google.com");
         if (fallbackWebView != null) {
             ViewGroup parent = (ViewGroup) fallbackWebView.getParent();
             if (parent != null) parent.removeView(fallbackWebView);
@@ -1864,9 +1869,16 @@ public class MainActivity extends Activity {
                     FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
             browserOverlay.setVisibility(View.VISIBLE);
             browserOverlay.bringToFront();
-            browserAddress.setText(initialUrl);
-            browserAddress.setSelection(browserAddress.getText().length());
-            browserAddress.requestFocus();
+            if (isHttpUrl(initialUrl)) {
+                browserAddress.setText(initialUrl);
+                browserHomePanel.setVisibility(View.GONE);
+                fallbackWebView.setVisibility(View.VISIBLE);
+                browserAddress.setSelection(browserAddress.getText().length());
+                browserAddress.requestFocus();
+            } else {
+                browserAddress.setText("");
+                showBrowserStartPage();
+            }
         }
     }
 
@@ -1919,11 +1931,15 @@ public class MainActivity extends Activity {
             }
             return false;
         });
-        TextView go = makeBrowserButton("OK", "فتح");
+        TextView mic = makeBrowserButton("🎙", "البحث بالصوت");
+        TextView clear = makeBrowserButton("×", "مسح البحث");
+        TextView go = makeBrowserButton("OK", "بحث أو فتح");
         back.setOnClickListener(v -> { if (fallbackWebView != null && fallbackWebView.canGoBack()) fallbackWebView.goBack(); });
         forward.setOnClickListener(v -> { if (fallbackWebView != null && fallbackWebView.canGoForward()) fallbackWebView.goForward(); });
         refresh.setOnClickListener(v -> { if (fallbackWebView != null) fallbackWebView.reload(); });
-        home.setOnClickListener(v -> { browserAddress.setText("https://www.google.com"); navigateBrowserAddress(); });
+        home.setOnClickListener(v -> showBrowserStartPage());
+        mic.setOnClickListener(v -> startBrowserVoiceSearch());
+        clear.setOnClickListener(v -> { browserAddress.setText(""); browserAddress.requestFocus(); });
         go.setOnClickListener(v -> navigateBrowserAddress());
 
         toolbar.addView(back, new LinearLayout.LayoutParams(dp(48), dp(46)));
@@ -1933,6 +1949,8 @@ public class MainActivity extends Activity {
         LinearLayout.LayoutParams addressParams = new LinearLayout.LayoutParams(0, dp(46), 1f);
         addressParams.setMargins(dp(8), 0, dp(8), 0);
         toolbar.addView(browserAddress, addressParams);
+        toolbar.addView(mic, new LinearLayout.LayoutParams(dp(48), dp(46)));
+        toolbar.addView(clear, new LinearLayout.LayoutParams(dp(42), dp(46)));
         toolbar.addView(go, new LinearLayout.LayoutParams(dp(58), dp(46)));
         page.addView(toolbar, new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, dp(56)));
@@ -1951,6 +1969,11 @@ public class MainActivity extends Activity {
                 LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f);
         bodyParams.topMargin = dp(8);
         page.addView(body, bodyParams);
+        browserHomePanel = new FrameLayout(this);
+        browserHomePanel.setBackgroundColor(Color.rgb(5, 15, 34));
+        body.addView(browserHomePanel, new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
+        buildBrowserHomePanel();
         root.addView(browserOverlay, new FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
         browserOverlay.setVisibility(View.GONE);
@@ -1973,6 +1996,292 @@ public class MainActivity extends Activity {
         return button;
     }
 
+
+    private void showBrowserStartPage() {
+        if (browserHomePanel == null || fallbackWebView == null) return;
+        fallbackWebView.stopLoading();
+        fallbackWebView.setVisibility(View.GONE);
+        browserHomePanel.setVisibility(View.VISIBLE);
+        browserHomePanel.bringToFront();
+        browserAddress.setText("");
+        browserAddress.clearFocus();
+        if (browserProgress != null) browserProgress.setVisibility(View.GONE);
+        // D-pad starts on the search field, then moves down to the social shortcuts.
+        browserAddress.requestFocus();
+    }
+
+    private void startBrowserVoiceSearch() {
+        try {
+            android.content.Intent voice = new android.content.Intent(
+                    android.speech.RecognizerIntent.ACTION_RECOGNIZE_SPEECH);
+            voice.putExtra(android.speech.RecognizerIntent.EXTRA_LANGUAGE_MODEL,
+                    android.speech.RecognizerIntent.LANGUAGE_MODEL_WEB_SEARCH);
+            voice.putExtra(android.speech.RecognizerIntent.EXTRA_LANGUAGE, Locale.getDefault());
+            voice.putExtra(android.speech.RecognizerIntent.EXTRA_PROMPT, "ابحث بالصوت أو قل اسم الموقع");
+            startActivityForResult(voice, REQUEST_BROWSER_VOICE);
+        } catch (ActivityNotFoundException e) {
+            Toast.makeText(this, "ميزة البحث بالصوت غير متاحة على هذا الجهاز", Toast.LENGTH_LONG).show();
+        } catch (Exception e) {
+            Toast.makeText(this, "تعذّر تشغيل البحث بالصوت", Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, android.content.Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode != REQUEST_BROWSER_VOICE || resultCode != RESULT_OK || data == null) return;
+        java.util.ArrayList<String> matches = data.getStringArrayListExtra(
+                android.speech.RecognizerIntent.EXTRA_RESULTS);
+        if (matches != null && !matches.isEmpty()) {
+            browserAddress.setText(matches.get(0));
+            navigateBrowserAddress();
+        }
+    }
+
+    private void buildBrowserHomePanel() {
+        android.widget.ScrollView scroll = new android.widget.ScrollView(this);
+        scroll.setFillViewport(true);
+        LinearLayout content = new LinearLayout(this);
+        content.setOrientation(LinearLayout.VERTICAL);
+        content.setPadding(dp(22), dp(18), dp(22), dp(22));
+        scroll.addView(content, new android.widget.ScrollView.LayoutParams(
+                android.widget.ScrollView.LayoutParams.MATCH_PARENT,
+                android.widget.ScrollView.LayoutParams.WRAP_CONTENT));
+
+        TextView welcome = makeText("أهلاً بك في متصفح أبو عزت", 22, Color.WHITE, true);
+        welcome.setGravity(Gravity.START | Gravity.CENTER_VERTICAL);
+        content.addView(welcome, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, dp(42)));
+        TextView subtitle = makeText("اختَر موقعك المفضل أو ابحث بالريموت / المايك", 13,
+                Color.rgb(165, 190, 220), false);
+        subtitle.setGravity(Gravity.START | Gravity.CENTER_VERTICAL);
+        content.addView(subtitle, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, dp(32)));
+
+        TextView socialTitle = makeText("مواقع التواصل الاجتماعي", 17, Color.rgb(255, 207, 94), true);
+        socialTitle.setGravity(Gravity.START | Gravity.CENTER_VERTICAL);
+        LinearLayout.LayoutParams titleParams = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, dp(38));
+        titleParams.topMargin = dp(8);
+        content.addView(socialTitle, titleParams);
+
+        String[][] socials = {
+                {"YouTube", "https://www.youtube.com", "youtube.com"},
+                {"Facebook", "https://www.facebook.com", "facebook.com"},
+                {"TikTok", "https://www.tiktok.com", "tiktok.com"},
+                {"Instagram", "https://www.instagram.com", "instagram.com"},
+                {"X", "https://x.com", "x.com"},
+                {"Threads", "https://www.threads.net", "threads.net"}
+        };
+        for (int rowIndex = 0; rowIndex < 2; rowIndex++) {
+            LinearLayout row = new LinearLayout(this);
+            row.setOrientation(LinearLayout.HORIZONTAL);
+            row.setGravity(Gravity.CENTER_VERTICAL);
+            LinearLayout.LayoutParams rowParams = new LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT, dp(112));
+            rowParams.topMargin = dp(7);
+            content.addView(row, rowParams);
+            for (int col = 0; col < 3; col++) {
+                String[] item = socials[rowIndex * 3 + col];
+                addBrowserTile(row, item[0], item[1], item[2], true);
+            }
+        }
+
+        TextView sitesTitle = makeText("مواقعك المضافة", 17, Color.rgb(255, 207, 94), true);
+        sitesTitle.setGravity(Gravity.START | Gravity.CENTER_VERTICAL);
+        LinearLayout.LayoutParams sitesTitleParams = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, dp(42));
+        sitesTitleParams.topMargin = dp(12);
+        content.addView(sitesTitle, sitesTitleParams);
+
+        browserBookmarksContainer = new LinearLayout(this);
+        browserBookmarksContainer.setOrientation(LinearLayout.VERTICAL);
+        content.addView(browserBookmarksContainer, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+        refreshBrowserBookmarks();
+
+        LinearLayout addRow = new LinearLayout(this);
+        addRow.setOrientation(LinearLayout.HORIZONTAL);
+        addRow.setGravity(Gravity.CENTER_VERTICAL);
+        LinearLayout.LayoutParams addParams = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, dp(88));
+        addParams.topMargin = dp(8);
+        content.addView(addRow, addParams);
+        TextView add = makeText("＋   إضافة موقع جديد", 16, Color.WHITE, true);
+        add.setGravity(Gravity.CENTER);
+        add.setFocusable(true);
+        add.setClickable(true);
+        add.setBackground(roundedBackground(Color.rgb(17, 42, 70),
+                Color.rgb(255, 197, 74), 16));
+        add.setOnFocusChangeListener((v, focused) -> v.setBackground(roundedBackground(
+                focused ? Color.rgb(43, 66, 108) : Color.rgb(17, 42, 70),
+                focused ? Color.rgb(255, 196, 87) : Color.rgb(255, 197, 74), 16)));
+        add.setOnClickListener(v -> showAddBrowserSiteDialog());
+        addRow.addView(add, new LinearLayout.LayoutParams(dp(280), dp(76)));
+        browserHomePanel.addView(scroll, new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
+    }
+
+    private void addBrowserTile(LinearLayout row, String title, String url, String domain, boolean social) {
+        LinearLayout tile = new LinearLayout(this);
+        tile.setOrientation(LinearLayout.VERTICAL);
+        tile.setGravity(Gravity.CENTER);
+        tile.setFocusable(true);
+        tile.setFocusableInTouchMode(true);
+        tile.setClickable(true);
+        tile.setPadding(dp(8), dp(6), dp(8), dp(6));
+        tile.setBackground(roundedBackground(Color.rgb(16, 31, 54),
+                Color.rgb(53, 82, 126), 16));
+        tile.setOnFocusChangeListener((v, focused) -> {
+            v.setBackground(roundedBackground(focused ? Color.rgb(35, 58, 91) : Color.rgb(16, 31, 54),
+                    focused ? Color.rgb(255, 197, 74) : Color.rgb(53, 82, 126), 16));
+            v.setScaleX(focused ? 1.05f : 1f);
+            v.setScaleY(focused ? 1.05f : 1f);
+        });
+        ImageView icon = new ImageView(this);
+        icon.setScaleType(ImageView.ScaleType.FIT_CENTER);
+        icon.setImageResource(android.R.drawable.ic_menu_view);
+        tile.addView(icon, new LinearLayout.LayoutParams(dp(48), dp(48)));
+        loadBrowserFavicon(icon, domain);
+        TextView label = makeText(title, 13, Color.WHITE, true);
+        label.setMaxLines(1);
+        tile.addView(label, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, dp(28)));
+        tile.setOnClickListener(v -> {
+            pendingBrowserUrl = "";
+            browserAddress.setText(url);
+            navigateBrowserAddress();
+        });
+        if (!social) {
+            tile.setOnLongClickListener(v -> {
+                new AlertDialog.Builder(this).setTitle(title)
+                        .setMessage("حذف الموقع من المفضلة؟")
+                        .setPositiveButton("حذف", (d, w) -> removeBrowserBookmark(url))
+                        .setNegativeButton("إلغاء", null).show();
+                return true;
+            });
+        }
+        LinearLayout.LayoutParams tileParams = new LinearLayout.LayoutParams(0,
+                LinearLayout.LayoutParams.MATCH_PARENT, 1f);
+        tileParams.setMargins(dp(5), dp(2), dp(5), dp(2));
+        row.addView(tile, tileParams);
+    }
+
+    private void loadBrowserFavicon(ImageView target, String domain) {
+        if (target == null || domain == null || domain.trim().isEmpty()) return;
+        String faviconUrl = "https://www.google.com/s2/favicons?domain=" + Uri.encode(domain) + "&sz=128";
+        Thread thread = new Thread(() -> {
+            Bitmap bitmap = null;
+            HttpURLConnection connection = null;
+            try {
+                connection = (HttpURLConnection) new URL(faviconUrl).openConnection();
+                connection.setConnectTimeout(7000);
+                connection.setReadTimeout(7000);
+                connection.setInstanceFollowRedirects(true);
+                try (java.io.InputStream input = connection.getInputStream()) {
+                    bitmap = BitmapFactory.decodeStream(input);
+                }
+            } catch (Exception e) {
+                Log.w(TAG, "Could not load browser favicon for " + domain, e);
+            } finally {
+                if (connection != null) connection.disconnect();
+            }
+            final Bitmap image = bitmap;
+            if (image != null) runOnUiThread(() -> {
+                if (target.getParent() != null) target.setImageBitmap(image);
+            });
+        }, "BrowserFavicon");
+        thread.setDaemon(true);
+        thread.start();
+    }
+
+    private void showAddBrowserSiteDialog() {
+        LinearLayout panel = new LinearLayout(this);
+        panel.setOrientation(LinearLayout.VERTICAL);
+        panel.setPadding(dp(12), dp(4), dp(12), 0);
+        EditText name = new EditText(this);
+        name.setSingleLine(true);
+        name.setHint("اسم الموقع (مثلاً: موقعي المفضل)");
+        EditText address = new EditText(this);
+        address.setSingleLine(true);
+        address.setInputType(android.text.InputType.TYPE_CLASS_TEXT
+                | android.text.InputType.TYPE_TEXT_VARIATION_URI);
+        address.setHint("https://example.com");
+        panel.addView(name);
+        panel.addView(address);
+        AlertDialog dialog = new AlertDialog.Builder(this).setTitle("إضافة موقع للمفضلة")
+                .setView(panel).setNegativeButton("إلغاء", null)
+                .setPositiveButton("إضافة", null).create();
+        dialog.setOnShowListener(v -> dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(button -> {
+            String siteName = name.getText().toString().trim();
+            String siteUrl = address.getText().toString().trim();
+            if (siteName.isEmpty()) siteName = Uri.parse(siteUrl).getHost() == null
+                    ? "موقع جديد" : Uri.parse(siteUrl).getHost();
+            if (!siteUrl.matches("(?i)^https?://.+") || !isHttpUrl(siteUrl)) {
+                address.setError("اكتب رابطًا يبدأ بـ http:// أو https://");
+                return;
+            }
+            org.json.JSONArray sites = getBrowserBookmarks();
+            for (int i = 0; i < sites.length(); i++) {
+                JSONObject existing = sites.optJSONObject(i);
+                if (existing != null && siteUrl.equalsIgnoreCase(existing.optString("url", ""))) {
+                    Toast.makeText(this, "الموقع موجود بالفعل في المفضلة", Toast.LENGTH_SHORT).show();
+                    dialog.dismiss();
+                    return;
+                }
+            }
+            JSONObject item = new JSONObject();
+            try { item.put("name", siteName); item.put("url", siteUrl); item.put("domain", Uri.parse(siteUrl).getHost()); sites.put(item); }
+            catch (Exception ignored) { }
+            getSharedPreferences("AboEzzatBrowser", MODE_PRIVATE).edit()
+                    .putString("browser_bookmarks", sites.toString()).apply();
+            refreshBrowserBookmarks();
+            dialog.dismiss();
+            Toast.makeText(this, "تمت إضافة الموقع للمفضلة", Toast.LENGTH_SHORT).show();
+        }));
+        dialog.show();
+    }
+
+    private org.json.JSONArray getBrowserBookmarks() {
+        try {
+            return new org.json.JSONArray(getSharedPreferences("AboEzzatBrowser", MODE_PRIVATE)
+                    .getString("browser_bookmarks", "[]"));
+        } catch (Exception e) { return new org.json.JSONArray(); }
+    }
+
+    private void refreshBrowserBookmarks() {
+        if (browserBookmarksContainer == null) return;
+        browserBookmarksContainer.removeAllViews();
+        org.json.JSONArray sites = getBrowserBookmarks();
+        for (int start = 0; start < sites.length(); start += 3) {
+            LinearLayout row = new LinearLayout(this);
+            row.setOrientation(LinearLayout.HORIZONTAL);
+            row.setGravity(Gravity.CENTER_VERTICAL);
+            browserBookmarksContainer.addView(row, new LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT, dp(112)));
+            for (int i = start; i < Math.min(start + 3, sites.length()); i++) {
+                JSONObject site = sites.optJSONObject(i);
+                if (site == null) continue;
+                String name = site.optString("name", "موقع");
+                String url = site.optString("url", "");
+                String domain = site.optString("domain", Uri.parse(url).getHost());
+                addBrowserTile(row, name, url, domain, false);
+            }
+        }
+    }
+
+    private void removeBrowserBookmark(String url) {
+        org.json.JSONArray old = getBrowserBookmarks();
+        org.json.JSONArray updated = new org.json.JSONArray();
+        for (int i = 0; i < old.length(); i++) {
+            JSONObject item = old.optJSONObject(i);
+            if (item != null && !url.equals(item.optString("url", ""))) updated.put(item);
+        }
+        getSharedPreferences("AboEzzatBrowser", MODE_PRIVATE).edit()
+                .putString("browser_bookmarks", updated.toString()).apply();
+        refreshBrowserBookmarks();
+    }
+
     private void navigateBrowserAddress() {
         if (browserAddress == null || fallbackWebView == null) return;
         String target = browserAddress.getText().toString().trim();
@@ -1989,6 +2298,8 @@ public class MainActivity extends Activity {
         browserAddress.setText(target);
         fallbackWebView.loadUrl(target);
         browserAddress.clearFocus();
+        if (browserHomePanel != null) browserHomePanel.setVisibility(View.GONE);
+        fallbackWebView.setVisibility(View.VISIBLE);
         fallbackWebView.requestFocus();
     }
 
