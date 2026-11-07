@@ -2681,32 +2681,30 @@ public class MainActivity extends Activity {
                     }
                 }
             });
-            fallbackWebView.setWebChromeClient(new WebChromeClient() {
-                @Override
-                public void onDownloadStart(String url, String userAgent, String contentDisposition,
-                        String mimeType, long contentLength) {
-                    try {
-                        android.app.DownloadManager.Request request =
-                                new android.app.DownloadManager.Request(Uri.parse(url));
-                        request.setMimeType(mimeType);
-                        if (userAgent != null && !userAgent.isEmpty())
-                            request.addRequestHeader("User-Agent", userAgent);
-                        String fileName = android.webkit.URLUtil.guessFileName(url, contentDisposition, mimeType);
-                        request.setTitle(fileName);
-                        request.setDescription("تنزيل من متصفح أبو عزت");
-                        request.setNotificationVisibility(
-                                android.app.DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED);
-                        request.setDestinationInExternalPublicDir(android.os.Environment.DIRECTORY_DOWNLOADS, fileName);
-                        android.app.DownloadManager manager =
-                                (android.app.DownloadManager) getSystemService(DOWNLOAD_SERVICE);
-                        if (manager != null) {
-                            manager.enqueue(request);
-                            Toast.makeText(MainActivity.this, "بدأ التنزيل — ستجد الملف في Downloads", Toast.LENGTH_LONG).show();
-                        }
-                    } catch (Exception e) {
-                        Toast.makeText(MainActivity.this, "تعذّر بدء التنزيل", Toast.LENGTH_LONG).show();
+            fallbackWebView.setDownloadListener((url, userAgent, contentDisposition, mimeType, contentLength) -> {
+                try {
+                    android.app.DownloadManager.Request request =
+                            new android.app.DownloadManager.Request(Uri.parse(url));
+                    request.setMimeType(mimeType);
+                    if (userAgent != null && !userAgent.isEmpty())
+                        request.addRequestHeader("User-Agent", userAgent);
+                    String fileName = android.webkit.URLUtil.guessFileName(url, contentDisposition, mimeType);
+                    request.setTitle(fileName);
+                    request.setDescription("تنزيل من متصفح أبو عزت");
+                    request.setNotificationVisibility(
+                            android.app.DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED);
+                    request.setDestinationInExternalPublicDir(android.os.Environment.DIRECTORY_DOWNLOADS, fileName);
+                    android.app.DownloadManager manager =
+                            (android.app.DownloadManager) getSystemService(DOWNLOAD_SERVICE);
+                    if (manager != null) {
+                        manager.enqueue(request);
+                        Toast.makeText(MainActivity.this, "بدأ التنزيل — ستجد الملف في Downloads", Toast.LENGTH_LONG).show();
                     }
+                } catch (Exception e) {
+                    Toast.makeText(MainActivity.this, "تعذّر بدء التنزيل", Toast.LENGTH_LONG).show();
                 }
+            });
+            fallbackWebView.setWebChromeClient(new WebChromeClient() {
                 @Override
                 public boolean onCreateWindow(WebView view, boolean isDialog, boolean isUserGesture,
                         android.os.Message resultMsg) {
