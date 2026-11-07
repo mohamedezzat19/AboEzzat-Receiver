@@ -94,6 +94,11 @@ public class MainActivity extends Activity {
     private final java.util.ArrayList<String> playbackQueue = new java.util.ArrayList<>();
     private int playbackQueueIndex = -1;
     private WebView fallbackWebView;
+    // Full TV browser chrome, separate from media-fallback playback.
+    private FrameLayout browserOverlay;
+    private EditText browserAddress;
+    private ProgressBar browserProgress;
+    private boolean tvBrowserMode = false;
     private TextView browserShortcut;
     private TextView settingsHomeButton;
     private TextView browserHomeButton;
@@ -1081,35 +1086,8 @@ public class MainActivity extends Activity {
         browserShortcut.setFocusable(true);
         browserShortcut.setClickable(true);
         browserShortcut.setVisibility(View.VISIBLE);
-        browserShortcut.setOnClickListener(v -> {
-            String url = pendingBrowserUrl;
-            if (isHttpUrl(url)) {
-                showWebFallback(url);
-                return;
-            }
-            EditText addressInput = new EditText(this);
-            addressInput.setSingleLine(true);
-            addressInput.setInputType(android.text.InputType.TYPE_CLASS_TEXT
-                    | android.text.InputType.TYPE_TEXT_VARIATION_URI);
-            addressInput.setHint("https://example.com");
-            new AlertDialog.Builder(this)
-                    .setTitle("المتصفح المدمج")
-                    .setMessage("اكتب رابط الموقع لفتحه على التلفزيون. المتصفح اختياري ولن يفتح تلقائيًا.")
-                    .setView(addressInput)
-                    .setNegativeButton("إلغاء", null)
-                    .setPositiveButton("فتح", (dialog, which) -> {
-                        String entered = addressInput.getText().toString().trim();
-                        if (!entered.isEmpty() && !entered.matches("(?i)^https?://.*")) {
-                            entered = "https://" + entered;
-                        }
-                        if (isHttpUrl(entered)) {
-                            pendingBrowserUrl = entered;
-                            showWebFallback(entered);
-                        } else {
-                            Toast.makeText(this, "اكتب رابط HTTP أو HTTPS صحيح", Toast.LENGTH_LONG).show();
-                        }
-                    }).show();
-        });
+        browserShortcut.setOnClickListener(v -> openTvBrowser());
+
         // Keep the original shortcut available internally, but the visible home entry
         // is the compact top-row browser icon beside Settings.
         browserShortcut.setVisibility(View.GONE);
@@ -1869,6 +1847,147 @@ public class MainActivity extends Activity {
 
     // Last-resort browser playback: show the page without browser chrome and honor
     // HTML5 video fullscreen requests. Existing ExoPlayer remains the first choice.
+    private void openTvBrowser() {
+        tvBrowserMode = true;
+        String initialUrl = isHttpUrl(pendingBrowserUrl) ? pendingBrowserUrl : "https://www.google.com";
+        if (browserOverlay == null) createTvBrowserChrome();
+        showWebFallback(initialUrl);
+        if (fallbackWebView != null) {
+            ViewGroup parent = (ViewGroup) fallbackWebView.getParent();
+            if (parent != null) parent.removeView(fallbackWebView);
+            FrameLayout body = browserOverlay.findViewWithTag("tv_browser_body");
+            if (body != null) body.addView(fallbackWebView, new FrameLayout.LayoutParams(
+                    FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
+            browserOverlay.setVisibility(View.VISIBLE);
+            browserOverlay.bringToFront();
+            browserAddress.setText(initialUrl);
+            browserAddress.setSelection(browserAddress.getText().length());
+            browserAddress.requestFocus();
+        }
+    }
+
+    private void createTvBrowserChrome() {
+        browserOverlay = new FrameLayout(this);
+        browserOverlay.setBackgroundColor(Color.rgb(3, 12, 32));
+        LinearLayout page = new LinearLayout(this);
+        page.setOrientation(LinearLayout.VERTICAL);
+        page.setBackgroundColor(Color.rgb(3, 12, 32));
+        page.setPadding(dp(18), dp(10), dp(18), dp(12));
+        browserOverlay.addView(page, new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
+
+        LinearLayout brandRow = new LinearLayout(this);
+        brandRow.setOrientation(LinearLayout.HORIZONTAL);
+        brandRow.setGravity(Gravity.CENTER_VERTICAL);
+        TextView brandIcon = makeText("📺", 22, Color.rgb(255, 207, 94), true);
+        TextView brand = makeText("ABO EZZAT RECEIVER", 17, Color.rgb(255, 207, 94), true);
+        brand.setLetterSpacing(0.04f);
+        brandRow.addView(brandIcon, new LinearLayout.LayoutParams(dp(42), dp(38)));
+        brandRow.addView(brand, new LinearLayout.LayoutParams(0, dp(38), 1f));
+        page.addView(brandRow, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, dp(42)));
+
+        LinearLayout toolbar = new LinearLayout(this);
+        toolbar.setOrientation(LinearLayout.HORIZONTAL);
+        toolbar.setGravity(Gravity.CENTER_VERTICAL);
+        toolbar.setPadding(0, dp(5), 0, dp(5));
+        TextView back = makeBrowserButton("‹", "رجوع");
+        TextView forward = makeBrowserButton("›", "تقدم");
+        TextView refresh = makeBrowserButton("⟳", "تحديث");
+        TextView home = makeBrowserButton("⌂", "الرئيسية");
+
+        browserAddress = new EditText(this);
+        browserAddress.setSingleLine(true);
+        browserAddress.setTextSize(TypedValue.COMPLEX_UNIT_SP, 17);
+        browserAddress.setTextColor(Color.WHITE);
+        browserAddress.setHintTextColor(Color.rgb(165, 184, 210));
+        browserAddress.setHint("ابحث أو اكتب عنوان الموقع");
+        browserAddress.setInputType(android.text.InputType.TYPE_CLASS_TEXT
+                | android.text.InputType.TYPE_TEXT_VARIATION_URI);
+        browserAddress.setPadding(dp(14), dp(8), dp(14), dp(8));
+        browserAddress.setBackground(roundedBackground(Color.rgb(18, 31, 54),
+                Color.rgb(86, 132, 255), 16));
+        browserAddress.setImeOptions(android.view.inputmethod.EditorInfo.IME_ACTION_GO);
+        browserAddress.setOnEditorActionListener((v, actionId, event) -> {
+            if (actionId == android.view.inputmethod.EditorInfo.IME_ACTION_GO
+                    || (event != null && event.getKeyCode() == android.view.KeyEvent.KEYCODE_ENTER)) {
+                navigateBrowserAddress(); return true;
+            }
+            return false;
+        });
+        TextView go = makeBrowserButton("OK", "فتح");
+        back.setOnClickListener(v -> { if (fallbackWebView != null && fallbackWebView.canGoBack()) fallbackWebView.goBack(); });
+        forward.setOnClickListener(v -> { if (fallbackWebView != null && fallbackWebView.canGoForward()) fallbackWebView.goForward(); });
+        refresh.setOnClickListener(v -> { if (fallbackWebView != null) fallbackWebView.reload(); });
+        home.setOnClickListener(v -> { browserAddress.setText("https://www.google.com"); navigateBrowserAddress(); });
+        go.setOnClickListener(v -> navigateBrowserAddress());
+
+        toolbar.addView(back, new LinearLayout.LayoutParams(dp(48), dp(46)));
+        toolbar.addView(forward, new LinearLayout.LayoutParams(dp(48), dp(46)));
+        toolbar.addView(refresh, new LinearLayout.LayoutParams(dp(48), dp(46)));
+        toolbar.addView(home, new LinearLayout.LayoutParams(dp(48), dp(46)));
+        LinearLayout.LayoutParams addressParams = new LinearLayout.LayoutParams(0, dp(46), 1f);
+        addressParams.setMargins(dp(8), 0, dp(8), 0);
+        toolbar.addView(browserAddress, addressParams);
+        toolbar.addView(go, new LinearLayout.LayoutParams(dp(58), dp(46)));
+        page.addView(toolbar, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, dp(56)));
+
+        browserProgress = new ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
+        browserProgress.setMax(100);
+        browserProgress.setProgressTintList(android.content.res.ColorStateList.valueOf(Color.rgb(255, 197, 74)));
+        browserProgress.setVisibility(View.GONE);
+        page.addView(browserProgress, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, dp(3)));
+
+        FrameLayout body = new FrameLayout(this);
+        body.setTag("tv_browser_body");
+        body.setBackgroundColor(Color.BLACK);
+        LinearLayout.LayoutParams bodyParams = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f);
+        bodyParams.topMargin = dp(8);
+        page.addView(body, bodyParams);
+        root.addView(browserOverlay, new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
+        browserOverlay.setVisibility(View.GONE);
+    }
+
+    private TextView makeBrowserButton(String label, String description) {
+        TextView button = makeText(label, 20, Color.WHITE, true);
+        button.setGravity(Gravity.CENTER);
+        button.setFocusable(true);
+        button.setFocusableInTouchMode(true);
+        button.setClickable(true);
+        button.setContentDescription(description);
+        button.setBackground(roundedBackground(Color.rgb(20, 34, 61), Color.rgb(86, 132, 255), 12));
+        button.setOnFocusChangeListener((v, focused) -> {
+            v.setBackground(roundedBackground(focused ? Color.rgb(43, 66, 108) : Color.rgb(20, 34, 61),
+                    focused ? Color.rgb(255, 196, 87) : Color.rgb(86, 132, 255), 12));
+            v.setScaleX(focused ? 1.06f : 1f);
+            v.setScaleY(focused ? 1.06f : 1f);
+        });
+        return button;
+    }
+
+    private void navigateBrowserAddress() {
+        if (browserAddress == null || fallbackWebView == null) return;
+        String target = browserAddress.getText().toString().trim();
+        if (target.isEmpty()) return;
+        if (!target.matches("(?i)^https?://.*")) {
+            target = (target.contains(" ") || !target.contains("."))
+                    ? "https://www.google.com/search?q=" + Uri.encode(target)
+                    : "https://" + target;
+        }
+        if (!isHttpUrl(target)) {
+            Toast.makeText(this, "اكتب عنوان موقع صحيح", Toast.LENGTH_SHORT).show(); return;
+        }
+        pendingBrowserUrl = target;
+        browserAddress.setText(target);
+        fallbackWebView.loadUrl(target);
+        browserAddress.clearFocus();
+        fallbackWebView.requestFocus();
+    }
+
     private void showWebFallback(String pageUrl) {
         if (browserShortcut != null) browserShortcut.setVisibility(View.GONE);
         if (settingsHomeButton != null) settingsHomeButton.setVisibility(View.GONE);
@@ -1948,7 +2067,7 @@ public class MainActivity extends Activity {
                                 new java.io.ByteArrayInputStream(new byte[0]));
                     }
                     if (!candidate.isEmpty() && isDirectStreamUrl(candidate) && !isImageUrl(candidate)
-                            && !candidate.equals(fallbackPageUrl) && !fallbackStreamCaptured) {
+                            && !tvBrowserMode && !candidate.equals(fallbackPageUrl) && !fallbackStreamCaptured) {
                         fallbackStreamCaptured = true;
                         runOnUiThread(() -> {
                             if (fallbackWebView != null
@@ -2000,6 +2119,11 @@ public class MainActivity extends Activity {
                 @Override
                 public void onPageFinished(WebView view, String url) {
                     super.onPageFinished(view, url);
+                    if (tvBrowserMode && browserAddress != null && url != null) {
+                        browserAddress.setText(url);
+                        browserAddress.setSelection(browserAddress.getText().length());
+                        if (browserProgress != null) browserProgress.setVisibility(View.GONE);
+                    }
                     // Some sites ship desktop-only layouts without a viewport meta tag.
                     // Apply a conservative TV fit without changing the page's login/session.
                     if (view != null && url != null && url.equals(fallbackPageUrl)) {
@@ -2018,6 +2142,14 @@ public class MainActivity extends Activity {
                 }
             });
             fallbackWebView.setWebChromeClient(new WebChromeClient() {
+                @Override
+                public void onProgressChanged(WebView view, int progress) {
+                    if (tvBrowserMode && browserProgress != null) {
+                        browserProgress.setProgress(progress);
+                        browserProgress.setVisibility(progress >= 100 ? View.GONE : View.VISIBLE);
+                    }
+                }
+
                 @Override
                 public void onShowCustomView(View view, CustomViewCallback callback) {
                     if (webFullscreenView != null) {
@@ -2943,6 +3075,8 @@ public class MainActivity extends Activity {
     }
 
     private void showWelcome() {
+        tvBrowserMode = false;
+        if (browserOverlay != null) browserOverlay.setVisibility(View.GONE);
         // Returning home must stop playback, not merely hide the player UI.
         stopCurrentPlayer();
         hideImage();
@@ -2966,8 +3100,9 @@ public class MainActivity extends Activity {
     public void onBackPressed() {
         if (closeWebFullscreen()) return;
 
-        boolean browserVisible = fallbackWebView != null
-                && fallbackWebView.getVisibility() == View.VISIBLE;
+        boolean browserVisible = tvBrowserMode && browserOverlay != null
+                && browserOverlay.getVisibility() == View.VISIBLE
+                && fallbackWebView != null && fallbackWebView.getVisibility() == View.VISIBLE;
         if (browserVisible && backPressedOnceInBrowser) {
             backPressHandler.removeCallbacks(resetBrowserBackPress);
             backPressedOnceInBrowser = false;
