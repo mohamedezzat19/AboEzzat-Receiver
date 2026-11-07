@@ -282,42 +282,41 @@ public class MainActivity extends Activity {
     }
 
     private void showConnectionDiagnostics() {
-        String ip = "غير معروف";
-        try {
-            java.util.Enumeration<java.net.NetworkInterface> interfaces = java.net.NetworkInterface.getNetworkInterfaces();
-            while (interfaces != null && interfaces.hasMoreElements()) {
-                java.net.NetworkInterface ni = interfaces.nextElement();
-                if (!ni.isUp() || ni.isLoopback()) continue;
-                java.util.Enumeration<java.net.InetAddress> addresses = ni.getInetAddresses();
-                while (addresses.hasMoreElements()) {
-                    java.net.InetAddress address = addresses.nextElement();
-                    if (address instanceof java.net.Inet4Address && !address.isLoopbackAddress()) {
-                        ip = address.getHostAddress();
-                        break;
-                    }
-                }
-                if (!"غير معروف".equals(ip)) break;
-            }
-        } catch (Exception e) { Log.w(TAG, "Unable to inspect receiver IP", e); }
-        int port = getSharedPreferences("receiver_settings", MODE_PRIVATE).getInt("receiver_port", 8081);
-        android.net.ConnectivityManager cm = (android.net.ConnectivityManager) getSystemService(CONNECTIVITY_SERVICE);
+        // استخدم نفس دالة IP الخاصة بالشاشة والإعلان حتى لا تختلف العناوين.
+        String ip = getCurrentIpAddress();
+        if (ip == null || ip.trim().isEmpty()) ip = "غير معروف";
+
+        int port = getSharedPreferences("receiver_settings", MODE_PRIVATE)
+                .getInt("receiver_port", 8081);
+
+        ConnectivityManager cm =
+                (ConnectivityManager) getSystemService(CONNECTIVITY_SERVICE);
         boolean networkConnected = false;
         if (cm != null) {
-            android.net.Network active = cm.getActiveNetwork();
-            android.net.NetworkCapabilities caps = active == null ? null : cm.getNetworkCapabilities(active);
-            networkConnected = caps != null && (caps.hasTransport(android.net.NetworkCapabilities.TRANSPORT_WIFI)
-                    || caps.hasTransport(android.net.NetworkCapabilities.TRANSPORT_ETHERNET)
-                    || caps.hasTransport(android.net.NetworkCapabilities.TRANSPORT_CELLULAR));
+            Network[] networks = cm.getAllNetworks();
+            for (Network network : networks) {
+                android.net.NetworkCapabilities caps =
+                        cm.getNetworkCapabilities(network);
+                if (caps != null
+                        && !caps.hasTransport(android.net.NetworkCapabilities.TRANSPORT_VPN)
+                        && (caps.hasTransport(android.net.NetworkCapabilities.TRANSPORT_WIFI)
+                        || caps.hasTransport(android.net.NetworkCapabilities.TRANSPORT_ETHERNET))) {
+                    networkConnected = true;
+                    break;
+                }
+            }
         }
-        String details = "عنوان IP: " + ip + "\\nبورت الاستقبال: " + port
-                + "\\nالشبكة: " + (networkConnected ? "متصل" : "غير متصل أو لم تُكتشف")
-                + "\\nإصدار أندرويد: " + android.os.Build.VERSION.RELEASE
-                + "\\nالجهاز: " + android.os.Build.MANUFACTURER + " " + android.os.Build.MODEL
-                + "\\n\\nلو Share لا يتصل، تأكد أن الجهازين على نفس الشبكة وأن البورت متطابق في التطبيقين.";
+
+        String details = "عنوان IP: " + ip + "\nبورت الاستقبال: " + port
+                + "\nالشبكة: " + (networkConnected ? "متصل" : "غير متصل أو لم تُكتشف")
+                + "\nإصدار أندرويد: " + android.os.Build.VERSION.RELEASE
+                + "\nالجهاز: " + android.os.Build.MANUFACTURER + " " + android.os.Build.MODEL
+                + "\n\nلو Share لا يتصل، تأكد أن الجهازين على نفس الشبكة وأن البورت متطابق في التطبيقين.";
         new AlertDialog.Builder(this).setTitle("تشخيص الاتصال")
                 .setMessage(details)
                 .setPositiveButton("نسخ المعلومات", (d,w) -> {
-                    android.content.ClipboardManager clipboard = (android.content.ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
+                    android.content.ClipboardManager clipboard =
+                            (android.content.ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
                     if (clipboard != null) {
                         clipboard.setPrimaryClip(android.content.ClipData.newPlainText("Receiver diagnostics", details));
                         Toast.makeText(this, "تم نسخ معلومات التشخيص", Toast.LENGTH_SHORT).show();
@@ -1120,69 +1119,56 @@ public class MainActivity extends Activity {
         settingsButton.requestFocus();
     }
 
-    // قراءة عنوان IP الحالي من الشبكة.
+    // يختار عنوان شبكة Wi-Fi/Ethernet الفعلية، ويتجاهل VPN وواجهات البروكسي.
+    // لا نستخدم getActiveNetwork() وحدها لأنها قد تشير إلى VPN.
     private String getCurrentIpAddress() {
-        try {
-            ConnectivityManager cm =
-                    (ConnectivityManager)
-                    getSystemService(CONNECTIVITY_SERVICE);
+        ConnectivityManager cm =
+                (ConnectivityManager) getSystemService(CONNECTIVITY_SERVICE);
 
-            if (cm != null) {
-                Network activeNetwork = cm.getActiveNetwork();
+        if (cm != null) {
+            try {
+                Network[] networks = cm.getAllNetworks();
 
-                if (activeNetwork != null) {
-                    LinkProperties properties =
-                            cm.getLinkProperties(activeNetwork);
-
-                    if (properties != null) {
-                        for (android.net.LinkAddress linkAddress :
-                                properties.getLinkAddresses()) {
-
-                            InetAddress address =
-                                    linkAddress.getAddress();
-
-                            if (address instanceof Inet4Address
-                                    && !address.isLoopbackAddress()
-                                    && !address.isLinkLocalAddress()
-                                    && address.isSiteLocalAddress()) {
-
-                                return address.getHostAddress();
-                            }
+                // الأولوية لشبكة Wi-Fi الحقيقية، ثم Ethernet.
+                for (int wantedTransport : new int[] {
+                        android.net.NetworkCapabilities.TRANSPORT_WIFI,
+                        android.net.NetworkCapabilities.TRANSPORT_ETHERNET
+                }) {
+                    for (Network network : networks) {
+                        android.net.NetworkCapabilities caps =
+                                cm.getNetworkCapabilities(network);
+                        if (caps == null
+                                || !caps.hasTransport(wantedTransport)
+                                || caps.hasTransport(android.net.NetworkCapabilities.TRANSPORT_VPN)) {
+                            continue;
                         }
+
+                        LinkProperties properties = cm.getLinkProperties(network);
+                        String ip = getPrivateIpv4FromLinkProperties(properties);
+                        if (ip != null) return ip;
                     }
                 }
+            } catch (Exception e) {
+                Log.w(TAG, "Could not inspect Wi-Fi/Ethernet network IP", e);
             }
-        } catch (Exception e) {
-            Log.w(TAG, "Could not read active network IP", e);
         }
 
-        // طريقة احتياطية لبعض أجهزة التلفزيون.
+        // Fallback لأجهزة TV التي لا تعرض LinkProperties بشكل صحيح.
+        // استبعاد أسماء واجهات VPN/tunnel/proxy قبل فحص عناوينها.
         try {
             Enumeration<NetworkInterface> interfaces =
                     NetworkInterface.getNetworkInterfaces();
 
             while (interfaces != null && interfaces.hasMoreElements()) {
-                NetworkInterface networkInterface =
-                        interfaces.nextElement();
-
-                if (!networkInterface.isUp()
-                        || networkInterface.isLoopback()) {
+                NetworkInterface ni = interfaces.nextElement();
+                if (!ni.isUp() || ni.isLoopback() || isVirtualTunnelInterface(ni.getName())) {
                     continue;
                 }
 
-                Enumeration<InetAddress> addresses =
-                        networkInterface.getInetAddresses();
-
+                Enumeration<InetAddress> addresses = ni.getInetAddresses();
                 while (addresses.hasMoreElements()) {
                     InetAddress address = addresses.nextElement();
-
-                    if (address instanceof Inet4Address
-                            && !address.isLoopbackAddress()
-                            && !address.isLinkLocalAddress()
-                            && address.isSiteLocalAddress()) {
-
-                        return address.getHostAddress();
-                    }
+                    if (isUsablePrivateIpv4(address)) return address.getHostAddress();
                 }
             }
         } catch (Exception e) {
@@ -1190,6 +1176,35 @@ public class MainActivity extends Activity {
         }
 
         return null;
+    }
+
+    private String getPrivateIpv4FromLinkProperties(LinkProperties properties) {
+        if (properties == null) return null;
+        for (android.net.LinkAddress linkAddress : properties.getLinkAddresses()) {
+            InetAddress address = linkAddress.getAddress();
+            if (isUsablePrivateIpv4(address)) return address.getHostAddress();
+        }
+        return null;
+    }
+
+    private boolean isUsablePrivateIpv4(InetAddress address) {
+        return address instanceof Inet4Address
+                && !address.isLoopbackAddress()
+                && !address.isLinkLocalAddress()
+                && address.isSiteLocalAddress();
+    }
+
+    private boolean isVirtualTunnelInterface(String name) {
+        if (name == null) return false;
+        String n = name.toLowerCase(Locale.ROOT);
+        return n.startsWith("tun")
+                || n.startsWith("tap")
+                || n.startsWith("ppp")
+                || n.startsWith("wg")
+                || n.startsWith("ipsec")
+                || n.startsWith("vpn")
+                || n.startsWith("v4-")
+                || n.startsWith("clat");
     }
 
     private void updateConnectionInfo() {
