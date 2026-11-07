@@ -99,6 +99,10 @@ public class MainActivity extends Activity {
     private EditText browserAddress;
     private ProgressBar browserProgress;
     private boolean tvBrowserMode = false;
+    private WebView pendingPopupWebView;
+    private WebView activePopupWebView;
+    private AlertDialog popupRequestDialog;
+    private final Handler popupHandler = new Handler(Looper.getMainLooper());
     private TextView browserShortcut;
     private TextView settingsHomeButton;
     private TextView browserHomeButton;
@@ -2037,8 +2041,8 @@ public class MainActivity extends Activity {
             settings.setSupportZoom(true);
             settings.setBuiltInZoomControls(true);
             settings.setDisplayZoomControls(false);
-            settings.setJavaScriptCanOpenWindowsAutomatically(false);
-            settings.setSupportMultipleWindows(false);
+            settings.setJavaScriptCanOpenWindowsAutomatically(false); // لا تسمح بفتح نافذة تلقائيًا دون نقرة المستخدم
+            settings.setSupportMultipleWindows(true);
             CookieManager.getInstance().setAcceptCookie(true);
             if (android.os.Build.VERSION.SDK_INT >= 21) {
                 CookieManager.getInstance().setAcceptThirdPartyCookies(fallbackWebView, true);
@@ -2143,6 +2147,66 @@ public class MainActivity extends Activity {
             });
             fallbackWebView.setWebChromeClient(new WebChromeClient() {
                 @Override
+                public boolean onCreateWindow(WebView view, boolean isDialog, boolean isUserGesture,
+                        android.os.Message resultMsg) {
+                    // Keep popups blocked until the user explicitly chooses Open.
+                    if (!tvBrowserMode || !isUserGesture) return false;
+                    if (pendingPopupWebView != null) {
+                        try { pendingPopupWebView.destroy(); } catch (Exception ignored) { }
+                    }
+                    WebView popup = new WebView(MainActivity.this);
+                    WebSettings popupSettings = popup.getSettings();
+                    popupSettings.setJavaScriptEnabled(true);
+                    popupSettings.setDomStorageEnabled(true);
+                    popupSettings.setJavaScriptCanOpenWindowsAutomatically(false);
+                    popupSettings.setSupportMultipleWindows(false);
+                    popupSettings.setAllowFileAccess(false);
+                    popupSettings.setAllowContentAccess(true);
+                    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                        popupSettings.setSafeBrowsingEnabled(true);
+                    }
+                    CookieManager.getInstance().setAcceptCookie(true);
+                    if (android.os.Build.VERSION.SDK_INT >= 21) {
+                        CookieManager.getInstance().setAcceptThirdPartyCookies(popup, true);
+                    }
+                    popup.setWebViewClient(new WebViewClient() {
+                        @Override public boolean shouldOverrideUrlLoading(WebView w, android.webkit.WebResourceRequest req) {
+                            Uri u = req == null ? null : req.getUrl();
+                            return u != null && getSharedPreferences("AboEzzatBrowser", MODE_PRIVATE)
+                                    .getBoolean("adblock_enabled", true) && isKnownBrowserAdRequest(u.toString());
+                        }
+                        @Override public void onSafeBrowsingHit(WebView w, android.webkit.WebResourceRequest req,
+                                int threatType, android.webkit.SafeBrowsingResponse response) {
+                            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O_MR1) {
+                                response.backToSafety(true);
+                                runOnUiThread(() -> Toast.makeText(MainActivity.this,
+                                        "تم حظر نافذة لموقع تحذر منه ميزة التصفح الآمن", Toast.LENGTH_LONG).show());
+                            }
+                        }
+                    });
+                    pendingPopupWebView = popup;
+                    android.webkit.WebView.WebViewTransport transport =
+                            (android.webkit.WebView.WebViewTransport) resultMsg.obj;
+                    transport.setWebView(popup);
+                    resultMsg.sendToTarget();
+                    popupHandler.postDelayed(() -> {
+                        if (pendingPopupWebView != popup || isFinishing()) return;
+                        popupRequestDialog = new AlertDialog.Builder(MainActivity.this)
+                                .setTitle("نافذة منبثقة")
+                                .setMessage("الموقع يريد فتح نافذة جديدة. افتحها؟")
+                                .setPositiveButton("فتح النافذة", (d, which) -> openRequestedPopup(popup))
+                                .setNegativeButton("إغلاق", (d, which) -> discardRequestedPopup(popup))
+                                .setOnCancelListener(d -> discardRequestedPopup(popup))
+                                .create();
+                        popupRequestDialog.setOnShowListener(d -> {
+                            popupRequestDialog.getButton(AlertDialog.BUTTON_POSITIVE).requestFocus();
+                        });
+                        popupRequestDialog.show();
+                    }, 1000L);
+                    return true;
+                }
+
+                @Override
                 public void onProgressChanged(WebView view, int progress) {
                     if (tvBrowserMode && browserProgress != null) {
                         browserProgress.setProgress(progress);
@@ -2200,6 +2264,30 @@ public class MainActivity extends Activity {
         fallbackWebView.requestFocus(View.FOCUS_DOWN);
         fallbackWebView.loadUrl(pageUrl);
         Toast.makeText(this, "تعذّر استخراج رابط مباشر؛ جارٍ تجربة تشغيل صفحة الفيديو", Toast.LENGTH_LONG).show();
+    }
+
+    private void openRequestedPopup(WebView popup) {
+        if (popup == null || browserOverlay == null || !tvBrowserMode) return;
+        if (activePopupWebView != null) {
+            try { browserOverlay.removeView(activePopupWebView); activePopupWebView.destroy(); } catch (Exception ignored) { }
+        }
+        if (pendingPopupWebView == popup) pendingPopupWebView = null;
+        activePopupWebView = popup;
+        popup.setBackgroundColor(Color.BLACK);
+        popup.setFocusable(true);
+        popup.setFocusableInTouchMode(true);
+        FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT);
+        browserOverlay.addView(popup, lp);
+        popup.bringToFront();
+        popup.requestFocus();
+        Toast.makeText(this, "النافذة المنبثقة مفتوحة — اضغط رجوع للعودة", Toast.LENGTH_SHORT).show();
+    }
+
+    private void discardRequestedPopup(WebView popup) {
+        if (pendingPopupWebView == popup) pendingPopupWebView = null;
+        if (popup == null) return;
+        try { popup.stopLoading(); popup.destroy(); } catch (Exception ignored) { }
     }
 
     private boolean closeWebFullscreen() {
@@ -3099,6 +3187,16 @@ public class MainActivity extends Activity {
     @Override
     public void onBackPressed() {
         if (closeWebFullscreen()) return;
+        if (activePopupWebView != null) {
+            try { browserOverlay.removeView(activePopupWebView); activePopupWebView.destroy(); } catch (Exception ignored) { }
+            activePopupWebView = null;
+            if (fallbackWebView != null) fallbackWebView.requestFocus();
+            return;
+        }
+        if (popupRequestDialog != null && popupRequestDialog.isShowing()) {
+            popupRequestDialog.dismiss();
+            return;
+        }
 
         boolean browserVisible = tvBrowserMode && browserOverlay != null
                 && browserOverlay.getVisibility() == View.VISIBLE
@@ -3147,6 +3245,9 @@ public class MainActivity extends Activity {
             Log.w(TAG, "Server close error", e);
         }
 
+        if (popupRequestDialog != null) { popupRequestDialog.dismiss(); popupRequestDialog = null; }
+        if (pendingPopupWebView != null) { try { pendingPopupWebView.destroy(); } catch (Exception ignored) { } pendingPopupWebView = null; }
+        if (activePopupWebView != null) { try { activePopupWebView.destroy(); } catch (Exception ignored) { } activePopupWebView = null; }
         if (fallbackWebView != null) {
             fallbackWebView.stopLoading();
             fallbackWebView.destroy();
