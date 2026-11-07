@@ -1911,6 +1911,10 @@ public class MainActivity extends Activity {
         TextView forward = makeBrowserButton("›", "تقدم");
         TextView refresh = makeBrowserButton("⟳", "تحديث");
         TextView home = makeBrowserButton("⌂", "الرئيسية");
+        TextView tabs = makeBrowserButton("▢", "علامات التبويب");
+        TextView menu = makeBrowserButton("⋮", "قائمة المتصفح");
+        tabs.setOnClickListener(v -> showBrowserTabs());
+        menu.setOnClickListener(v -> showBrowserMenu());
 
         browserAddress = new EditText(this);
         browserAddress.setSingleLine(true);
@@ -1946,6 +1950,8 @@ public class MainActivity extends Activity {
         toolbar.addView(forward, new LinearLayout.LayoutParams(dp(48), dp(46)));
         toolbar.addView(refresh, new LinearLayout.LayoutParams(dp(48), dp(46)));
         toolbar.addView(home, new LinearLayout.LayoutParams(dp(48), dp(46)));
+        toolbar.addView(tabs, new LinearLayout.LayoutParams(dp(48), dp(46)));
+        toolbar.addView(menu, new LinearLayout.LayoutParams(dp(48), dp(46)));
         LinearLayout.LayoutParams addressParams = new LinearLayout.LayoutParams(0, dp(46), 1f);
         addressParams.setMargins(dp(8), 0, dp(8), 0);
         toolbar.addView(browserAddress, addressParams);
@@ -2282,6 +2288,213 @@ public class MainActivity extends Activity {
         refreshBrowserBookmarks();
     }
 
+    // Browser essentials: lightweight tab sessions, history, preferences and privacy tools.
+    private final java.util.ArrayList<String> browserTabUrls = new java.util.ArrayList<>();
+    private int browserTabIndex = 0;
+
+    private void showBrowserTabs() {
+        if (browserTabUrls.isEmpty()) {
+            String current = fallbackWebView == null ? "" : fallbackWebView.getUrl();
+            browserTabUrls.add(isHttpUrl(current) ? current : "https://www.google.com");
+            browserTabIndex = 0;
+        }
+        String[] choices = new String[browserTabUrls.size() + 2];
+        for (int i = 0; i < browserTabUrls.size(); i++) {
+            choices[i] = (i == browserTabIndex ? "● " : "") + "تبويب " + (i + 1) + " — " + browserTabUrls.get(i);
+        }
+        choices[choices.length - 2] = "＋ فتح تبويب جديد";
+        choices[choices.length - 1] = "× إغلاق التبويب الحالي";
+        new AlertDialog.Builder(this).setTitle("علامات التبويب")
+                .setItems(choices, (dialog, which) -> {
+                    if (which == browserTabUrls.size()) {
+                        String home = getSharedPreferences("AboEzzatBrowser", MODE_PRIVATE)
+                                .getString("homepage", "https://www.google.com");
+                        browserTabUrls.add(home);
+                        browserTabIndex = browserTabUrls.size() - 1;
+                        if (fallbackWebView != null) fallbackWebView.loadUrl(home);
+                        if (browserAddress != null) browserAddress.setText(home);
+                        Toast.makeText(this, "تم فتح تبويب جديد", Toast.LENGTH_SHORT).show();
+                    } else if (which == browserTabUrls.size() + 1) {
+                        if (browserTabUrls.size() > 1) {
+                            browserTabUrls.remove(browserTabIndex);
+                            browserTabIndex = Math.min(browserTabIndex, browserTabUrls.size() - 1);
+                            openBrowserTab(browserTabIndex);
+                        } else {
+                            Toast.makeText(this, "هذا آخر تبويب مفتوح", Toast.LENGTH_SHORT).show();
+                        }
+                    } else {
+                        openBrowserTab(which);
+                    }
+                }).setNegativeButton("إغلاق", null).show();
+    }
+
+    private void openBrowserTab(int index) {
+        if (index < 0 || index >= browserTabUrls.size()) return;
+        browserTabIndex = index;
+        String url = browserTabUrls.get(index);
+        if (browserAddress != null) browserAddress.setText(url);
+        if (fallbackWebView != null && isHttpUrl(url)) fallbackWebView.loadUrl(url);
+    }
+
+    private void rememberBrowserVisit(String url) {
+        if (!isHttpUrl(url)) return;
+        SharedPreferences prefs = getSharedPreferences("AboEzzatBrowser", MODE_PRIVATE);
+        org.json.JSONArray old;
+        try { old = new org.json.JSONArray(prefs.getString("history", "[]")); }
+        catch (Exception e) { old = new org.json.JSONArray(); }
+        if (old.length() > 0) {
+            JSONObject first = old.optJSONObject(0);
+            if (first != null && url.equals(first.optString("url", ""))) return;
+        }
+        org.json.JSONArray next = new org.json.JSONArray();
+        JSONObject item = new JSONObject();
+        try {
+            item.put("url", url);
+            item.put("title", Uri.parse(url).getHost());
+            item.put("visited", System.currentTimeMillis());
+            next.put(item);
+            for (int i = 0; i < Math.min(old.length(), 99); i++) {
+                JSONObject previous = old.optJSONObject(i);
+                if (previous != null) next.put(previous);
+            }
+            prefs.edit().putString("history", next.toString()).apply();
+        } catch (Exception ignored) { }
+    }
+
+    private void showBrowserHistory() {
+        org.json.JSONArray history;
+        try { history = new org.json.JSONArray(getSharedPreferences("AboEzzatBrowser", MODE_PRIVATE)
+                .getString("history", "[]")); }
+        catch (Exception e) { history = new org.json.JSONArray(); }
+        if (history.length() == 0) {
+            new AlertDialog.Builder(this).setTitle("سجل التصفح").setMessage("السجل فارغ")
+                    .setPositiveButton("إغلاق", null).show();
+            return;
+        }
+        String[] labels = new String[history.length()];
+        String[] urls = new String[history.length()];
+        for (int i = 0; i < history.length(); i++) {
+            JSONObject item = history.optJSONObject(i);
+            urls[i] = item == null ? "" : item.optString("url", "");
+            labels[i] = item == null ? urls[i] : item.optString("title", urls[i]) + "\n" + urls[i];
+        }
+        new AlertDialog.Builder(this).setTitle("سجل التصفح")
+                .setItems(labels, (d, which) -> {
+                    if (browserAddress != null) {
+                        browserAddress.setText(urls[which]);
+                        navigateBrowserAddress();
+                    }
+                }).setNeutralButton("مسح السجل", (d, w) -> {
+                    getSharedPreferences("AboEzzatBrowser", MODE_PRIVATE).edit()
+                            .putString("history", "[]").apply();
+                    Toast.makeText(this, "تم مسح السجل", Toast.LENGTH_SHORT).show();
+                }).setNegativeButton("إغلاق", null).show();
+    }
+
+    private void saveCurrentBrowserPage() {
+        if (fallbackWebView == null || !isHttpUrl(fallbackWebView.getUrl())) {
+            Toast.makeText(this, "افتح صفحة أولًا", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        String url = fallbackWebView.getUrl();
+        org.json.JSONArray sites = getBrowserBookmarks();
+        for (int i = 0; i < sites.length(); i++) {
+            JSONObject existing = sites.optJSONObject(i);
+            if (existing != null && url.equalsIgnoreCase(existing.optString("url", ""))) {
+                Toast.makeText(this, "الصفحة محفوظة بالفعل", Toast.LENGTH_SHORT).show();
+                return;
+            }
+        }
+        JSONObject item = new JSONObject();
+        try {
+            String title = fallbackWebView.getTitle();
+            item.put("name", title == null || title.trim().isEmpty() ? Uri.parse(url).getHost() : title);
+            item.put("url", url);
+            item.put("domain", Uri.parse(url).getHost());
+            sites.put(item);
+            getSharedPreferences("AboEzzatBrowser", MODE_PRIVATE).edit()
+                    .putString("browser_bookmarks", sites.toString()).apply();
+            refreshBrowserBookmarks();
+            Toast.makeText(this, "تم حفظ الصفحة في المفضلة", Toast.LENGTH_SHORT).show();
+        } catch (Exception ignored) { }
+    }
+
+    private void showBrowserSettings() {
+        SharedPreferences prefs = getSharedPreferences("AboEzzatBrowser", MODE_PRIVATE);
+        LinearLayout panel = new LinearLayout(this);
+        panel.setOrientation(LinearLayout.VERTICAL);
+        panel.setPadding(dp(12), dp(4), dp(12), 0);
+        android.widget.CheckBox javascript = new android.widget.CheckBox(this);
+        javascript.setText("تشغيل JavaScript");
+        javascript.setChecked(prefs.getBoolean("javascript", true));
+        android.widget.CheckBox cookies = new android.widget.CheckBox(this);
+        cookies.setText("السماح بملفات تعريف الارتباط وتسجيل الدخول");
+        cookies.setChecked(prefs.getBoolean("cookies", true));
+        android.widget.CheckBox desktop = new android.widget.CheckBox(this);
+        desktop.setText("عرض نسخة سطح المكتب");
+        desktop.setChecked(prefs.getBoolean("desktop", true));
+        android.widget.CheckBox ads = new android.widget.CheckBox(this);
+        ads.setText("مانع الإعلانات");
+        ads.setChecked(prefs.getBoolean("adblock_enabled", true));
+        EditText home = new EditText(this);
+        home.setSingleLine(true);
+        home.setHint("https://www.google.com");
+        home.setText(prefs.getString("homepage", "https://www.google.com"));
+        panel.addView(javascript); panel.addView(cookies); panel.addView(desktop); panel.addView(ads);
+        panel.addView(makeText("الصفحة الرئيسية", 14, Color.WHITE, true));
+        panel.addView(home);
+        new AlertDialog.Builder(this).setTitle("إعدادات المتصفح").setView(panel)
+                .setNegativeButton("إلغاء", null).setPositiveButton("حفظ", (d, w) -> {
+                    String homepage = home.getText().toString().trim();
+                    if (!isHttpUrl(homepage)) homepage = "https://www.google.com";
+                    prefs.edit().putBoolean("javascript", javascript.isChecked())
+                            .putBoolean("cookies", cookies.isChecked())
+                            .putBoolean("desktop", desktop.isChecked())
+                            .putBoolean("adblock_enabled", ads.isChecked())
+                            .putString("homepage", homepage).apply();
+                    if (fallbackWebView != null) {
+                        WebSettings settings = fallbackWebView.getSettings();
+                        settings.setJavaScriptEnabled(javascript.isChecked());
+                        settings.setUserAgentString(desktop.isChecked()
+                                ? "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+                                : WebSettings.getDefaultUserAgent(this));
+                        CookieManager manager = CookieManager.getInstance();
+                        manager.setAcceptCookie(cookies.isChecked());
+                        if (android.os.Build.VERSION.SDK_INT >= 21)
+                            manager.setAcceptThirdPartyCookies(fallbackWebView, cookies.isChecked());
+                    }
+                    Toast.makeText(this, "تم حفظ الإعدادات؛ أعد تحميل الصفحة لتطبيق كل التغييرات", Toast.LENGTH_LONG).show();
+                }).show();
+    }
+
+    private void showBrowserMenu() {
+        String[] options = {"⚙ إعدادات المتصفح", "▢ علامات التبويب", "⭐ حفظ الصفحة الحالية",
+                "🕘 سجل التصفح", "⬇ تنزيلات أندرويد", "🧹 مسح بيانات التصفح"};
+        new AlertDialog.Builder(this).setTitle("قائمة المتصفح").setItems(options, (d, which) -> {
+            switch (which) {
+                case 0: showBrowserSettings(); break;
+                case 1: showBrowserTabs(); break;
+                case 2: saveCurrentBrowserPage(); break;
+                case 3: showBrowserHistory(); break;
+                case 4:
+                    try { startActivity(new android.content.Intent("android.intent.action.VIEW_DOWNLOADS")); }
+                    catch (Exception e) { Toast.makeText(this, "افتح تطبيق الملفات ومجلد Downloads", Toast.LENGTH_LONG).show(); }
+                    break;
+                case 5:
+                    new AlertDialog.Builder(this).setTitle("مسح بيانات التصفح")
+                            .setMessage("سيتم مسح السجل وذاكرة التخزين المؤقت وملفات تعريف الارتباط. قد تحتاج إلى تسجيل الدخول مرة أخرى.")
+                            .setPositiveButton("مسح", (dialog, w) -> {
+                                getSharedPreferences("AboEzzatBrowser", MODE_PRIVATE).edit().putString("history", "[]").apply();
+                                if (fallbackWebView != null) fallbackWebView.clearCache(true);
+                                CookieManager.getInstance().removeAllCookies(null);
+                                CookieManager.getInstance().flush();
+                                Toast.makeText(this, "تم مسح بيانات التصفح", Toast.LENGTH_SHORT).show();
+                            }).setNegativeButton("إلغاء", null).show();
+                    break;
+            }
+        }).show();
+    }
+
     private void navigateBrowserAddress() {
         if (browserAddress == null || fallbackWebView == null) return;
         String target = browserAddress.getText().toString().trim();
@@ -2295,6 +2508,12 @@ public class MainActivity extends Activity {
             Toast.makeText(this, "اكتب عنوان موقع صحيح", Toast.LENGTH_SHORT).show(); return;
         }
         pendingBrowserUrl = target;
+        if (browserTabUrls.isEmpty()) {
+            browserTabUrls.add(target);
+            browserTabIndex = 0;
+        } else if (browserTabIndex >= 0 && browserTabIndex < browserTabUrls.size()) {
+            browserTabUrls.set(browserTabIndex, target);
+        }
         browserAddress.setText(target);
         fallbackWebView.loadUrl(target);
         browserAddress.clearFocus();
@@ -2328,7 +2547,8 @@ public class MainActivity extends Activity {
             if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
                 settings.setSafeBrowsingEnabled(true);
             }
-            settings.setJavaScriptEnabled(true);
+            settings.setJavaScriptEnabled(getSharedPreferences("AboEzzatBrowser", MODE_PRIVATE)
+                    .getBoolean("javascript", true));
             settings.setAllowFileAccess(false);
             settings.setAllowContentAccess(true);
             if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.JELLY_BEAN) {
@@ -2344,7 +2564,10 @@ public class MainActivity extends Activity {
             settings.setLoadWithOverviewMode(true);
             // Request the desktop website layout on TV instead of the narrow phone layout.
             // Keep this isolated to the fallback browser; media extraction/playback is unchanged.
-            settings.setUserAgentString("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36");
+            settings.setUserAgentString(getSharedPreferences("AboEzzatBrowser", MODE_PRIVATE)
+                    .getBoolean("desktop", true)
+                    ? "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+                    : WebSettings.getDefaultUserAgent(this));
             // Keep the fallback browser compact on TV screens; users can still
             // zoom in with the remote when a particular site needs it.
             settings.setTextZoom(85);
@@ -2354,7 +2577,8 @@ public class MainActivity extends Activity {
             settings.setDisplayZoomControls(false);
             settings.setJavaScriptCanOpenWindowsAutomatically(false); // لا تسمح بفتح نافذة تلقائيًا دون نقرة المستخدم
             settings.setSupportMultipleWindows(true);
-            CookieManager.getInstance().setAcceptCookie(true);
+            CookieManager.getInstance().setAcceptCookie(getSharedPreferences("AboEzzatBrowser", MODE_PRIVATE)
+                    .getBoolean("cookies", true));
             if (android.os.Build.VERSION.SDK_INT >= 21) {
                 CookieManager.getInstance().setAcceptThirdPartyCookies(fallbackWebView, true);
             }
@@ -2435,6 +2659,7 @@ public class MainActivity extends Activity {
                 public void onPageFinished(WebView view, String url) {
                     super.onPageFinished(view, url);
                     if (tvBrowserMode && browserAddress != null && url != null) {
+                        rememberBrowserVisit(url);
                         browserAddress.setText(url);
                         browserAddress.setSelection(browserAddress.getText().length());
                         if (browserProgress != null) browserProgress.setVisibility(View.GONE);
@@ -2457,6 +2682,31 @@ public class MainActivity extends Activity {
                 }
             });
             fallbackWebView.setWebChromeClient(new WebChromeClient() {
+                @Override
+                public void onDownloadStart(String url, String userAgent, String contentDisposition,
+                        String mimeType, long contentLength) {
+                    try {
+                        android.app.DownloadManager.Request request =
+                                new android.app.DownloadManager.Request(Uri.parse(url));
+                        request.setMimeType(mimeType);
+                        if (userAgent != null && !userAgent.isEmpty())
+                            request.addRequestHeader("User-Agent", userAgent);
+                        String fileName = android.webkit.URLUtil.guessFileName(url, contentDisposition, mimeType);
+                        request.setTitle(fileName);
+                        request.setDescription("تنزيل من متصفح أبو عزت");
+                        request.setNotificationVisibility(
+                                android.app.DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED);
+                        request.setDestinationInExternalPublicDir(android.os.Environment.DIRECTORY_DOWNLOADS, fileName);
+                        android.app.DownloadManager manager =
+                                (android.app.DownloadManager) getSystemService(DOWNLOAD_SERVICE);
+                        if (manager != null) {
+                            manager.enqueue(request);
+                            Toast.makeText(MainActivity.this, "بدأ التنزيل — ستجد الملف في Downloads", Toast.LENGTH_LONG).show();
+                        }
+                    } catch (Exception e) {
+                        Toast.makeText(MainActivity.this, "تعذّر بدء التنزيل", Toast.LENGTH_LONG).show();
+                    }
+                }
                 @Override
                 public boolean onCreateWindow(WebView view, boolean isDialog, boolean isUserGesture,
                         android.os.Message resultMsg) {
