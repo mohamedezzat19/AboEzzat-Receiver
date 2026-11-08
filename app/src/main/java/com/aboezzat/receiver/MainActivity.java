@@ -3156,6 +3156,25 @@ public class MainActivity extends Activity {
 
     private void handleRemoteCommand(String command) {
         synchronized (playerLock) {
+            // Volume buttons control Fire TV's system/media volume, not ExoPlayer's
+            // per-player gain. FLAG_SHOW_UI asks Fire OS to display its volume panel.
+            if ("volume_up".equals(command) || "volume_down".equals(command) || "mute".equals(command)) {
+                android.media.AudioManager audioManager =
+                        (android.media.AudioManager) getSystemService(AUDIO_SERVICE);
+                if (audioManager != null) {
+                    int adjustment = "volume_up".equals(command)
+                            ? android.media.AudioManager.ADJUST_RAISE
+                            : "volume_down".equals(command)
+                            ? android.media.AudioManager.ADJUST_LOWER
+                            : android.media.AudioManager.ADJUST_TOGGLE_MUTE;
+                    audioManager.adjustStreamVolume(android.media.AudioManager.STREAM_MUSIC,
+                            adjustment,
+                            android.media.AudioManager.FLAG_SHOW_UI
+                                    | android.media.AudioManager.FLAG_PLAY_SOUND);
+                }
+                return;
+            }
+
             if (player == null) {
                 // If playback is happening in another TV app (for example SmartTube),
                 // route media keys through Android's active media-session system.
@@ -3243,6 +3262,11 @@ public class MainActivity extends Activity {
                     savePlaybackPositionLocked();
                     player.stop();
                     player.clearMediaItems();
+                    currentPlaybackUrl = "";
+                    // Stop means close the current video/image and return to the
+                    // receiver home screen, while keeping the HTTP server alive.
+                    hideImage();
+                    showWelcome();
                     break;
                 case "previous":
                     playQueueRelative(-1);
@@ -3250,18 +3274,7 @@ public class MainActivity extends Activity {
                 case "next":
                     playQueueRelative(1);
                     break;
-                case "volume_up":
-                    lastNonZeroVolume = Math.min(1.0f, lastNonZeroVolume + 0.1f);
-                    if (!muted) player.setVolume(lastNonZeroVolume);
-                    break;
-                case "volume_down":
-                    lastNonZeroVolume = Math.max(0.0f, lastNonZeroVolume - 0.1f);
-                    if (!muted) player.setVolume(lastNonZeroVolume);
-                    break;
-                case "mute":
-                    muted = !muted;
-                    player.setVolume(muted ? 0.0f : lastNonZeroVolume);
-                    break;
+                // System volume commands are handled before player-specific controls.
                 default:
                     Log.w(TAG, "Unsupported remote command: " + command);
                     break;
