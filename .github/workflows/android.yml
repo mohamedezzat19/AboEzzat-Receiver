@@ -57,16 +57,21 @@ jobs:
         run: |
           if [[ -z "$KEYSTORE_BASE64" || -z "$STORE_PASSWORD" || -z "$KEY_PASSWORD" ]]; then
             echo "HAS_SIGNING=false" >> "$GITHUB_ENV"
-            echo "Receiver signing secrets missing or unavailable; debug APK only."
+            echo "::warning::Receiver signing secrets missing; no signed update will be published."
             exit 0
           fi
-          echo "$KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/release-keystore.jks"
+
+          if ! echo "$KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/release-keystore.jks"; then
+            echo "::error::Receiver keystore secret is not valid Base64."
+            exit 1
+          fi
+
           ALIAS="$(keytool -list -keystore "$RUNNER_TEMP/release-keystore.jks" -storepass "$STORE_PASSWORD" -v 2>/dev/null | sed -n 's/^Alias name: //p' | head -n 1)"
           if [[ -z "$ALIAS" ]]; then
-            echo "HAS_SIGNING=false" >> "$GITHUB_ENV"
-            echo "::warning::Receiver keystore could not be opened or contains no readable alias; check the keystore and store password."
-            exit 0
+            echo "::error::Receiver keystore could not be opened. Check the keystore and store password."
+            exit 1
           fi
+
           echo "KEYSTORE_FILE=$RUNNER_TEMP/release-keystore.jks" >> "$GITHUB_ENV"
           echo "KEY_ALIAS=$ALIAS" >> "$GITHUB_ENV"
           echo "HAS_SIGNING=true" >> "$GITHUB_ENV"
@@ -80,6 +85,76 @@ jobs:
           KEY_ALIAS: ${{ env.KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: gradle assembleRelease --stacktrace
+
+      - name: Verify APK package, version, and signature
+        if: ${{ env.HAS_SIGNING == 'true' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK="app/build/outputs/apk/release/app-release.apk"
+          BUILD_TOOLS="$ANDROID_HOME/build-tools/$(ls -1 "$ANDROID_HOME/build-tools" | sort -V | tail -n 1)"
+          APKSIGNER="$BUILD_TOOLS/apksigner"
+          AAPT="$BUILD_TOOLS/aapt"
+
+          test -s "$APK" || { echo "::error::Release APK is missing or empty."; exit 1; }
+          "$APKSIGNER" verify --verbose --print-certs "$APK" > "$RUNNER_TEMP/current-apk-signature.txt"
+          CURRENT_CERT="$(sed -n 's/.*certificate SHA-256 digest: *//p' "$RUNNER_TEMP/current-apk-signature.txt" | head -n 1 | tr -d ':' | tr '[:upper:]' '[:lower:]')"
+          test -n "$CURRENT_CERT" || { echo "::error::Could not read the APK signing certificate."; exit 1; }
+
+          BADGING="$("$AAPT" dump badging "$APK")"
+          PACKAGE_NAME="$(printf '%s\n' "$BADGING" | sed -n "s/^package: name='\([^']*\)'.*/\1/p" | head -n 1)"
+          APK_VERSION_CODE="$(printf '%s\n' "$BADGING" | sed -n "s/^package:.*versionCode='\([^']*\)'.*/\1/p" | head -n 1)"
+
+          if [[ "$PACKAGE_NAME" != "com.aboezzat.receiver" ]]; then
+            echo "::error::Wrong APK package: $PACKAGE_NAME"
+            exit 1
+          fi
+          if [[ "$APK_VERSION_CODE" != "$GITHUB_RUN_NUMBER" ]]; then
+            echo "::error::APK versionCode ($APK_VERSION_CODE) does not match workflow run number ($GITHUB_RUN_NUMBER)."
+            exit 1
+          fi
+
+          echo "APK package, versionCode, and Android signature are valid."
+          echo "CURRENT_CERT=$CURRENT_CERT" >> "$GITHUB_ENV"
+
+      - name: Ensure signing key matches the last published release
+        if: ${{ env.HAS_SIGNING == 'true' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master') }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          API="https://api.github.com/repos/${GITHUB_REPOSITORY}/releases/latest"
+          HTTP_STATUS="$(curl -sS -o "$RUNNER_TEMP/latest-release.json" -w '%{http_code}' \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" "$API")"
+
+          if [[ "$HTTP_STATUS" == "404" ]]; then
+            echo "No previous release exists; signer continuity check will start with this release."
+            exit 0
+          fi
+          if [[ "$HTTP_STATUS" != "200" ]]; then
+            echo "::error::Could not inspect the latest release (HTTP $HTTP_STATUS). Refusing to publish an unchecked APK."
+            exit 1
+          fi
+
+          PREVIOUS_APK_URL="$(jq -r '.assets[]? | select(.name == "app-release.apk") | .browser_download_url' "$RUNNER_TEMP/latest-release.json" | head -n 1)"
+          if [[ -z "$PREVIOUS_APK_URL" || "$PREVIOUS_APK_URL" == "null" ]]; then
+            echo "::error::The latest release has no app-release.apk to verify against. Refusing to publish."
+            exit 1
+          fi
+
+          curl -fL --retry 3 "$PREVIOUS_APK_URL" -o "$RUNNER_TEMP/previous-release.apk"
+          BUILD_TOOLS="$ANDROID_HOME/build-tools/$(ls -1 "$ANDROID_HOME/build-tools" | sort -V | tail -n 1)"
+          "$BUILD_TOOLS/apksigner" verify --verbose --print-certs "$RUNNER_TEMP/previous-release.apk" > "$RUNNER_TEMP/previous-apk-signature.txt"
+          PREVIOUS_CERT="$(sed -n 's/.*certificate SHA-256 digest: *//p' "$RUNNER_TEMP/previous-apk-signature.txt" | head -n 1 | tr -d ':' | tr '[:upper:]' '[:lower:]')"
+
+          if [[ -z "$PREVIOUS_CERT" || "$CURRENT_CERT" != "$PREVIOUS_CERT" ]]; then
+            echo "::error::Signing certificate differs from the latest published Receiver APK. Update blocked to prevent Android signature-install failures."
+            exit 1
+          fi
+
+          echo "Signing certificate matches the latest published Receiver release."
 
       - name: Upload signed release APK
         if: ${{ env.HAS_SIGNING == 'true' }}
@@ -96,6 +171,6 @@ jobs:
         with:
           tag_name: receiver-build-${{ github.run_number }}
           name: Receiver Build ${{ github.run_number }}
-          body: "versionCode: ${{ github.run_number }}\nAutomated signed APK build."
+          body: "versionCode: ${{ github.run_number }}\nAutomated signed APK build. APK package/version/signature verified; signing certificate matches the previous release."
           files: app/build/outputs/apk/release/app-release.apk
           generate_release_notes: true
