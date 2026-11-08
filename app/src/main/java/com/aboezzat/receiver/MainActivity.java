@@ -219,6 +219,47 @@ public class MainActivity extends Activity {
     }
 
 
+    // User-controlled opt-in: Fire OS/Android may block a background Activity launch.
+    // SYSTEM_ALERT_WINDOW is an Android BAL exemption on many versions; OEM behavior can vary.
+    private void configureAutoForegroundPlayback() {
+        if (android.os.Build.VERSION.SDK_INT < 23) {
+            Toast.makeText(this, "الإذن غير مطلوب على هذا الإصدار", Toast.LENGTH_LONG).show();
+            return;
+        }
+
+        if (android.provider.Settings.canDrawOverlays(this)) {
+            new AlertDialog.Builder(this)
+                    .setTitle("التشغيل التلقائي")
+                    .setMessage("الإذن مفعّل. سيحاول Receiver فتح الفيديو تلقائيًا عند وصول رابط وهو في الخلفية. قد يظل Fire OS يمنع ذلك في بعض الحالات.")
+                    .setPositiveButton("حسنًا", null)
+                    .show();
+            return;
+        }
+
+        new AlertDialog.Builder(this)
+                .setTitle("السماح بالتشغيل التلقائي")
+                .setMessage("Fire OS قد يمنع Receiver من فتح الفيديو فوق التطبيق الحالي. افتح إعدادات النظام واسمح لـ AboEzzat Receiver بخيار «الظهور فوق التطبيقات الأخرى». هذا إذن اختياري، ولا يضمنه كل إصدار من Fire OS.")
+                .setPositiveButton("فتح إعدادات الإذن", (dialog, which) -> {
+                    try {
+                        android.content.Intent intent = new android.content.Intent(
+                                android.provider.Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                                android.net.Uri.parse("package:" + getPackageName()));
+                        startActivity(intent);
+                    } catch (Exception e) {
+                        try {
+                            android.content.Intent fallback = new android.content.Intent(
+                                    android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                                    android.net.Uri.parse("package:" + getPackageName()));
+                            startActivity(fallback);
+                        } catch (Exception ignored) {
+                            Toast.makeText(this, "افتح إعدادات التطبيق يدويًا من إعدادات Fire TV", Toast.LENGTH_LONG).show();
+                        }
+                    }
+                })
+                .setNegativeButton("لاحقًا", null)
+                .show();
+    }
+
     private void showReceiverSettings() {
         String[] options = {
                 "🔄  البحث عن التحديثات",
@@ -229,6 +270,7 @@ public class MainActivity extends Activity {
                 "🕘  سجل المشاهدة",
                 "ℹ  معلومات الإصدار",
                 "🔐  اقتران Share (قيد التطوير)",
+                "🚀  فتح الفيديو تلقائيًا: " + ((android.os.Build.VERSION.SDK_INT < 23 || android.provider.Settings.canDrawOverlays(this)) ? "مسموح" : "يحتاج إذن"),
                 "🛡  مانع الإعلانات: " + (getSharedPreferences("AboEzzatBrowser", MODE_PRIVATE).getBoolean("adblock_enabled", true) ? "مفعّل" : "متوقف")
         };
         new AlertDialog.Builder(this)
@@ -256,7 +298,8 @@ public class MainActivity extends Activity {
                             } catch (Exception e) { Toast.makeText(this, "تعذّر قراءة معلومات الإصدار", Toast.LENGTH_SHORT).show(); }
                             break;
                         case 7: showSharePairingCode(); break;
-                        case 8:
+                        case 8: configureAutoForegroundPlayback(); break;
+                        case 9:
                             android.content.SharedPreferences browserPrefs = getSharedPreferences("AboEzzatBrowser", MODE_PRIVATE);
                             boolean adBlockEnabled = !browserPrefs.getBoolean("adblock_enabled", true);
                             browserPrefs.edit().putBoolean("adblock_enabled", adBlockEnabled).apply();
