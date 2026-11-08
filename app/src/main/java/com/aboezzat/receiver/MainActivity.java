@@ -40,6 +40,8 @@ import org.json.JSONObject;
 
 import androidx.media3.common.MediaItem;
 import androidx.media3.common.Player;
+import androidx.media3.common.C;
+import androidx.media3.common.MimeTypes;
 import androidx.media3.common.util.UnstableApi;
 import androidx.media3.exoplayer.ExoPlayer;
 import androidx.media3.datasource.DefaultHttpDataSource;
@@ -52,6 +54,12 @@ import androidx.media3.ui.PlayerView;
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
+import java.io.InputStream;
+import java.io.BufferedInputStream;
+import java.io.File;
+import java.io.FileOutputStream;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipInputStream;
 import java.net.ServerSocket;
 import java.net.DatagramPacket;
 import java.net.DatagramSocket;
@@ -92,6 +100,9 @@ public class MainActivity extends Activity {
     private TextView receiverStatusText;
 
     private PlayerView playerView;
+    private TextView subtitleButton;
+    private String currentPlaybackAudioUrl = "";
+    private java.util.Map<String, String> currentPlaybackHeaders = java.util.Collections.emptyMap();
     private final java.util.ArrayList<String> playbackQueue = new java.util.ArrayList<>();
     private int playbackQueueIndex = -1;
     private WebView fallbackWebView;
@@ -1071,6 +1082,26 @@ public class MainActivity extends Activity {
                 FrameLayout.LayoutParams.MATCH_PARENT,
                 FrameLayout.LayoutParams.MATCH_PARENT
         ));
+
+        // زر الترجمة يظهر فقط أثناء تشغيل الفيديو، ويبدأ البحث عند الضغط عليه.
+        subtitleButton = makeText("ترجمة عربية", 15, Color.WHITE, true);
+        subtitleButton.setGravity(Gravity.CENTER);
+        subtitleButton.setPadding(dp(16), dp(10), dp(16), dp(10));
+        subtitleButton.setBackground(roundedBackground(
+                Color.argb(235, 5, 12, 32), Color.rgb(255, 197, 74), 18));
+        subtitleButton.setFocusable(true);
+        subtitleButton.setFocusableInTouchMode(true);
+        subtitleButton.setVisibility(View.GONE);
+        subtitleButton.setOnClickListener(v -> searchAndApplyArabicSubtitle());
+        subtitleButton.setOnLongClickListener(v -> {
+            promptSubtitleTitleAndSearch();
+            return true;
+        });
+        FrameLayout.LayoutParams subtitleButtonParams = new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT,
+                Gravity.BOTTOM | Gravity.END);
+        subtitleButtonParams.setMargins(dp(12), dp(12), dp(24), dp(76));
+        root.addView(subtitleButton, subtitleButtonParams);
 
         // عرض الصور المستقبلة مع الحفاظ على أبعادها.
         imageView = new ImageView(this);
@@ -3470,6 +3501,9 @@ public class MainActivity extends Activity {
         }
 
         currentPlaybackUrl = playbackUrl;
+        currentPlaybackAudioUrl = audioUrl == null ? "" : audioUrl;
+        currentPlaybackHeaders = requestHeaders == null
+                ? java.util.Collections.emptyMap() : new java.util.LinkedHashMap<>(requestHeaders);
         // Home shortcuts must never sit above or steal DPAD focus from ExoPlayer.
         if (settingsHomeButton != null) settingsHomeButton.setVisibility(View.GONE);
         if (browserHomeButton != null) browserHomeButton.setVisibility(View.GONE);
@@ -3483,6 +3517,7 @@ public class MainActivity extends Activity {
         welcomeScreen.setVisibility(View.GONE);
         connectionCard.setVisibility(View.GONE);
         playerView.setVisibility(View.VISIBLE);
+        if (subtitleButton != null) subtitleButton.setVisibility(View.VISIBLE);
         playerView.setFocusable(true);
         playerView.setFocusableInTouchMode(true);
         playerView.requestFocus();
@@ -3598,6 +3633,246 @@ public class MainActivity extends Activity {
         }
     }
 
+    // Arabic subtitles are searched only after the user presses the on-screen button.
+    // Guest API access is provided by subtitles.website; availability/rate limits depend on that service.
+    private void searchAndApplyArabicSubtitle() {
+        final String videoUrl = currentPlaybackUrl;
+        if (videoUrl == null || videoUrl.trim().isEmpty() || player == null) {
+            Toast.makeText(this, "لا يوجد فيديو يعمل حاليًا", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        String title = guessSubtitleTitle(videoUrl);
+        if (title.isEmpty()) {
+            promptSubtitleTitleAndSearch();
+            return;
+        }
+        searchArabicSubtitle(title, videoUrl);
+    }
+
+    private void promptSubtitleTitleAndSearch() {
+        EditText titleInput = new EditText(this);
+        titleInput.setSingleLine(true);
+        titleInput.setHint("اسم الفيلم أو المسلسل بالإنجليزي");
+        titleInput.setText(guessSubtitleTitle(currentPlaybackUrl));
+        new AlertDialog.Builder(this)
+                .setTitle("البحث عن ترجمة عربية")
+                .setMessage("اكتب اسم الفيلم أو الحلقة لو اسم الرابط غير واضح.")
+                .setView(titleInput)
+                .setNegativeButton("إلغاء", null)
+                .setPositiveButton("بحث", (dialog, which) -> {
+                    String title = titleInput.getText().toString().trim();
+                    if (!title.isEmpty()) searchArabicSubtitle(title, currentPlaybackUrl);
+                    else Toast.makeText(this, "اكتب اسم الفيلم أولًا", Toast.LENGTH_SHORT).show();
+                }).show();
+    }
+
+    private String guessSubtitleTitle(String mediaUrl) {
+        try {
+            android.net.Uri uri = android.net.Uri.parse(mediaUrl);
+            String name = uri.getLastPathSegment();
+            if (name == null || name.trim().isEmpty()) return "";
+            try { name = URLDecoder.decode(name, "UTF-8"); } catch (Exception ignored) { }
+            int dot = name.lastIndexOf('.');
+            if (dot > 0) name = name.substring(0, dot);
+            name = name.replace('_', ' ').replace('.', ' ').replace('-', ' ');
+            name = name.replaceAll("(?i)\\b(480p|720p|1080p|2160p|4k|8k|web[- ]?dl|webrip|bluray|blu[- ]?ray|hdrip|x264|x265|h264|h265|hevc|aac|dts)\\b", " ");
+            name = name.replaceAll("\\s+", " ").trim();
+            if (name.matches("(?i)^(index|master|playlist|video|stream|manifest|segment|file|media)$")) return "";
+            return name;
+        } catch (Exception e) {
+            return "";
+        }
+    }
+
+    private void searchArabicSubtitle(String title, String videoUrl) {
+        Toast.makeText(this, "جارٍ البحث عن ترجمة عربية…", Toast.LENGTH_SHORT).show();
+        Thread thread = new Thread(() -> {
+            String downloadUrl = null;
+            String subtitleName = "";
+            String errorMessage = null;
+            HttpURLConnection connection = null;
+            try {
+                String endpoint = "https://subtitles.website/strapi/api/search/subtitles?title="
+                        + java.net.URLEncoder.encode(title, "UTF-8")
+                        + "&language=ar&format=srt";
+                connection = (HttpURLConnection) new URL(endpoint).openConnection();
+                connection.setConnectTimeout(12000);
+                connection.setReadTimeout(20000);
+                connection.setRequestMethod("GET");
+                connection.setRequestProperty("Accept", "application/json");
+                connection.setRequestProperty("User-Agent", "AboEzzat Receiver Android");
+                int status = connection.getResponseCode();
+                if (status < 200 || status >= 300) {
+                    throw new java.io.IOException("Subtitle search HTTP " + status);
+                }
+                StringBuilder jsonText = new StringBuilder();
+                try (BufferedReader reader = new BufferedReader(new InputStreamReader(
+                        connection.getInputStream(), StandardCharsets.UTF_8))) {
+                    String line;
+                    while ((line = reader.readLine()) != null) jsonText.append(line);
+                }
+                JSONObject response = new JSONObject(jsonText.toString());
+                org.json.JSONArray results = response.optJSONArray("data");
+                if (results == null) results = response.optJSONArray("subtitles");
+                int bestDownloads = -1;
+                if (results != null) {
+                    for (int i = 0; i < results.length(); i++) {
+                        JSONObject item = results.optJSONObject(i);
+                        if (item == null) continue;
+                        String candidate = item.optString("download_url", "");
+                        if (candidate.isEmpty()) candidate = item.optString("url", "");
+                        if (candidate.isEmpty()) continue;
+                        JSONObject language = item.optJSONObject("language");
+                        String languageCode = language == null ? item.optString("language", "")
+                                : language.optString("code", "");
+                        String languageName = language == null ? "" : language.optString("name", "");
+                        boolean arabic = "ar".equalsIgnoreCase(languageCode)
+                                || "ara".equalsIgnoreCase(languageCode)
+                                || "arabic".equalsIgnoreCase(languageCode)
+                                || "العربية".equals(languageName);
+                        // The endpoint is asked for Arabic; tolerate providers that omit language metadata.
+                        if (!arabic && !languageCode.isEmpty()) continue;
+                        int downloads = item.optInt("downloads", 0);
+                        if (downloadUrl == null || downloads > bestDownloads) {
+                            downloadUrl = candidate;
+                            bestDownloads = downloads;
+                            subtitleName = item.optString("release",
+                                    item.optString("film_title", title));
+                        }
+                    }
+                }
+                if (downloadUrl == null) {
+                    errorMessage = "لم يتم العثور على ترجمة عربية لهذا الفيلم.";
+                } else {
+                    if (!downloadUrl.startsWith("http://") && !downloadUrl.startsWith("https://")) {
+                        if (!downloadUrl.startsWith("/")) downloadUrl = "/" + downloadUrl;
+                        downloadUrl = "https://subtitles.website" + downloadUrl;
+                    }
+                    File cacheDir = new File(getCacheDir(), "arabic_subtitles");
+                    if (!cacheDir.exists() && !cacheDir.mkdirs()) {
+                        throw new java.io.IOException("Could not create subtitle cache");
+                    }
+                    File subtitleFile = new File(cacheDir, "subtitle_" + Math.abs(videoUrl.hashCode()) + ".srt");
+                    HttpURLConnection downloadConnection = (HttpURLConnection) new URL(downloadUrl).openConnection();
+                    downloadConnection.setConnectTimeout(15000);
+                    downloadConnection.setReadTimeout(30000);
+                    downloadConnection.setInstanceFollowRedirects(true);
+                    downloadConnection.setRequestProperty("User-Agent", "AboEzzat Receiver Android");
+                    try {
+                        int downloadStatus = downloadConnection.getResponseCode();
+                        if (downloadStatus < 200 || downloadStatus >= 300) {
+                            throw new java.io.IOException("Subtitle download HTTP " + downloadStatus);
+                        }
+                        try (InputStream raw = downloadConnection.getInputStream();
+                             BufferedInputStream buffered = new BufferedInputStream(raw)) {
+                            buffered.mark(4);
+                            int first = buffered.read();
+                            int second = buffered.read();
+                            buffered.reset();
+                            if (first == 'P' && second == 'K') {
+                                boolean extracted = false;
+                                try (ZipInputStream zip = new ZipInputStream(buffered)) {
+                                    ZipEntry entry;
+                                    while ((entry = zip.getNextEntry()) != null) {
+                                        if (!entry.isDirectory() && entry.getName().toLowerCase(Locale.ROOT).endsWith(".srt")) {
+                                            try (FileOutputStream out = new FileOutputStream(subtitleFile)) {
+                                                byte[] buffer = new byte[8192];
+                                                int count;
+                                                while ((count = zip.read(buffer)) != -1) out.write(buffer, 0, count);
+                                            }
+                                            extracted = true;
+                                            break;
+                                        }
+                                    }
+                                }
+                                if (!extracted) throw new java.io.IOException("ZIP did not contain SRT");
+                            } else {
+                                try (FileOutputStream out = new FileOutputStream(subtitleFile)) {
+                                    byte[] buffer = new byte[8192];
+                                    int count;
+                                    while ((count = buffered.read(buffer)) != -1) out.write(buffer, 0, count);
+                                }
+                            }
+                        }
+                    } finally {
+                        downloadConnection.disconnect();
+                    }
+                    if (subtitleFile.length() < 20) throw new java.io.IOException("Subtitle file is empty");
+                    final File readyFile = subtitleFile;
+                    final String readyName = subtitleName;
+                    runOnUiThread(() -> {
+                        if (isFinishing()) return;
+                        if (!videoUrl.equals(currentPlaybackUrl)) {
+                            Toast.makeText(MainActivity.this, "الفيديو اتغير قبل اكتمال البحث؛ لم يتم تطبيق الترجمة.", Toast.LENGTH_LONG).show();
+                            return;
+                        }
+                        if (applySubtitleFile(readyFile)) {
+                            Toast.makeText(MainActivity.this, "تم تشغيل الترجمة العربية" +
+                                    (readyName.isEmpty() ? "" : ": " + readyName), Toast.LENGTH_LONG).show();
+                        } else {
+                            Toast.makeText(MainActivity.this, "تم تنزيل الترجمة لكن تعذّر إضافتها للفيديو.", Toast.LENGTH_LONG).show();
+                        }
+                    });
+                }
+            } catch (Exception e) {
+                Log.w(TAG, "Arabic subtitle search/download failed", e);
+                if (errorMessage == null) errorMessage = "تعذّر البحث أو تنزيل الترجمة. جرّب لاحقًا.";
+            } finally {
+                if (connection != null) connection.disconnect();
+            }
+            if (errorMessage != null) {
+                final String message = errorMessage;
+                runOnUiThread(() -> {
+                    if (!isFinishing()) new AlertDialog.Builder(MainActivity.this)
+                            .setTitle("الترجمة العربية")
+                            .setMessage(message)
+                            .setPositiveButton("حسنًا", null)
+                            .show();
+                });
+            }
+        }, "ReceiverArabicSubtitleSearch");
+        thread.setDaemon(true);
+        thread.start();
+    }
+
+    private boolean applySubtitleFile(File subtitleFile) {
+        if (player == null || currentPlaybackUrl == null || currentPlaybackUrl.trim().isEmpty()
+                || subtitleFile == null || !subtitleFile.isFile()) return false;
+        try {
+            synchronized (playerLock) {
+                long position = Math.max(0L, player.getCurrentPosition());
+                boolean wasPlaying = player.isPlaying();
+                savePlaybackPositionLocked();
+                MediaItem.SubtitleConfiguration subtitleConfig =
+                        new MediaItem.SubtitleConfiguration.Builder(Uri.fromFile(subtitleFile))
+                                .setMimeType(MimeTypes.APPLICATION_SUBRIP)
+                                .setLanguage("ar")
+                                .setSelectionFlags(C.SELECTION_FLAG_DEFAULT)
+                                .build();
+                MediaItem videoItem = new MediaItem.Builder()
+                        .setUri(currentPlaybackUrl)
+                        .setSubtitleConfigurations(java.util.Collections.singletonList(subtitleConfig))
+                        .build();
+                DefaultMediaSourceFactory factory = createMediaSourceFactory(currentPlaybackHeaders);
+                MediaSource videoSource = factory.createMediaSource(videoItem);
+                if (currentPlaybackAudioUrl != null && !currentPlaybackAudioUrl.trim().isEmpty()) {
+                    MediaSource audioSource = factory.createMediaSource(
+                            MediaItem.fromUri(currentPlaybackAudioUrl));
+                    player.setMediaSource(new MergingMediaSource(true, videoSource, audioSource));
+                } else {
+                    player.setMediaSource(videoSource);
+                }
+                player.prepare();
+                player.seekTo(position);
+                if (wasPlaying) player.play();
+                return true;
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "Could not apply Arabic subtitle", e);
+            return false;
+        }
+    }
+
     private DefaultMediaSourceFactory createMediaSourceFactory(java.util.Map<String, String> requestHeaders) {
         DefaultHttpDataSource.Factory httpFactory = new DefaultHttpDataSource.Factory()
                 .setConnectTimeoutMs(15000).setReadTimeoutMs(30000);
@@ -3683,6 +3958,7 @@ public class MainActivity extends Activity {
         resetImageTransform();
 
         playerView.setVisibility(View.GONE);
+        if (subtitleButton != null) subtitleButton.setVisibility(View.GONE);
         if (fallbackWebView != null) fallbackWebView.setVisibility(View.GONE);
         welcomeScreen.setVisibility(View.GONE);
         welcomeBackground.setVisibility(View.GONE);
@@ -3789,6 +4065,7 @@ public class MainActivity extends Activity {
             fallbackWebView.setVisibility(View.GONE);
         }
         playerView.setVisibility(View.GONE);
+        if (subtitleButton != null) subtitleButton.setVisibility(View.GONE);
         welcomeScreen.setVisibility(View.GONE);
         welcomeBackground.setVisibility(View.VISIBLE);
         connectionCard.setVisibility(View.VISIBLE);
