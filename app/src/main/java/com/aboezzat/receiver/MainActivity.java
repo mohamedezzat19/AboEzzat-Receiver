@@ -1920,10 +1920,10 @@ public class MainActivity extends Activity {
         showWelcome();
         if (browserShortcut != null) browserShortcut.setVisibility(View.VISIBLE);
         if (receiverStatusText != null) {
-            receiverStatusText.setText("تعذّر استخراج بث مباشر؛ اضغط أيقونة المتصفح أسفل اليسار لو حابب تفتح صفحة الموقع");
+            receiverStatusText.setText("تعذر استخراج الفيديو. اضغط أيقونة المتصفح لو حابب تفتح صفحة الموقع.");
         }
         Toast.makeText(MainActivity.this,
-                "تعذّر استخراج فيديو مباشر للتشغيل. المتصفح متاح اختياريًا من أسفل اليسار.",
+                "تعذر استخراج الفيديو. اضغط أيقونة المتصفح لو حابب تفتح صفحة الموقع.",
                 Toast.LENGTH_LONG).show();
     }
 
