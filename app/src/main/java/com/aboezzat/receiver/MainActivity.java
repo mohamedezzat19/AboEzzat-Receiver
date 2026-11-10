@@ -1605,16 +1605,23 @@ public class MainActivity extends Activity {
         }
     }
 
-    // Share New serves selected phone files through /media?id=... on port 8082.
-    // Such URLs have no file extension and must bypass social-page extraction.
+    // Local media endpoints used by the AboEzzat sender apps.
+    // AboEzzat Cast serves picked phone files on 8088 as /media.jpg or /media.mp4.
+    // Share New serves them on 8082 as /media?id=... .
+    // Keep both routes out of social-page extraction so local videos play as-is.
     private boolean isPhoneLocalMediaUrl(String value) {
         if (value == null || value.trim().isEmpty()) return false;
         try {
             Uri uri = Uri.parse(value.trim());
             String path = uri.getPath();
-            return "http".equalsIgnoreCase(uri.getScheme())
-                    && uri.getPort() == 8082
-                    && path != null && "/media".equals(path);
+            if (!"http".equalsIgnoreCase(uri.getScheme()) || path == null) return false;
+
+            int port = uri.getPort();
+            if (port == 8088) {
+                return "/media.mp4".equalsIgnoreCase(path)
+                        || "/media.jpg".equalsIgnoreCase(path);
+            }
+            return port == 8082 && "/media".equals(path);
         } catch (Exception ignored) {
             return false;
         }
