@@ -40,6 +40,7 @@ import org.json.JSONObject;
 
 import androidx.media3.common.MediaItem;
 import androidx.media3.common.Player;
+import androidx.media3.common.PlaybackParameters;
 import androidx.media3.common.C;
 import androidx.media3.common.MimeTypes;
 import androidx.media3.common.util.UnstableApi;
@@ -100,7 +101,9 @@ public class MainActivity extends Activity {
     private TextView receiverStatusText;
 
     private PlayerView playerView;
-    private TextView subtitleButton;
+    private TextView playerSubtitleButton;
+    private TextView playerSettingsButton;
+    private boolean currentPlaybackHasVideo = false;
     private String currentPlaybackAudioUrl = "";
     private java.util.Map<String, String> currentPlaybackHeaders = java.util.Collections.emptyMap();
     private final java.util.ArrayList<String> playbackQueue = new java.util.ArrayList<>();
@@ -1083,25 +1086,51 @@ public class MainActivity extends Activity {
                 FrameLayout.LayoutParams.MATCH_PARENT
         ));
 
-        // زر الترجمة يظهر فقط أثناء تشغيل الفيديو، ويبدأ البحث عند الضغط عليه.
-        subtitleButton = makeText("ترجمة عربية", 15, Color.WHITE, true);
-        subtitleButton.setGravity(Gravity.CENTER);
-        subtitleButton.setPadding(dp(16), dp(10), dp(16), dp(10));
-        subtitleButton.setBackground(roundedBackground(
-                Color.argb(235, 5, 12, 32), Color.rgb(255, 197, 74), 18));
-        subtitleButton.setFocusable(true);
-        subtitleButton.setFocusableInTouchMode(true);
-        subtitleButton.setVisibility(View.GONE);
-        subtitleButton.setOnClickListener(v -> searchAndApplyArabicSubtitle());
-        subtitleButton.setOnLongClickListener(v -> {
+        // أدوات المشغل الإضافية تظهر وتختفي مع شريط تحكم ExoPlayer.
+        playerSettingsButton = makeText("⚙", 23, Color.WHITE, true);
+        playerSubtitleButton = makeText("CC", 15, Color.WHITE, true);
+        TextView[] playerActions = {playerSubtitleButton, playerSettingsButton};
+        for (TextView action : playerActions) {
+            action.setGravity(Gravity.CENTER);
+            action.setFocusable(true);
+            action.setFocusableInTouchMode(true);
+            action.setClickable(true);
+            action.setBackground(roundedBackground(
+                    Color.argb(235, 5, 12, 32), Color.rgb(255, 197, 74), 14));
+            action.setVisibility(View.GONE);
+            action.setMinWidth(dp(50));
+            action.setMinHeight(dp(46));
+        }
+        playerSettingsButton.setContentDescription("إعدادات الفيديو");
+        playerSubtitleButton.setContentDescription("البحث عن ترجمة عربية");
+        playerSettingsButton.setOnClickListener(v -> showPlaybackSettingsDialog());
+        playerSubtitleButton.setOnClickListener(v -> searchAndApplyArabicSubtitle());
+        playerSubtitleButton.setOnLongClickListener(v -> {
             promptSubtitleTitleAndSearch();
             return true;
         });
-        FrameLayout.LayoutParams subtitleButtonParams = new FrameLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT,
-                Gravity.BOTTOM | Gravity.END);
-        subtitleButtonParams.setMargins(dp(12), dp(12), dp(24), dp(76));
-        root.addView(subtitleButton, subtitleButtonParams);
+
+        FrameLayout.LayoutParams playerSettingsParams = new FrameLayout.LayoutParams(
+                dp(50), dp(46), Gravity.TOP | Gravity.END);
+        playerSettingsParams.setMargins(dp(8), dp(14), dp(16), dp(8));
+        root.addView(playerSettingsButton, playerSettingsParams);
+
+        FrameLayout.LayoutParams playerSubtitleParams = new FrameLayout.LayoutParams(
+                dp(50), dp(46), Gravity.TOP | Gravity.END);
+        playerSubtitleParams.setMargins(dp(8), dp(14), dp(74), dp(8));
+        root.addView(playerSubtitleButton, playerSubtitleParams);
+
+        playerView.setControllerVisibilityListener(visibility -> {
+            boolean controlsVisible = visibility == View.VISIBLE
+                    && playerView != null && playerView.getVisibility() == View.VISIBLE;
+            if (playerSettingsButton != null) {
+                playerSettingsButton.setVisibility(controlsVisible ? View.VISIBLE : View.GONE);
+            }
+            if (playerSubtitleButton != null) {
+                playerSubtitleButton.setVisibility(controlsVisible && currentPlaybackHasVideo
+                        ? View.VISIBLE : View.GONE);
+            }
+        });
 
         // عرض الصور المستقبلة مع الحفاظ على أبعادها.
         imageView = new ImageView(this);
@@ -3501,6 +3530,7 @@ public class MainActivity extends Activity {
         }
 
         currentPlaybackUrl = playbackUrl;
+        currentPlaybackHasVideo = mediaUrl != null && !mediaUrl.trim().isEmpty() && !isImageUrl(mediaUrl);
         currentPlaybackAudioUrl = audioUrl == null ? "" : audioUrl;
         currentPlaybackHeaders = requestHeaders == null
                 ? java.util.Collections.emptyMap() : new java.util.LinkedHashMap<>(requestHeaders);
@@ -3517,7 +3547,8 @@ public class MainActivity extends Activity {
         welcomeScreen.setVisibility(View.GONE);
         connectionCard.setVisibility(View.GONE);
         playerView.setVisibility(View.VISIBLE);
-        if (subtitleButton != null) subtitleButton.setVisibility(View.VISIBLE);
+        if (playerSubtitleButton != null) playerSubtitleButton.setVisibility(View.GONE);
+        if (playerSettingsButton != null) playerSettingsButton.setVisibility(View.GONE);
         playerView.setFocusable(true);
         playerView.setFocusableInTouchMode(true);
         playerView.requestFocus();
@@ -3526,6 +3557,7 @@ public class MainActivity extends Activity {
             synchronized (playerLock) {
                 if (player == null) {
                     player = new ExoPlayer.Builder(this).build();
+                    applySavedPlayerSettings();
                     player.addListener(new Player.Listener() {
                         @Override
                         public void onIsPlayingChanged(boolean isPlaying) {
@@ -3626,11 +3658,159 @@ public class MainActivity extends Activity {
                 }
                 player.play();
             }
+            playerView.showController();
 
         } catch (Exception e) {
             Log.e(TAG, "Playback error", e);
             showWelcome();
         }
+    }
+
+    private SharedPreferences getPlayerSettingsPrefs() {
+        return getSharedPreferences("AboEzzatReceiverPlayerSettings", MODE_PRIVATE);
+    }
+
+    private void applySavedPlayerSettings() {
+        if (player == null) return;
+        SharedPreferences prefs = getPlayerSettingsPrefs();
+        float speed = prefs.getFloat("playback_speed", 1.0f);
+        player.setPlaybackParameters(new PlaybackParameters(speed));
+        player.setRepeatMode(prefs.getBoolean("repeat_one", false)
+                ? Player.REPEAT_MODE_ONE : Player.REPEAT_MODE_OFF);
+        long seekMs = prefs.getLong("seek_increment_ms", 10000L);
+        player.setSeekBackIncrementMs(seekMs);
+        player.setSeekForwardIncrementMs(seekMs);
+        if (playerView != null) {
+            playerView.setResizeMode(prefs.getInt("resize_mode",
+                    androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_FIT));
+        }
+    }
+
+    private void showPlaybackSettingsDialog() {
+        if (player == null || currentPlaybackUrl == null || currentPlaybackUrl.isEmpty()) {
+            Toast.makeText(this, "لا يوجد محتوى يعمل حاليًا", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        SharedPreferences prefs = getPlayerSettingsPrefs();
+        String speed = String.format(Locale.US, "%.2fx",
+                player.getPlaybackParameters().speed);
+        String repeat = player.getRepeatMode() == Player.REPEAT_MODE_ONE ? "مفعّل" : "متوقف";
+        String[] options = {
+                "↺  إعادة التشغيل من البداية",
+                "⏩  سرعة التشغيل (" + speed + ")",
+                "▣  أبعاد الصورة",
+                "🔁  تكرار الفيديو (" + repeat + ")",
+                "⏪  مدة التقديم والترجيع"
+        };
+        new AlertDialog.Builder(this)
+                .setTitle("إعدادات الفيديو")
+                .setItems(options, (dialog, which) -> {
+                    switch (which) {
+                        case 0:
+                            restartCurrentVideo();
+                            break;
+                        case 1:
+                            showPlaybackSpeedDialog();
+                            break;
+                        case 2:
+                            showPlaybackResizeDialog();
+                            break;
+                        case 3:
+                            boolean repeatOne = player.getRepeatMode() != Player.REPEAT_MODE_ONE;
+                            player.setRepeatMode(repeatOne ? Player.REPEAT_MODE_ONE : Player.REPEAT_MODE_OFF);
+                            prefs.edit().putBoolean("repeat_one", repeatOne).apply();
+                            Toast.makeText(this, repeatOne ? "تكرار الفيديو مفعّل" : "تكرار الفيديو متوقف",
+                                    Toast.LENGTH_SHORT).show();
+                            break;
+                        case 4:
+                            showSeekIncrementDialog();
+                            break;
+                    }
+                })
+                .setNegativeButton("إغلاق", null)
+                .show();
+    }
+
+    private void restartCurrentVideo() {
+        if (player == null) return;
+        synchronized (playerLock) {
+            player.seekTo(0L);
+            player.play();
+            if (playbackPrefs != null && currentPlaybackUrl != null) {
+                playbackPrefs.edit().remove("position_" + currentPlaybackUrl.hashCode()).apply();
+            }
+        }
+        Toast.makeText(this, "بدأ الفيديو من البداية", Toast.LENGTH_SHORT).show();
+    }
+
+    private void showPlaybackSpeedDialog() {
+        final float[] values = {0.5f, 0.75f, 1.0f, 1.25f, 1.5f, 1.75f, 2.0f};
+        final String[] labels = {"0.5x", "0.75x", "عادي (1.0x)", "1.25x", "1.5x", "1.75x", "2.0x"};
+        int selected = 2;
+        float current = player == null ? 1.0f : player.getPlaybackParameters().speed;
+        for (int i = 0; i < values.length; i++) {
+            if (Math.abs(values[i] - current) < 0.01f) selected = i;
+        }
+        new AlertDialog.Builder(this)
+                .setTitle("سرعة التشغيل")
+                .setSingleChoiceItems(labels, selected, (dialog, which) -> {
+                    if (player != null) {
+                        player.setPlaybackParameters(new PlaybackParameters(values[which]));
+                        getPlayerSettingsPrefs().edit().putFloat("playback_speed", values[which]).apply();
+                    }
+                    dialog.dismiss();
+                    Toast.makeText(this, "سرعة التشغيل: " + labels[which], Toast.LENGTH_SHORT).show();
+                })
+                .setNegativeButton("إغلاق", null)
+                .show();
+    }
+
+    private void showPlaybackResizeDialog() {
+        final int[] modes = {
+                androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_FIT,
+                androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_FILL,
+                androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+        };
+        String[] labels = {"ملاءمة الشاشة (بدون قص)", "ملء الشاشة", "تكبير مع قص الأطراف"};
+        int current = playerView == null
+                ? androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_FIT
+                : playerView.getResizeMode();
+        int selected = 0;
+        for (int i = 0; i < modes.length; i++) if (modes[i] == current) selected = i;
+        new AlertDialog.Builder(this)
+                .setTitle("أبعاد الصورة")
+                .setSingleChoiceItems(labels, selected, (dialog, which) -> {
+                    if (playerView != null) playerView.setResizeMode(modes[which]);
+                    getPlayerSettingsPrefs().edit().putInt("resize_mode", modes[which]).apply();
+                    dialog.dismiss();
+                })
+                .setNegativeButton("إغلاق", null)
+                .show();
+    }
+
+    private void showSeekIncrementDialog() {
+        final int[] seconds = {10, 15, 30, 60};
+        String[] labels = {"10 ثوانٍ", "15 ثانية", "30 ثانية", "60 ثانية"};
+        long currentMs = getPlayerSettingsPrefs().getLong("seek_increment_ms", 10000L);
+        int selected = 0;
+        for (int i = 0; i < seconds.length; i++) {
+            if (seconds[i] * 1000L == currentMs) selected = i;
+        }
+        new AlertDialog.Builder(this)
+                .setTitle("مدة التقديم والترجيع")
+                .setSingleChoiceItems(labels, selected, (dialog, which) -> {
+                    long value = seconds[which] * 1000L;
+                    if (player != null) {
+                        player.setSeekBackIncrementMs(value);
+                        player.setSeekForwardIncrementMs(value);
+                    }
+                    getPlayerSettingsPrefs().edit().putLong("seek_increment_ms", value).apply();
+                    dialog.dismiss();
+                    Toast.makeText(this, "تم ضبط التقديم والترجيع إلى " + labels[which],
+                            Toast.LENGTH_SHORT).show();
+                })
+                .setNegativeButton("إغلاق", null)
+                .show();
     }
 
     // Arabic subtitles are searched only after the user presses the on-screen button.
@@ -3958,7 +4138,8 @@ public class MainActivity extends Activity {
         resetImageTransform();
 
         playerView.setVisibility(View.GONE);
-        if (subtitleButton != null) subtitleButton.setVisibility(View.GONE);
+        if (playerSubtitleButton != null) playerSubtitleButton.setVisibility(View.GONE);
+        if (playerSettingsButton != null) playerSettingsButton.setVisibility(View.GONE);
         if (fallbackWebView != null) fallbackWebView.setVisibility(View.GONE);
         welcomeScreen.setVisibility(View.GONE);
         welcomeBackground.setVisibility(View.GONE);
