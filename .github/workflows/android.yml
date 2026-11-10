@@ -31,10 +31,14 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Set up compatible Gradle
-        uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: '8.7'
+      - name: Install Gradle 8.7
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fL --retry 3 https://services.gradle.org/distributions/gradle-8.7-bin.zip -o "$RUNNER_TEMP/gradle-8.7-bin.zip"
+          unzip -q "$RUNNER_TEMP/gradle-8.7-bin.zip" -d "$RUNNER_TEMP"
+          echo "$RUNNER_TEMP/gradle-8.7/bin" >> "$GITHUB_PATH"
+          "$RUNNER_TEMP/gradle-8.7/bin/gradle" --version
 
       - name: Detect signing configuration
         id: signing
