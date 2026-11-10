@@ -291,6 +291,9 @@ public class ReceiverServerService extends Service {
                     }
                     JSONObject payload = new JSONObject(new String(body, StandardCharsets.UTF_8));
                     mediaUrl = payload.optString("url", "");
+                    // /play POST requests may carry a separate DASH audio-only track.
+                    // Preserve it exactly like the legacy GET ?audio=... path.
+                    audioUrl = payload.optString("audio", "");
                     JSONObject suppliedHeaders = payload.optJSONObject("headers");
                     JSONObject safeHeaders = new JSONObject();
                     if (suppliedHeaders != null) {
