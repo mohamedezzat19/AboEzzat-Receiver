@@ -16,6 +16,7 @@ import android.graphics.drawable.GradientDrawable;
 import android.net.Uri;
 import android.net.ConnectivityManager;
 import android.net.LinkProperties;
+import android.net.wifi.WifiManager;
 import android.net.Network;
 import android.view.Gravity;
 import android.view.View;
@@ -1212,6 +1213,26 @@ public class MainActivity extends Activity {
     // يختار عنوان شبكة Wi-Fi/Ethernet الفعلية، ويتجاهل VPN وواجهات البروكسي.
     // لا نستخدم getActiveNetwork() وحدها لأنها قد تشير إلى VPN.
     private String getCurrentIpAddress() {
+        // Read the IP assigned to the device's actual Wi-Fi connection first.
+        // This avoids accidentally displaying a proxy/VPN/tunnel interface address.
+        try {
+            WifiManager wifiManager =
+                    (WifiManager) getApplicationContext().getSystemService(WIFI_SERVICE);
+            if (wifiManager != null) {
+                int wifiIp = wifiManager.getConnectionInfo().getIpAddress();
+                if (wifiIp != 0) {
+                    String primaryWifiIp = String.format(Locale.US, "%d.%d.%d.%d",
+                            wifiIp & 0xff,
+                            (wifiIp >> 8) & 0xff,
+                            (wifiIp >> 16) & 0xff,
+                            (wifiIp >> 24) & 0xff);
+                    if (!"0.0.0.0".equals(primaryWifiIp)) return primaryWifiIp;
+                }
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "Could not read primary Wi-Fi IP directly", e);
+        }
+
         ConnectivityManager cm =
                 (ConnectivityManager) getSystemService(CONNECTIVITY_SERVICE);
 
