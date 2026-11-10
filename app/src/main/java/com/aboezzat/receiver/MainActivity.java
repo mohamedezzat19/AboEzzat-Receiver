@@ -1077,7 +1077,8 @@ public class MainActivity extends Activity {
         // on Android TV devices; PlayerView exposes this setting through XML attributes.
         playerView = (PlayerView) getLayoutInflater().inflate(R.layout.player_view_texture, root, false);
         playerView.setUseController(true);
-        playerView.setResizeMode(androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_FIT);
+        playerView.setResizeMode(getPlayerSettingsPrefs().getInt("resize_mode",
+                                        androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_FIT));
         playerView.setVisibility(View.GONE);
         playerView.setBackgroundColor(Color.BLACK);
 
@@ -3774,7 +3775,7 @@ public class MainActivity extends Activity {
         String[] labels = {"ملاءمة الشاشة (بدون قص)", "ملء الشاشة", "تكبير مع قص الأطراف"};
         int current = playerView == null
                 ? androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_FIT
-                : playerView.getResizeMode();
+                : getPlayerSettingsPrefs().getInt("resize_mode", androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_FIT);
         int selected = 0;
         for (int i = 0; i < modes.length; i++) if (modes[i] == current) selected = i;
         new AlertDialog.Builder(this)
@@ -4246,7 +4247,8 @@ public class MainActivity extends Activity {
             fallbackWebView.setVisibility(View.GONE);
         }
         playerView.setVisibility(View.GONE);
-        if (subtitleButton != null) subtitleButton.setVisibility(View.GONE);
+        if (playerSubtitleButton != null) playerSubtitleButton.setVisibility(View.GONE);
+        if (playerSettingsButton != null) playerSettingsButton.setVisibility(View.GONE);
         welcomeScreen.setVisibility(View.GONE);
         welcomeBackground.setVisibility(View.VISIBLE);
         connectionCard.setVisibility(View.VISIBLE);
