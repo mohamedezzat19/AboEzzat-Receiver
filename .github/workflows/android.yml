@@ -34,7 +34,7 @@ jobs:
       - name: Set up compatible Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
-          gradle-version: '8.2'
+          gradle-version: '8.7'
 
       - name: Detect signing configuration
         id: signing
