@@ -1121,7 +1121,7 @@ public class MainActivity extends Activity {
         playerSubtitleParams.setMargins(dp(8), dp(14), dp(74), dp(8));
         root.addView(playerSubtitleButton, playerSubtitleParams);
 
-        playerView.setControllerVisibilityListener(visibility -> {
+        playerView.setControllerVisibilityListener((PlayerView.ControllerVisibilityListener) visibility -> {
             boolean controlsVisible = visibility == View.VISIBLE
                     && playerView != null && playerView.getVisibility() == View.VISIBLE;
             if (playerSettingsButton != null) {
