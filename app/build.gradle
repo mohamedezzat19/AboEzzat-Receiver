@@ -8,7 +8,7 @@ def ciVersionName = "1.0.${ciVersionCode}"
 
 android {
     namespace 'com.aboezzat.receiver'
-    compileSdk 34
+    compileSdk 35
 
     defaultConfig {
         applicationId 'com.aboezzat.receiver'
