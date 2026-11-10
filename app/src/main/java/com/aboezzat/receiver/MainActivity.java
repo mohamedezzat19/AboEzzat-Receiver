@@ -3132,6 +3132,9 @@ public class MainActivity extends Activity {
         if (mediaUrl != null && !mediaUrl.trim().isEmpty()
                 && !isImageUrl(mediaUrl) && !isDirectStreamUrl(mediaUrl)
                 && !isPhoneLocalMediaUrl(mediaUrl)
+                // A separate audio URL is an explicit DASH A/V pair; do not resolve
+                // the video URL alone or the companion audio track would be discarded.
+                && (audioUrl == null || audioUrl.trim().isEmpty())
                 && (mediaUrl.startsWith("http://") || mediaUrl.startsWith("https://"))) {
             if (pendingPlayback != null) {
                 mediaHandler.removeCallbacks(pendingPlayback);
