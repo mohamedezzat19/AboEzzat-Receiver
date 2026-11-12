@@ -284,9 +284,7 @@ public class MainActivity extends Activity {
                 "🧪  تشخيص الاتصال",
                 "🕘  سجل المشاهدة",
                 "ℹ  معلومات الإصدار",
-                "🔐  اقتران Share (قيد التطوير)",
-                "🚀  فتح الفيديو تلقائيًا: " + ((android.os.Build.VERSION.SDK_INT < 23 || android.provider.Settings.canDrawOverlays(this)) ? "مسموح" : "يحتاج إذن"),
-                "🛡  مانع الإعلانات: " + (getSharedPreferences("AboEzzatBrowser", MODE_PRIVATE).getBoolean("adblock_enabled", true) ? "مفعّل" : "متوقف")
+                "🚀  فتح الفيديو تلقائيًا: " + ((android.os.Build.VERSION.SDK_INT < 23 || android.provider.Settings.canDrawOverlays(this)) ? "مسموح" : "يحتاج إذن")
         };
         new AlertDialog.Builder(this)
                 .setTitle("⚙ إعدادات الريسيفر")
@@ -308,23 +306,14 @@ public class MainActivity extends Activity {
                                 String version = info.versionName == null ? "غير معروف" : info.versionName;
                                 long code = android.os.Build.VERSION.SDK_INT >= 28 ? info.getLongVersionCode() : info.versionCode;
                                 new AlertDialog.Builder(this).setTitle("معلومات الريسيفر")
-                                        .setMessage("AboEzzat Receiver\nالإصدار: " + version + "\nرقم البناء: " + code)
+                                        .setMessage("AboEzzat Receiver\\nالإصدار: " + version + "\\nرقم البناء: " + code)
                                         .setPositiveButton("حسنًا", null).show();
                             } catch (Exception e) { Toast.makeText(this, "تعذّر قراءة معلومات الإصدار", Toast.LENGTH_SHORT).show(); }
                             break;
-                        case 7: showSharePairingCode(); break;
-                        case 8: configureAutoForegroundPlayback(); break;
-                        case 9:
-                            android.content.SharedPreferences browserPrefs = getSharedPreferences("AboEzzatBrowser", MODE_PRIVATE);
-                            boolean adBlockEnabled = !browserPrefs.getBoolean("adblock_enabled", true);
-                            browserPrefs.edit().putBoolean("adblock_enabled", adBlockEnabled).apply();
-                            Toast.makeText(this, "مانع الإعلانات " + (adBlockEnabled ? "مفعّل" : "متوقف")
-                                    + "؛ أعد تحميل صفحة المتصفح لتطبيق التغيير", Toast.LENGTH_LONG).show();
-                            break;
+                        case 7: configureAutoForegroundPlayback(); break;
                     }
                 }).setNegativeButton("إغلاق", null).show();
     }
-
 
     // A short-lived one-time code for pairing Share with this Receiver.
     private void showSharePairingCode() {
@@ -864,45 +853,6 @@ public class MainActivity extends Activity {
         );
 
         brand.setLetterSpacing(0.12f);
-        // Long-press the existing label to configure an optional Cobalt API.
-        brand.setOnLongClickListener(v -> {
-            EditText field = new EditText(this);
-            field.setSingleLine(true);
-            field.setHint("https://your-cobalt-instance/");
-            field.setText(getSharedPreferences("receiver_settings", MODE_PRIVATE)
-                    .getString("cobalt_endpoint", ""));
-            new AlertDialog.Builder(this)
-                    .setTitle("إعداد مستخرج الفيديو")
-                    .setMessage("اختياري: أدخل عنوان Cobalt API الذي تملكه أو لديك إذن باستخدامه. اتركه فارغًا لتعطيله.")
-                    .setView(field)
-                    .setNegativeButton("إلغاء", (d, w) -> { })
-                    .setNeutralButton("مسح", (d, w) -> getSharedPreferences("receiver_settings", MODE_PRIVATE)
-                            .edit().remove("cobalt_endpoint").apply())
-                    .setPositiveButton("حفظ", (d, w) -> {
-                        String endpoint = field.getText().toString().trim();
-                        if (endpoint.isEmpty()) {
-                            getSharedPreferences("receiver_settings", MODE_PRIVATE).edit()
-                                    .remove("cobalt_endpoint").apply();
-                        } else {
-                            Uri endpointUri = Uri.parse(endpoint);
-                            String endpointScheme = endpointUri.getScheme();
-                            boolean validEndpoint = endpointUri.getHost() != null
-                                    && ("https".equalsIgnoreCase(endpointScheme)
-                                    || "http".equalsIgnoreCase(endpointScheme));
-                            if (validEndpoint) {
-                                // Preserve paths and query parameters exactly; appending a slash
-                                // after a query string can silently corrupt a configured API URL.
-                                getSharedPreferences("receiver_settings", MODE_PRIVATE).edit()
-                                        .putString("cobalt_endpoint", endpoint).apply();
-                                Toast.makeText(this, "تم حفظ عنوان المستخرج", Toast.LENGTH_SHORT).show();
-                            } else {
-                                Toast.makeText(this, "أدخل عنوانًا صالحًا يبدأ بـ http:// أو https:// ويحتوي على اسم مضيف", Toast.LENGTH_LONG).show();
-                            }
-                        }
-                    }).show();
-            return true;
-        });
-
         connectionCard.addView(brand,
                 new LinearLayout.LayoutParams(
                         LinearLayout.LayoutParams.MATCH_PARENT,
@@ -967,35 +917,6 @@ public class MainActivity extends Activity {
         );
 
         portText.setTextIsSelectable(true);
-        portText.setOnClickListener(v -> {
-            EditText portInput = new EditText(this);
-            portInput.setSingleLine(true);
-            portInput.setInputType(android.text.InputType.TYPE_CLASS_NUMBER);
-            portInput.setText(String.valueOf(getSharedPreferences("receiver_settings", MODE_PRIVATE)
-                    .getInt("receiver_port", 8081)));
-            new AlertDialog.Builder(this)
-                    .setTitle("تغيير بورت الاستقبال")
-                    .setMessage("القيمة الافتراضية 8081. اختَر رقمًا بين 1024 و65535، ثم اضغط حفظ. لازم تضع الرقم نفسه في AboEzzat Share.")
-                    .setView(portInput)
-                    .setNegativeButton("إلغاء", null)
-                    .setPositiveButton("حفظ وإعادة تشغيل", (dialog, which) -> {
-                        String value = portInput.getText().toString().trim();
-                        int port;
-                        try { port = Integer.parseInt(value); }
-                        catch (Exception e) { port = -1; }
-                        if (port < 1024 || port > 65535) {
-                            Toast.makeText(this, "اختَر بورتًا بين 1024 و65535", Toast.LENGTH_LONG).show();
-                            return;
-                        }
-                        getSharedPreferences("receiver_settings", MODE_PRIVATE).edit()
-                                .putInt("receiver_port", port).apply();
-                        portText.setText("PORT: " + port);
-                        stopService(new android.content.Intent(this, ReceiverServerService.class));
-                        portText.postDelayed(() -> startReceiverService(), 500L);
-                        Toast.makeText(this, "تم حفظ البورت. اضبط الرقم نفسه في Share.", Toast.LENGTH_LONG).show();
-                    }).show();
-        });
-
         LinearLayout.LayoutParams portParams =
                 new LinearLayout.LayoutParams(
                         LinearLayout.LayoutParams.MATCH_PARENT,
@@ -2600,19 +2521,19 @@ public class MainActivity extends Activity {
     }
 
     private void showBrowserMenu() {
-        String[] options = {"⚙ إعدادات المتصفح", "▢ علامات التبويب", "⭐ حفظ الصفحة الحالية",
+        // Tab management has one entry point in the toolbar; keep it out of this menu.
+        String[] options = {"⚙ إعدادات المتصفح", "⭐ حفظ الصفحة الحالية",
                 "🕘 سجل التصفح", "⬇ تنزيلات أندرويد", "🧹 مسح بيانات التصفح"};
         new AlertDialog.Builder(this).setTitle("قائمة المتصفح").setItems(options, (d, which) -> {
             switch (which) {
                 case 0: showBrowserSettings(); break;
-                case 1: showBrowserTabs(); break;
-                case 2: saveCurrentBrowserPage(); break;
-                case 3: showBrowserHistory(); break;
-                case 4:
+                case 1: saveCurrentBrowserPage(); break;
+                case 2: showBrowserHistory(); break;
+                case 3:
                     try { startActivity(new android.content.Intent("android.intent.action.VIEW_DOWNLOADS")); }
                     catch (Exception e) { Toast.makeText(this, "افتح تطبيق الملفات ومجلد Downloads", Toast.LENGTH_LONG).show(); }
                     break;
-                case 5:
+                case 4:
                     new AlertDialog.Builder(this).setTitle("مسح بيانات التصفح")
                             .setMessage("سيتم مسح السجل وذاكرة التخزين المؤقت وملفات تعريف الارتباط. قد تحتاج إلى تسجيل الدخول مرة أخرى.")
                             .setPositiveButton("مسح", (dialog, w) -> {
