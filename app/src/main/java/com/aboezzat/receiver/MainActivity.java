@@ -3170,25 +3170,43 @@ public class MainActivity extends Activity {
     }
 
     private void openYouTubeInTvApp(String videoUrl) {
-        // Let Android itself decide which installed app can handle this YouTube URL.
-        // Do not force SmartTube/YouTube packages or display an app picker implemented by Receiver.
-        try {
-            android.content.Intent target = new android.content.Intent(
-                    android.content.Intent.ACTION_VIEW, Uri.parse(videoUrl));
-            target.addCategory(android.content.Intent.CATEGORY_BROWSABLE);
-            target.addFlags(android.content.Intent.FLAG_ACTIVITY_CLEAR_TOP);
+        // Prefer an installed YouTube / SmartTube client so playback is handled by
+        // the TV app rather than treating a YouTube page or googlevideo track as a
+        // normal ExoPlayer URL.
+        String[] preferredPackages = {
+                "com.google.android.youtube.tv",
+                "com.amazon.firetv.youtube",
+                "com.google.android.youtube",
+                "com.liskovsoft.smarttubetv",
+                "com.liskovsoft.smarttubetv.beta"
+        };
+        for (String packageName : preferredPackages) {
+            try {
+                android.content.Intent target = new android.content.Intent(
+                        android.content.Intent.ACTION_VIEW, Uri.parse(videoUrl));
+                target.setPackage(packageName);
+                target.addFlags(android.content.Intent.FLAG_ACTIVITY_CLEAR_TOP);
+                startActivity(target);
+                Log.i(TAG, "Opened YouTube URL with " + packageName);
+                return;
+            } catch (Exception ignored) {
+                // Try the next known YouTube-compatible package.
+            }
+        }
 
-            // Start the implicit ACTION_VIEW directly. Wrapping it in
-            // Intent.createChooser() forces the chooser-only UI and removes the
-            // resolver's "Just once" / "Always" default-handler choices on Android TV.
-            // A direct implicit intent lets Android/Fire OS show its native resolver
-            // whenever multiple apps can handle this URL and no default is set.
-            startActivity(target);
-        } catch (Exception e) {
-            Log.w(TAG, "Android could not show the system app chooser for YouTube", e);
+        // No compatible TV app accepted the link. Keep the user inside Receiver:
+        // its embedded WebView can inspect the page and hand a discovered stream
+        // to the existing ExoPlayer fallback path.
+        Log.i(TAG, "No installed YouTube app accepted the URL; opening Receiver browser");
+        pendingBrowserUrl = videoUrl;
+        try {
+            openTvBrowser();
             Toast.makeText(this,
-                    "تعذّر فتح قائمة تطبيقات أندرويد. تأكد من وجود تطبيق يدعم رابط YouTube.",
+                    "لا يوجد تطبيق YouTube متوافق؛ جاري فتح الفيديو داخل متصفح الريسيفر.",
                     Toast.LENGTH_LONG).show();
+        } catch (Exception e) {
+            Log.w(TAG, "Receiver browser fallback failed for YouTube", e);
+            Toast.makeText(this, "تعذّر فتح فيديو YouTube داخل الريسيفر.", Toast.LENGTH_LONG).show();
         }
     }
 
