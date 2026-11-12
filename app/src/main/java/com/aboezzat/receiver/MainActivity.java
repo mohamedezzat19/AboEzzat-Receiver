@@ -97,6 +97,8 @@ public class MainActivity extends Activity {
     private LinearLayout welcomeScreen;
 
     private ImageView welcomeBackground;
+    // Persistent circular brand portrait: reuses the existing welcome artwork unchanged.
+    private FrameLayout persistentBrandBadge;
     private LinearLayout connectionCard;
     private TextView ipText;
     private TextView receiverStatusText;
@@ -793,6 +795,53 @@ public class MainActivity extends Activity {
         return view;
     }
 
+    private void addPersistentBrandBadge() {
+        if (root == null || persistentBrandBadge != null) return;
+
+        FrameLayout badge = new FrameLayout(this);
+        android.graphics.drawable.GradientDrawable frame =
+                new android.graphics.drawable.GradientDrawable();
+        frame.setShape(android.graphics.drawable.GradientDrawable.OVAL);
+        frame.setColor(Color.rgb(7, 16, 34));
+        frame.setStroke(dp(3), Color.rgb(255, 197, 74));
+        badge.setBackground(frame);
+        badge.setPadding(dp(4), dp(4), dp(4), dp(4));
+        badge.setElevation(dp(14));
+        if (android.os.Build.VERSION.SDK_INT >= 21) badge.setClipToOutline(true);
+        badge.setContentDescription("صورة AboEzzat Receiver");
+        badge.setFocusable(false);
+        badge.setClickable(false);
+
+        ImageView portrait = new ImageView(this);
+        // Reuse the exact same artwork as the welcome background. The source asset
+        // is not edited, replaced, recolored, or resized on disk.
+        portrait.setImageResource(R.drawable.welcome_background);
+        portrait.setScaleType(ImageView.ScaleType.CENTER_CROP);
+        android.graphics.drawable.GradientDrawable circularClip =
+                new android.graphics.drawable.GradientDrawable();
+        circularClip.setShape(android.graphics.drawable.GradientDrawable.OVAL);
+        circularClip.setColor(Color.TRANSPARENT);
+        portrait.setBackground(circularClip);
+        if (android.os.Build.VERSION.SDK_INT >= 21) portrait.setClipToOutline(true);
+        badge.addView(portrait, new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT));
+
+        FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(dp(64), dp(64),
+                Gravity.TOP | Gravity.LEFT);
+        params.setMargins(dp(14), dp(12), 0, 0);
+        root.addView(badge, params);
+        persistentBrandBadge = badge;
+        keepPersistentBrandBadgeOnTop();
+    }
+
+    private void keepPersistentBrandBadgeOnTop() {
+        if (persistentBrandBadge != null && root != null) {
+            persistentBrandBadge.setVisibility(View.VISIBLE);
+            persistentBrandBadge.bringToFront();
+        }
+    }
+
     private void buildScreen() {
         root = new FrameLayout(this);
         root.setBackgroundColor(Color.rgb(3, 12, 32));
@@ -1127,6 +1176,7 @@ public class MainActivity extends Activity {
         browserShortcut.setVisibility(View.GONE);
         // The old lower-left browser shortcut is deliberately not attached to the screen.
 
+        addPersistentBrandBadge();
         setContentView(root);
         settingsButton.requestFocus();
     }
@@ -1948,6 +1998,7 @@ public class MainActivity extends Activity {
         LinearLayout brandRow = new LinearLayout(this);
         brandRow.setOrientation(LinearLayout.HORIZONTAL);
         brandRow.setGravity(Gravity.CENTER_VERTICAL);
+        brandRow.setPadding(dp(68), 0, 0, 0);
         TextView brandIcon = makeText("📺", 22, Color.rgb(255, 207, 94), true);
         TextView brand = makeText("ABO EZZAT RECEIVER", 17, Color.rgb(255, 207, 94), true);
         brand.setLetterSpacing(0.04f);
@@ -1959,7 +2010,8 @@ public class MainActivity extends Activity {
         LinearLayout toolbar = new LinearLayout(this);
         toolbar.setOrientation(LinearLayout.HORIZONTAL);
         toolbar.setGravity(Gravity.CENTER_VERTICAL);
-        toolbar.setPadding(0, dp(5), 0, dp(5));
+        // Reserve the top-left corner for the always-visible circular brand portrait.
+        toolbar.setPadding(dp(68), dp(5), 0, dp(5));
         TextView back = makeBrowserButton("‹", "رجوع");
         TextView forward = makeBrowserButton("›", "تقدم");
         TextView refresh = makeBrowserButton("⟳", "تحديث");
@@ -2036,6 +2088,7 @@ public class MainActivity extends Activity {
         root.addView(browserOverlay, new FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
         browserOverlay.setVisibility(View.GONE);
+        keepPersistentBrandBadgeOnTop();
     }
 
     private TextView makeBrowserButton(String label, String description) {
@@ -2838,6 +2891,7 @@ public class MainActivity extends Activity {
                     root.addView(webFullscreenView, new FrameLayout.LayoutParams(
                             FrameLayout.LayoutParams.MATCH_PARENT,
                             FrameLayout.LayoutParams.MATCH_PARENT, Gravity.CENTER));
+                    keepPersistentBrandBadgeOnTop();
                     getWindow().addFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN);
                     getWindow().getDecorView().setSystemUiVisibility(
                             View.SYSTEM_UI_FLAG_FULLSCREEN
@@ -2875,6 +2929,7 @@ public class MainActivity extends Activity {
         fallbackWebView.setFocusableInTouchMode(true);
         fallbackWebView.requestFocus(View.FOCUS_DOWN);
         fallbackWebView.loadUrl(pageUrl);
+        keepPersistentBrandBadgeOnTop();
         Toast.makeText(this, "تعذّر استخراج رابط مباشر؛ جارٍ تجربة تشغيل صفحة الفيديو", Toast.LENGTH_LONG).show();
     }
 
