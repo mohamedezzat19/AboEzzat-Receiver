@@ -1972,6 +1972,7 @@ public class MainActivity extends Activity {
                     FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
             browserOverlay.setVisibility(View.VISIBLE);
             browserOverlay.bringToFront();
+            keepPersistentBrandBadgeOnTop();
             if (isHttpUrl(initialUrl)) {
                 browserAddress.setText(initialUrl);
                 browserHomePanel.setVisibility(View.GONE);
