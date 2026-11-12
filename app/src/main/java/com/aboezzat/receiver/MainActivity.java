@@ -948,6 +948,21 @@ public class MainActivity extends Activity {
         );
 
         ipText.setTextIsSelectable(true);
+        ipText.setContentDescription("عنوان الريسيفر الحالي. اضغط لنسخ العنوان مع البورت.");
+        ipText.setOnClickListener(v -> {
+            String ip = getCurrentIpAddress();
+            if (ip == null || ip.trim().isEmpty()) {
+                Toast.makeText(this, "عنوان IP غير متاح؛ اتصل بالشبكة أولاً", Toast.LENGTH_SHORT).show();
+                return;
+            }
+            int port = getSharedPreferences("receiver_settings", MODE_PRIVATE).getInt("receiver_port", 8081);
+            android.content.ClipboardManager clipboard =
+                    (android.content.ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
+            if (clipboard != null) {
+                clipboard.setPrimaryClip(android.content.ClipData.newPlainText("AboEzzat Receiver", ip + ":" + port));
+                Toast.makeText(this, "تم نسخ عنوان الريسيفر", Toast.LENGTH_SHORT).show();
+            }
+        });
 
         LinearLayout.LayoutParams ipParams =
                 new LinearLayout.LayoutParams(
