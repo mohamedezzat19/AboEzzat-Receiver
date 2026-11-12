@@ -306,7 +306,7 @@ public class MainActivity extends Activity {
                                 String version = info.versionName == null ? "غير معروف" : info.versionName;
                                 long code = android.os.Build.VERSION.SDK_INT >= 28 ? info.getLongVersionCode() : info.versionCode;
                                 new AlertDialog.Builder(this).setTitle("معلومات الريسيفر")
-                                        .setMessage("AboEzzat Receiver\\nالإصدار: " + version + "\\nرقم البناء: " + code)
+                                        .setMessage("AboEzzat Receiver\nالإصدار: " + version + "\nرقم البناء: " + code)
                                         .setPositiveButton("حسنًا", null).show();
                             } catch (Exception e) { Toast.makeText(this, "تعذّر قراءة معلومات الإصدار", Toast.LENGTH_SHORT).show(); }
                             break;
