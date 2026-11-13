@@ -97,7 +97,7 @@ public class MainActivity extends Activity {
     private LinearLayout welcomeScreen;
 
     private ImageView welcomeBackground;
-    // Persistent circular brand portrait: reuses the existing welcome artwork unchanged.
+    // Persistent circular brand portrait: uses the standalone app icon artwork.
     private FrameLayout persistentBrandBadge;
     private LinearLayout connectionCard;
     private TextView ipText;
@@ -824,9 +824,8 @@ public class MainActivity extends Activity {
         badge.setClickable(false);
 
         ImageView portrait = new ImageView(this);
-        // Reuse the exact same artwork as the welcome background. The source asset
-        // is not edited, replaced, recolored, or resized on disk.
-        portrait.setImageResource(R.drawable.welcome_background);
+        // Use the standalone app icon artwork, not the welcome image containing text.
+        portrait.setImageResource(R.drawable.app_icon);
         portrait.setScaleType(ImageView.ScaleType.CENTER_CROP);
         android.graphics.drawable.GradientDrawable circularClip =
                 new android.graphics.drawable.GradientDrawable();
@@ -958,10 +957,11 @@ public class MainActivity extends Activity {
                 true
         );
 
-        ipText.setTextIsSelectable(true);
-        ipText.setContentDescription("عنوان الريسيفر الحالي. اضغط لنسخ العنوان مع البورت.");
-        // عنوان IP داخلي لخدمة الاستقبال فقط؛ لا يظهر كعنصر قابل للضغط على الرئيسية.
-        ipText.setOnClickListener(null);
+        ipText.setTextIsSelectable(false);
+        ipText.setFocusable(false);
+        ipText.setClickable(false);
+        ipText.setLongClickable(false);
+        ipText.setContentDescription("عنوان IP الخاص بالريسيفر للعرض فقط");
 
         LinearLayout.LayoutParams ipParams =
                 new LinearLayout.LayoutParams(
@@ -979,7 +979,7 @@ public class MainActivity extends Activity {
                 true
         );
 
-        portText.setTextIsSelectable(true);
+        portText.setTextIsSelectable(false);
         LinearLayout.LayoutParams portParams =
                 new LinearLayout.LayoutParams(
                         LinearLayout.LayoutParams.MATCH_PARENT,
@@ -1020,8 +1020,20 @@ public class MainActivity extends Activity {
                 dp(12)
         );
 
-        // الصفحة الرئيسية تعرض علامتها التجارية وزري الإعدادات والمتصفح فقط.
-        // معلومات IP والبورت تظل داخلية للتشخيص ولا تُعرض على الشاشة.
+        // بطاقة معلومات الاتصال ظاهرة أسفل اليمين للقراءة فقط دون أي تفاعل.
+        connectionCard.setFocusable(false);
+        connectionCard.setClickable(false);
+        connectionCard.setLongClickable(false);
+        ipText.setFocusable(false);
+        ipText.setClickable(false);
+        ipText.setLongClickable(false);
+        ipText.setTextIsSelectable(false);
+        ipText.setContentDescription("عنوان IP الخاص بالريسيفر للعرض فقط");
+        portText.setFocusable(false);
+        portText.setClickable(false);
+        portText.setLongClickable(false);
+        portText.setTextIsSelectable(false);
+        root.addView(connectionCard, cardParams);
 
         // أزرار رئيسية متجاورة لتسهيل الوصول بالريموت: الإعدادات ثم المتصفح.
         settingsHomeButton = makeText("⚙", 25, Color.rgb(255, 207, 94), true);
