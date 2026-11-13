@@ -3204,9 +3204,7 @@ public class MainActivity extends Activity {
             String host = uri.getHost();
             String path = uri.getPath();
             return host != null && path != null
-                    && host.toLowerCase(Locale.ROOT).contains("swiftdatahost.")
-                    && path.toLowerCase(Locale.ROOT).startsWith("/fk/")
-                    && path.toLowerCase(Locale.ROOT).endsWith("/index.html");
+                    && path.toLowerCase(Locale.ROOT).matches("^/fk/[^/]+/index\\.html$");
         } catch (Exception e) {
             return false;
         }
@@ -4003,10 +4001,9 @@ public class MainActivity extends Activity {
             if (host == null || path == null) return;
             host = host.toLowerCase(Locale.ROOT);
             path = path.toLowerCase(Locale.ROOT);
-            if (host.contains("swiftdatahost.") && path.startsWith("/fk/")
-                    && path.endsWith("/index.html")) {
+            if (path.matches("^/fk/[^/]+/index\\.html$")) {
                 builder.setMimeType(MimeTypes.APPLICATION_M3U8);
-                Log.i(TAG, "Treating SwiftData index.html endpoint as HLS playlist");
+                Log.i(TAG, "Treating /fk/.../index.html endpoint as HLS playlist");
             }
         } catch (Exception e) {
             Log.w(TAG, "Could not inspect playback URL for HLS MIME override", e);
