@@ -691,7 +691,7 @@ public class MainActivity extends Activity {
         GradientDrawable background = new GradientDrawable();
         background.setColor(fillColor);
         background.setCornerRadius(dp(radius));
-        background.setStroke(dp(focused ? 5 : 1), strokeColor);
+        background.setStroke(dp(focused ? 2 : 1), strokeColor);
         return background;
     }
 
@@ -1010,13 +1010,17 @@ public class MainActivity extends Activity {
             action.setFocusableInTouchMode(true);
             action.setClickable(true);
             action.setBackground(browserFocusBackground(
-                    Color.argb(235, 5, 12, 32), Color.TRANSPARENT, 14, false));
+                    Color.TRANSPARENT, Color.TRANSPARENT, 14, false));
             action.setOnFocusChangeListener((view, focused) -> {
+                // Clean player controls: no dark button tile; a soft blue focus cue
+                // replaces the heavy yellow frame while keeping the active control clear.
                 view.setBackground(browserFocusBackground(
-                        Color.argb(235, 5, 12, 32),
-                        focused ? Color.rgb(255, 212, 0) : Color.TRANSPARENT,
+                        focused ? Color.argb(42, 112, 190, 255) : Color.TRANSPARENT,
+                        focused ? Color.rgb(112, 190, 255) : Color.TRANSPARENT,
                         14, focused));
-                view.setElevation(focused ? dp(10) : 0);
+                view.setElevation(focused ? dp(5) : 0);
+                view.setScaleX(focused ? 1.04f : 1.0f);
+                view.setScaleY(focused ? 1.04f : 1.0f);
             });
             action.setVisibility(View.GONE);
             action.setMinWidth(dp(50));
@@ -4071,12 +4075,16 @@ public class MainActivity extends Activity {
         if (!(view instanceof ViewGroup) && (view.isClickable() || view.isFocusable())) {
             view.setFocusable(true);
             view.setFocusableInTouchMode(true);
-            view.setBackground(browserFocusBackground(Color.argb(190, 8, 16, 34),
+            view.setBackground(browserFocusBackground(Color.TRANSPARENT,
                     Color.TRANSPARENT, 10, false));
             view.setOnFocusChangeListener((focusedView, focused) -> {
-                focusedView.setBackground(browserFocusBackground(Color.argb(220, 8, 16, 34),
-                        focused ? Color.rgb(255, 212, 0) : Color.TRANSPARENT,
+                // Transparent at rest; a slim cool-blue outline and subtle tint
+                // identify only the currently focused playback control.
+                focusedView.setBackground(browserFocusBackground(
+                        focused ? Color.argb(42, 112, 190, 255) : Color.TRANSPARENT,
+                        focused ? Color.rgb(112, 190, 255) : Color.TRANSPARENT,
                         10, focused));
+                focusedView.setElevation(focused ? dp(4) : 0);
             });
         }
         if (view instanceof ViewGroup) {
