@@ -152,6 +152,7 @@ public class MainActivity extends Activity {
     // Keep the selected level separately from mute state.
     private float lastNonZeroVolume = 1.0f;
     private boolean muted = false;
+    private boolean playerControllerVisible = false;
 
     private volatile boolean running = false;
     private volatile ServerSocket serverSocket;
@@ -1139,6 +1140,7 @@ public class MainActivity extends Activity {
         playerView.setControllerVisibilityListener((PlayerView.ControllerVisibilityListener) visibility -> {
             boolean controlsVisible = visibility == View.VISIBLE
                     && playerView != null && playerView.getVisibility() == View.VISIBLE;
+            playerControllerVisible = controlsVisible;
             if (playerSettingsButton != null) {
                 playerSettingsButton.setVisibility(controlsVisible ? View.VISIBLE : View.GONE);
             }
@@ -3512,7 +3514,8 @@ public class MainActivity extends Activity {
             if ((key == android.view.KeyEvent.KEYCODE_DPAD_CENTER
                     || key == android.view.KeyEvent.KEYCODE_ENTER
                     || key == android.view.KeyEvent.KEYCODE_NUMPAD_ENTER)
-                    && (getCurrentFocus() == null || getCurrentFocus() == playerView)) {
+                    && (!playerControllerVisible || getCurrentFocus() == null
+                    || getCurrentFocus() == playerView)) {
                 togglePlaybackFromRemote();
                 return true;
             }
@@ -4155,7 +4158,7 @@ public class MainActivity extends Activity {
 
     private void stylePlayerControllerFocusRecursive(View view) {
         if (view == null) return;
-        if (view.isClickable() || view.isFocusable()) {
+        if (!(view instanceof ViewGroup) && (view.isClickable() || view.isFocusable())) {
             view.setFocusable(true);
             view.setFocusableInTouchMode(true);
             view.setBackground(browserFocusBackground(Color.argb(190, 8, 16, 34),
