@@ -492,61 +492,7 @@ public class MainActivity extends Activity {
         new AppUpdater(this).checkForUpdate(true);
     }
 
-    private void downloadAndInstallReceiver(String apkUrl) {
-        new Thread(() -> {
-            java.net.HttpURLConnection connection = null;
-            java.io.File apk = new java.io.File(getExternalCacheDir() != null ? getExternalCacheDir() : getCacheDir(), "aboezzat-receiver-update.apk");
-            try {
-                connection = (java.net.HttpURLConnection) new URL(apkUrl).openConnection();
-                connection.setConnectTimeout(15000);
-                connection.setReadTimeout(30000);
-                connection.setInstanceFollowRedirects(true);
-                if (connection.getResponseCode() < 200 || connection.getResponseCode() >= 300) throw new Exception("Download failed");
-                try (java.io.InputStream in = connection.getInputStream(); java.io.FileOutputStream out = new java.io.FileOutputStream(apk)) {
-                    byte[] buffer = new byte[16384]; int count;
-                    while ((count = in.read(buffer)) != -1) out.write(buffer, 0, count);
-                }
-                // Validate the downloaded package before launching Android's installer.
-                android.content.pm.PackageInfo archive = getPackageManager().getPackageArchiveInfo(
-                        apk.getAbsolutePath(), android.content.pm.PackageManager.GET_META_DATA);
-                if (archive == null || !getPackageName().equals(archive.packageName)) {
-                    throw new Exception("Downloaded APK is not the Receiver package");
-                }
-                android.content.pm.PackageInfo installedInfo = getPackageManager().getPackageInfo(getPackageName(), 0);
-                long downloadedCode = android.os.Build.VERSION.SDK_INT >= 28
-                        ? archive.getLongVersionCode() : archive.versionCode;
-                long installedCode = android.os.Build.VERSION.SDK_INT >= 28
-                        ? installedInfo.getLongVersionCode() : installedInfo.versionCode;
-                if (downloadedCode <= installedCode) {
-                    throw new Exception("Downloaded APK is not newer than installed version");
-                }
-                runOnUiThread(() -> {
-                    try {
-                        if (android.os.Build.VERSION.SDK_INT >= 26 && !getPackageManager().canRequestPackageInstalls()) {
-                            Toast.makeText(this, "اسمح للتطبيق بتثبيت التحديثات من هذا المصدر ثم أعد المحاولة.", Toast.LENGTH_LONG).show();
-                            android.content.Intent settings = new android.content.Intent(android.provider.Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
-                                    Uri.parse("package:" + getPackageName()));
-                            startActivity(settings);
-                            return;
-                        }
-                        android.net.Uri uri = androidx.core.content.FileProvider.getUriForFile(this, getPackageName() + ".fileprovider", apk);
-                        android.content.Intent install = new android.content.Intent(android.content.Intent.ACTION_VIEW);
-                        install.setDataAndType(uri, "application/vnd.android.package-archive");
-                        install.addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION | android.content.Intent.FLAG_ACTIVITY_NEW_TASK);
-                        startActivity(install);
-                    } catch (Exception e) {
-                        Log.e(TAG, "Could not launch receiver installer", e);
-                        Toast.makeText(this, "تعذّر فتح مثبت التحديث. افتح إعدادات التطبيق وتأكد من السماح بالتثبيت.", Toast.LENGTH_LONG).show();
-                    }
-                });
-            } catch (Exception e) {
-                Log.e(TAG, "Receiver update download/validation failed", e);
-                runOnUiThread(() -> new AlertDialog.Builder(this).setTitle("تعذّر اعتماد ملف التحديث")
-                        .setMessage("لم يتم تثبيت أي ملف. قد يكون التنزيل غير مكتمل أو الملف ليس إصدارًا أحدث من الريسيفر.")
-                        .setPositiveButton("حسنًا", null).show());
-            } finally { if (connection != null) connection.disconnect(); }
-        }, "receiver-update-download").start();
-    }
+
 
     private void startReceiverService() {
         android.content.Intent serviceIntent = new android.content.Intent(this, ReceiverServerService.class);
