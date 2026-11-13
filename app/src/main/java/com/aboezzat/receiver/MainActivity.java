@@ -42,6 +42,9 @@ import org.json.JSONObject;
 import androidx.media3.common.MediaItem;
 import androidx.media3.common.Player;
 import androidx.media3.common.PlaybackParameters;
+import androidx.media3.common.TrackSelectionParameters;
+import androidx.media3.common.TrackSelectionOverride;
+import androidx.media3.common.Tracks;
 import androidx.media3.common.C;
 import androidx.media3.common.MimeTypes;
 import androidx.media3.common.util.UnstableApi;
@@ -1095,8 +1098,15 @@ public class MainActivity extends Activity {
             action.setFocusable(true);
             action.setFocusableInTouchMode(true);
             action.setClickable(true);
-            action.setBackground(roundedBackground(
-                    Color.argb(235, 5, 12, 32), Color.rgb(255, 197, 74), 14));
+            action.setBackground(browserFocusBackground(
+                    Color.argb(235, 5, 12, 32), Color.TRANSPARENT, 14, false));
+            action.setOnFocusChangeListener((view, focused) -> {
+                view.setBackground(browserFocusBackground(
+                        Color.argb(235, 5, 12, 32),
+                        focused ? Color.rgb(255, 212, 0) : Color.TRANSPARENT,
+                        14, focused));
+                view.setElevation(focused ? dp(10) : 0);
+            });
             action.setVisibility(View.GONE);
             action.setMinWidth(dp(50));
             action.setMinHeight(dp(46));
@@ -1131,6 +1141,8 @@ public class MainActivity extends Activity {
                         ? View.VISIBLE : View.GONE);
             }
         });
+        // Give every native controller button the same remote-focus treatment.
+        playerView.post(this::stylePlayerControllerFocus);
 
         // عرض الصور المستقبلة مع الحفاظ على أبعادها.
         imageView = new ImageView(this);
@@ -3484,42 +3496,33 @@ public class MainActivity extends Activity {
         if (event.getAction() == android.view.KeyEvent.ACTION_DOWN
                 && playerView != null && playerView.getVisibility() == View.VISIBLE
                 && currentPlaybackHasVideo && player != null) {
-            switch (event.getKeyCode()) {
-                case android.view.KeyEvent.KEYCODE_DPAD_CENTER:
-                case android.view.KeyEvent.KEYCODE_ENTER:
-                case android.view.KeyEvent.KEYCODE_NUMPAD_ENTER:
-                case android.view.KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE:
-                    synchronized (playerLock) {
-                        if (player.isPlaying()) player.pause();
-                        else {
-                            if (player.getPlaybackState() == Player.STATE_ENDED) player.seekToDefaultPosition();
-                            player.play();
-                        }
-                        playerView.showController();
-                    }
-                    return true;
-                case android.view.KeyEvent.KEYCODE_MEDIA_FAST_FORWARD:
-                case android.view.KeyEvent.KEYCODE_DPAD_RIGHT:
-                    synchronized (playerLock) {
-                        long duration = player.getDuration();
-                        long target = player.getCurrentPosition() + 10000L;
-                        player.seekTo(duration > 0 ? Math.min(target, duration) : target);
-                        playerView.showController();
-                    }
-                    return true;
-                case android.view.KeyEvent.KEYCODE_MEDIA_REWIND:
-                case android.view.KeyEvent.KEYCODE_DPAD_LEFT:
-                    synchronized (playerLock) {
-                        player.seekTo(Math.max(0L, player.getCurrentPosition() - 10000L));
-                        playerView.showController();
-                    }
-                    return true;
-                case android.view.KeyEvent.KEYCODE_DPAD_UP:
-                case android.view.KeyEvent.KEYCODE_DPAD_DOWN:
-                    playerView.showController();
-                    return false;
-                default:
-                    break;
+            int key = event.getKeyCode();
+            if (key == android.view.KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE) {
+                togglePlaybackFromRemote();
+                return true;
+            }
+            // OK/Enter is left to the focused native Play/Pause button or the
+            // focused top-row action. DPAD arrows remain native focus navigation.
+            if ((key == android.view.KeyEvent.KEYCODE_DPAD_CENTER
+                    || key == android.view.KeyEvent.KEYCODE_ENTER
+                    || key == android.view.KeyEvent.KEYCODE_NUMPAD_ENTER)
+                    && (getCurrentFocus() == null || getCurrentFocus() == playerView)) {
+                togglePlaybackFromRemote();
+                return true;
+            }
+            if (key == android.view.KeyEvent.KEYCODE_DPAD_UP
+                    || key == android.view.KeyEvent.KEYCODE_DPAD_DOWN
+                    || key == android.view.KeyEvent.KEYCODE_DPAD_LEFT
+                    || key == android.view.KeyEvent.KEYCODE_DPAD_RIGHT) {
+                playerView.showController();
+            }
+            if (key == android.view.KeyEvent.KEYCODE_MEDIA_FAST_FORWARD) {
+                seekByConfiguredIncrement(1);
+                return true;
+            }
+            if (key == android.view.KeyEvent.KEYCODE_MEDIA_REWIND) {
+                seekByConfiguredIncrement(-1);
+                return true;
             }
         }
 
@@ -3983,6 +3986,7 @@ public class MainActivity extends Activity {
                 player.play();
             }
             playerView.showController();
+            focusPlayPauseAsPlayerHome();
 
         } catch (Exception e) {
             Log.e(TAG, "Playback error", e);
@@ -4001,6 +4005,11 @@ public class MainActivity extends Activity {
         player.setPlaybackParameters(new PlaybackParameters(speed));
         player.setRepeatMode(prefs.getBoolean("repeat_one", false)
                 ? Player.REPEAT_MODE_ONE : Player.REPEAT_MODE_OFF);
+        int maxVideoHeight = prefs.getInt("max_video_height", 0);
+        TrackSelectionParameters.Builder trackBuilder = player.getTrackSelectionParameters().buildUpon();
+        trackBuilder.setMaxVideoSize(Integer.MAX_VALUE,
+                maxVideoHeight <= 0 ? Integer.MAX_VALUE : maxVideoHeight);
+        player.setTrackSelectionParameters(trackBuilder.build());
         long seekMs = prefs.getLong("seek_increment_ms", 10000L);
         player.setSeekBackIncrementMs(seekMs);
         player.setSeekForwardIncrementMs(seekMs);
@@ -4019,7 +4028,11 @@ public class MainActivity extends Activity {
         String speed = String.format(Locale.US, "%.2fx",
                 player.getPlaybackParameters().speed);
         String repeat = player.getRepeatMode() == Player.REPEAT_MODE_ONE ? "مفعّل" : "متوقف";
+        String quality = qualityLabel(prefs.getInt("max_video_height", 0));
         String[] options = {
+                "📺  جودة الفيديو والبث المباشر (" + quality + ")",
+                "🔊  مسار الصوت",
+                "💬  مسار الترجمة",
                 "↺  إعادة التشغيل من البداية",
                 "⏩  سرعة التشغيل (" + speed + ")",
                 "▣  أبعاد الصورة",
@@ -4027,32 +4040,171 @@ public class MainActivity extends Activity {
                 "⏪  مدة التقديم والترجيع"
         };
         new AlertDialog.Builder(this)
-                .setTitle("إعدادات الفيديو")
+                .setTitle("إعدادات المشغل")
                 .setItems(options, (dialog, which) -> {
                     switch (which) {
-                        case 0:
-                            restartCurrentVideo();
-                            break;
-                        case 1:
-                            showPlaybackSpeedDialog();
-                            break;
-                        case 2:
-                            showPlaybackResizeDialog();
-                            break;
-                        case 3:
+                        case 0: showPlaybackQualityDialog(); break;
+                        case 1: showPlaybackTrackDialog(C.TRACK_TYPE_AUDIO); break;
+                        case 2: showPlaybackTrackDialog(C.TRACK_TYPE_TEXT); break;
+                        case 3: restartCurrentVideo(); break;
+                        case 4: showPlaybackSpeedDialog(); break;
+                        case 5: showPlaybackResizeDialog(); break;
+                        case 6:
                             boolean repeatOne = player.getRepeatMode() != Player.REPEAT_MODE_ONE;
                             player.setRepeatMode(repeatOne ? Player.REPEAT_MODE_ONE : Player.REPEAT_MODE_OFF);
                             prefs.edit().putBoolean("repeat_one", repeatOne).apply();
                             Toast.makeText(this, repeatOne ? "تكرار الفيديو مفعّل" : "تكرار الفيديو متوقف",
                                     Toast.LENGTH_SHORT).show();
                             break;
-                        case 4:
-                            showSeekIncrementDialog();
-                            break;
+                        case 7: showSeekIncrementDialog(); break;
                     }
                 })
                 .setNegativeButton("إغلاق", null)
                 .show();
+    }
+
+    private String qualityLabel(int height) {
+        if (height <= 0) return "تلقائي";
+        return height + "p كحد أقصى";
+    }
+
+    private void showPlaybackQualityDialog() {
+        final int[] heights = {0, 2160, 1440, 1080, 720, 480, 360};
+        final String[] labels = {"تلقائي — أفضل جودة متاحة", "2160p / 4K كحد أقصى",
+                "1440p كحد أقصى", "1080p كحد أقصى", "720p كحد أقصى",
+                "480p كحد أقصى", "360p كحد أقصى"};
+        int current = getPlayerSettingsPrefs().getInt("max_video_height", 0);
+        int selected = 0;
+        for (int i = 0; i < heights.length; i++) if (heights[i] == current) selected = i;
+        new AlertDialog.Builder(this).setTitle("جودة الفيديو والبث المباشر")
+                .setSingleChoiceItems(labels, selected, (dialog, which) -> {
+                    int height = heights[which];
+                    if (player != null) {
+                        TrackSelectionParameters.Builder builder =
+                                player.getTrackSelectionParameters().buildUpon();
+                        if (height <= 0) {
+                            builder.setMaxVideoSize(Integer.MAX_VALUE, Integer.MAX_VALUE);
+                        } else {
+                            builder.setMaxVideoSize(Integer.MAX_VALUE, height);
+                        }
+                        player.setTrackSelectionParameters(builder.build());
+                    }
+                    getPlayerSettingsPrefs().edit().putInt("max_video_height", height).apply();
+                    dialog.dismiss();
+                    Toast.makeText(this, "تم ضبط الجودة: " + labels[which], Toast.LENGTH_SHORT).show();
+                }).setNegativeButton("إغلاق", null).show();
+    }
+
+    private void showPlaybackTrackDialog(int trackType) {
+        if (player == null) return;
+        Tracks tracks = player.getCurrentTracks();
+        java.util.ArrayList<String> labels = new java.util.ArrayList<>();
+        java.util.ArrayList<TrackSelectionOverride> overrides = new java.util.ArrayList<>();
+        int selected = -1;
+        if (trackType == C.TRACK_TYPE_TEXT) labels.add("إيقاف الترجمة");
+        for (Tracks.Group group : tracks.getGroups()) {
+            if (group.getType() != trackType) continue;
+            for (int i = 0; i < group.length; i++) {
+                if (!group.isTrackSupported(i)) continue;
+                androidx.media3.common.Format format = group.getTrackFormat(i);
+                String language = format.language == null ? "" : format.language;
+                String label = format.label == null || format.label.isEmpty()
+                        ? language : format.label;
+                if (label == null || label.isEmpty()) label = trackType == C.TRACK_TYPE_AUDIO
+                        ? "صوت " + (labels.size() + 1) : "ترجمة " + (labels.size() + 1);
+                labels.add(label + (language.isEmpty() ? "" : " (" + language + ")"));
+                overrides.add(new TrackSelectionOverride(group.getMediaTrackGroup(), i));
+                if (group.isTrackSelected(i)) selected = labels.size() - 1;
+            }
+        }
+        if (labels.isEmpty() || (trackType == C.TRACK_TYPE_AUDIO && overrides.isEmpty())) {
+            Toast.makeText(this, trackType == C.TRACK_TYPE_AUDIO
+                    ? "لا توجد مسارات صوت إضافية في هذا الفيديو"
+                    : "لا توجد ترجمة مدمجة في هذا الفيديو", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        if (trackType == C.TRACK_TYPE_TEXT && selected < 0) selected = 0;
+        final int initial = Math.max(0, selected);
+        new AlertDialog.Builder(this)
+                .setTitle(trackType == C.TRACK_TYPE_AUDIO ? "اختيار مسار الصوت" : "اختيار الترجمة")
+                .setSingleChoiceItems(labels.toArray(new String[0]), initial, (dialog, which) -> {
+                    TrackSelectionParameters.Builder builder = player.getTrackSelectionParameters().buildUpon()
+                            .clearOverridesOfType(trackType);
+                    if (trackType == C.TRACK_TYPE_TEXT && which == 0) {
+                        builder.setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true);
+                    } else {
+                        int overrideIndex = trackType == C.TRACK_TYPE_TEXT ? which - 1 : which;
+                        builder.setTrackTypeDisabled(trackType, false);
+                        builder.setOverrideForType(overrides.get(overrideIndex));
+                    }
+                    player.setTrackSelectionParameters(builder.build());
+                    dialog.dismiss();
+                }).setNegativeButton("إغلاق", null).show();
+    }
+
+    private void stylePlayerControllerFocus() {
+        if (playerView == null) return;
+        stylePlayerControllerFocusRecursive(playerView);
+    }
+
+    private void stylePlayerControllerFocusRecursive(View view) {
+        if (view == null) return;
+        if (view.isClickable() || view.isFocusable()) {
+            view.setFocusable(true);
+            view.setFocusableInTouchMode(true);
+            view.setBackground(browserFocusBackground(Color.argb(190, 8, 16, 34),
+                    Color.TRANSPARENT, 10, false));
+            view.setOnFocusChangeListener((focusedView, focused) -> {
+                focusedView.setBackground(browserFocusBackground(Color.argb(220, 8, 16, 34),
+                        focused ? Color.rgb(255, 212, 0) : Color.TRANSPARENT,
+                        10, focused));
+            });
+        }
+        if (view instanceof ViewGroup) {
+            ViewGroup group = (ViewGroup) view;
+            for (int i = 0; i < group.getChildCount(); i++) {
+                stylePlayerControllerFocusRecursive(group.getChildAt(i));
+            }
+        }
+    }
+
+    private void focusPlayPauseAsPlayerHome() {
+        if (playerView == null) return;
+        playerView.post(() -> {
+            if (playerView == null || playerView.getVisibility() != View.VISIBLE) return;
+            stylePlayerControllerFocus();
+            View playPause = playerView.findViewById(androidx.media3.ui.R.id.exo_play_pause);
+            if (playPause != null) {
+                playPause.setFocusable(true);
+                playPause.setFocusableInTouchMode(true);
+                playPause.requestFocus();
+            } else {
+                playerView.requestFocus();
+            }
+        });
+    }
+
+    private void togglePlaybackFromRemote() {
+        if (player == null) return;
+        synchronized (playerLock) {
+            if (player.isPlaying()) player.pause();
+            else {
+                if (player.getPlaybackState() == Player.STATE_ENDED) player.seekToDefaultPosition();
+                player.play();
+            }
+        }
+        if (playerView != null) playerView.showController();
+    }
+
+    private void seekByConfiguredIncrement(int direction) {
+        if (player == null) return;
+        synchronized (playerLock) {
+            long increment = player.getSeekForwardIncrement();
+            long duration = player.getDuration();
+            long target = Math.max(0L, player.getCurrentPosition() + (direction >= 0 ? increment : -increment));
+            player.seekTo(duration > 0 ? Math.min(target, duration) : target);
+        }
+        if (playerView != null) playerView.showController();
     }
 
     private void restartCurrentVideo() {
