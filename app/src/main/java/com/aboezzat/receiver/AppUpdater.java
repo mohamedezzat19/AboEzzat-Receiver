@@ -232,7 +232,7 @@ public final class AppUpdater {
             if (Build.VERSION.SDK_INT >= 26 && !activity.getPackageManager().canRequestPackageInstalls()) {
                 new AlertDialog.Builder(activity)
                         .setTitle("السماح بالتثبيت")
-                        .setMessage("فعّل السماح بتثبيت التطبيقات من هذا المصدر، ثم ارجع واضغط «التحقق من التحديث» مرة أخرى.")
+                        .setMessage("فعّل السماح بتثبيت التطبيقات من هذا المصدر، ثم ارجع إلى الريسيفر واضغط «البحث عن التحديثات».")
                         .setNegativeButton("إلغاء", null)
                         .setPositiveButton("فتح الإعدادات", (d, w) ->
                                 activity.startActivity(new Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
