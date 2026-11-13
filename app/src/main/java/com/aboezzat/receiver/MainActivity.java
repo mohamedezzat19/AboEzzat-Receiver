@@ -159,6 +159,7 @@ public class MainActivity extends Activity {
     private final Object playerLock = new Object();
     private SharedPreferences playbackPrefs;
     private String currentPlaybackUrl = "";
+    private String currentPlaybackFallbackUrl = "";
     private boolean smartTubeFallbackAttempted = false;
     private final Handler playbackProgressHandler = new Handler(Looper.getMainLooper());
     // Persist the position against the URI actually loaded in ExoPlayer. The
@@ -1409,6 +1410,7 @@ public class MainActivity extends Activity {
         lastRequestAt = System.currentTimeMillis();
         String mediaUrl = null;
         String audioUrl = null;
+        String sourceUrl = null;
         String command = null;
         java.util.Map<String, String> mediaHeaders = new java.util.LinkedHashMap<>();
         boolean requestAccepted = false;
@@ -1450,6 +1452,7 @@ public class MainActivity extends Activity {
                     JSONObject payload = new JSONObject(new String(bodyBytes, StandardCharsets.UTF_8));
                     mediaUrl = payload.optString("url", null);
                     audioUrl = payload.optString("audio", null);
+                    sourceUrl = payload.optString("sourceUrl", null);
                     JSONObject headers = payload.optJSONObject("headers");
                     if (headers != null) {
                         java.util.Iterator<String> keys = headers.keys();
@@ -1477,11 +1480,13 @@ public class MainActivity extends Activity {
                             String value = URLDecoder.decode(item[1], "UTF-8");
                             if ("url".equals(key) || "video".equals(key)) mediaUrl = value;
                             else if ("audio".equals(key)) audioUrl = value;
+                            else if ("sourceUrl".equals(key)) sourceUrl = value;
                             else if ("command".equals(key)) command = value;
                         }
                     }
                 }
 
+                if (sourceUrl != null && !isHttpUrl(sourceUrl)) sourceUrl = null;
                 boolean hasMedia = mediaUrl != null && !mediaUrl.trim().isEmpty();
                 boolean hasAudio = audioUrl != null && !audioUrl.trim().isEmpty();
                 boolean validMedia = (!hasMedia || isHttpUrl(mediaUrl)) && (!hasAudio || isHttpUrl(audioUrl));
@@ -1538,9 +1543,10 @@ public class MainActivity extends Activity {
             final String receivedMediaUrl = mediaUrl;
             final String receivedAudioUrl = audioUrl;
             final java.util.Map<String, String> receivedHeaders = new java.util.LinkedHashMap<>(mediaHeaders);
+            final String receivedSourceUrl = sourceUrl;
             runOnUiThread(() -> {
                 Toast.makeText(MainActivity.this, "وصل طلب فيديو من Share New؛ جاري تجهيز التشغيل…", Toast.LENGTH_LONG).show();
-                queueIncomingMedia(receivedMediaUrl, receivedAudioUrl, receivedHeaders);
+                queueIncomingMedia(receivedMediaUrl, receivedAudioUrl, receivedHeaders, receivedSourceUrl);
             });
         }
     }
@@ -1961,6 +1967,13 @@ public class MainActivity extends Activity {
     }
 
     private void showExtractionFailureFallback(String pageUrl) {
+        if (isYouTubeUrl(currentPlaybackFallbackUrl)
+                && tryOpenSmartTubeFallback(currentPlaybackFallbackUrl)) {
+            extractionStatus = "smarttube_fallback";
+            playbackStatusMessage = "تعذر استخراج رابط مباشر؛ تم تحويل رابط YouTube الأصلي إلى SmartTube.";
+            persistExtractionState();
+            return;
+        }
         pendingBrowserUrl = pageUrl;
         showWelcome();
         if (browserShortcut != null) browserShortcut.setVisibility(View.VISIBLE);
@@ -3085,6 +3098,11 @@ public class MainActivity extends Activity {
     }
 
     private void queueIncomingMedia(String mediaUrl, String audioUrl, java.util.Map<String, String> headers) {
+        queueIncomingMedia(mediaUrl, audioUrl, headers, null);
+    }
+
+    private void queueIncomingMedia(String mediaUrl, String audioUrl,
+                                    java.util.Map<String, String> headers, String sourceUrl) {
         extractionStatus = "preparing";
         playbackStatusMessage = "Receiver استلم الرابط؛ جاري تجهيز مشغّل الفيديو.";
         persistExtractionState();
@@ -3095,6 +3113,8 @@ public class MainActivity extends Activity {
         // to ExoPlayer or the social-video resolver.
         String originalMediaUrl = mediaUrl;
         String originalAudioUrl = audioUrl;
+        currentPlaybackFallbackUrl = isYouTubeUrl(sourceUrl) ? sourceUrl
+                : (isYouTubeUrl(mediaUrl) ? mediaUrl : "");
         pendingPlaybackHeaders = headers == null ? java.util.Collections.emptyMap() : new java.util.LinkedHashMap<>(headers);
         if (mediaUrl != null && !mediaUrl.trim().isEmpty() && !isHttpUrl(mediaUrl)) {
             mediaUrl = null;
@@ -3102,15 +3122,8 @@ public class MainActivity extends Activity {
         if (audioUrl != null && !audioUrl.trim().isEmpty() && !isHttpUrl(audioUrl)) {
             audioUrl = null;
         }
-        // YouTube page links should be handed to the TV's YouTube-compatible app,
-        // not treated as a media URL for ExoPlayer. Direct raw stream URLs still play below.
-        if (mediaUrl != null && isYouTubeUrl(mediaUrl)) {
-            if (audioUrl != null && !audioUrl.trim().isEmpty()) {
-                Log.i(TAG, "YouTube page link takes precedence over separate audio URL");
-            }
-            openYouTubeInTvApp(mediaUrl);
-            return;
-        }
+        // YouTube links now enter the same direct-stream extraction pipeline first.
+        // The original page URL is retained separately for SmartTube fallback.
 
         boolean hasMedia = mediaUrl != null && !mediaUrl.trim().isEmpty();
         boolean hasAudio = audioUrl != null && !audioUrl.trim().isEmpty();
@@ -3632,14 +3645,16 @@ public class MainActivity extends Activity {
                             Log.e(TAG, "Media3 playback failed: " + detail,
                                     error == null ? null : error);
                             runOnUiThread(() -> {
-                                if (!currentPlaybackHasVideo || smartTubeFallbackAttempted) {
+                                String fallbackUrl = currentPlaybackFallbackUrl;
+                                if (!currentPlaybackHasVideo || smartTubeFallbackAttempted
+                                        || !isYouTubeUrl(fallbackUrl)) {
                                     Toast.makeText(MainActivity.this,
                                             "فشل تشغيل الوسائط: " + detail,
                                             Toast.LENGTH_LONG).show();
                                     return;
                                 }
                                 smartTubeFallbackAttempted = true;
-                                if (!tryOpenSmartTubeFallback(currentPlaybackUrl)) {
+                                if (!tryOpenSmartTubeFallback(fallbackUrl)) {
                                     Toast.makeText(MainActivity.this,
                                             "فشل تشغيل الفيديو، ولا يوجد تطبيق SmartTube متوافق مع الرابط.",
                                             Toast.LENGTH_LONG).show();
@@ -4136,23 +4151,17 @@ public class MainActivity extends Activity {
      * Ordinary MP4/HLS/DASH links are not handed to SmartTube.
      */
     /**
-     * Try SmartTube as a one-shot fallback after Receiver fails to play a video.
-     * SmartTube may accept YouTube links and some direct media URLs depending on
-     * its installed version and intent filters. Receiver remains the primary player.
+     * SmartTube is only a fallback for the original YouTube page URL.
+     * Arbitrary direct MP4/HLS links remain Receiver/ExoPlayer content.
      */
     private boolean tryOpenSmartTubeFallback(String failedUrl) {
-        if (failedUrl == null || failedUrl.trim().isEmpty()) return false;
-        android.net.Uri uri;
+        if (!isYouTubeUrl(failedUrl)) return false;
+        Uri uri;
         try {
-            uri = android.net.Uri.parse(failedUrl.trim());
+            uri = Uri.parse(failedUrl.trim());
         } catch (Exception ignored) {
             return false;
         }
-        String scheme = uri.getScheme();
-        if (!"http".equalsIgnoreCase(scheme) && !"https".equalsIgnoreCase(scheme)) {
-            return false;
-        }
-
         String[] smartTubePackages = {
                 "com.liskovsoft.smarttubetv.beta",
                 "com.liskovsoft.smarttubetv"
@@ -4165,8 +4174,7 @@ public class MainActivity extends Activity {
                 intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK);
                 if (intent.resolveActivity(getPackageManager()) != null) {
                     startActivity(intent);
-                    Log.i(TAG, "Opened SmartTube fallback package " + packageName
-                            + " for " + uri.getHost());
+                    Log.i(TAG, "Opened original YouTube page in SmartTube: " + packageName);
                     return true;
                 }
             } catch (Exception e) {
