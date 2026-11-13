@@ -951,20 +951,8 @@ public class MainActivity extends Activity {
 
         ipText.setTextIsSelectable(true);
         ipText.setContentDescription("عنوان الريسيفر الحالي. اضغط لنسخ العنوان مع البورت.");
-        ipText.setOnClickListener(v -> {
-            String ip = getCurrentIpAddress();
-            if (ip == null || ip.trim().isEmpty()) {
-                Toast.makeText(this, "عنوان IP غير متاح؛ اتصل بالشبكة أولاً", Toast.LENGTH_SHORT).show();
-                return;
-            }
-            int port = getSharedPreferences("receiver_settings", MODE_PRIVATE).getInt("receiver_port", 8081);
-            android.content.ClipboardManager clipboard =
-                    (android.content.ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
-            if (clipboard != null) {
-                clipboard.setPrimaryClip(android.content.ClipData.newPlainText("AboEzzat Receiver", ip + ":" + port));
-                Toast.makeText(this, "تم نسخ عنوان الريسيفر", Toast.LENGTH_SHORT).show();
-            }
-        });
+        // عنوان IP داخلي لخدمة الاستقبال فقط؛ لا يظهر كعنصر قابل للضغط على الرئيسية.
+        ipText.setOnClickListener(null);
 
         LinearLayout.LayoutParams ipParams =
                 new LinearLayout.LayoutParams(
@@ -1023,7 +1011,8 @@ public class MainActivity extends Activity {
                 dp(12)
         );
 
-        root.addView(connectionCard, cardParams);
+        // الصفحة الرئيسية تعرض علامتها التجارية وزري الإعدادات والمتصفح فقط.
+        // معلومات IP والبورت تظل داخلية للتشخيص ولا تُعرض على الشاشة.
 
         // أزرار رئيسية متجاورة لتسهيل الوصول بالريموت: الإعدادات ثم المتصفح.
         settingsHomeButton = makeText("⚙", 25, Color.rgb(255, 207, 94), true);
@@ -1985,6 +1974,76 @@ public class MainActivity extends Activity {
                 Toast.LENGTH_LONG).show();
     }
 
+    /**
+     * Inject TV-friendly focus navigation into the active website.
+     * A thick yellow outline follows the currently selected link, button, input,
+     * video or other interactive element. Directional keys move spatially between
+     * visible controls; OK activates the focused control.
+     */
+    private String getTvRemoteNavigationScript() {
+        return "(function(){"
+                + "try{"
+                + "var styleId='abo-ezzat-tv-focus-style';"
+                + "var style=document.getElementById(styleId);"
+                + "if(!style){style=document.createElement('style');style.id=styleId;"
+                + "style.textContent=':focus,.abo-ezzat-remote-focus{outline:6px solid #FFD400!important;"
+                + "outline-offset:4px!important;box-shadow:0 0 0 3px #111!important;';"
+                + "document.documentElement.appendChild(style);}"
+                + "var selector='a[href],button,input:not([type=hidden]),select,textarea,video,[role=button],[tabindex]:not([tabindex=\\\"-1\\\"]),summary,iframe';"
+                + "function visible(el){if(!el||!el.getBoundingClientRect)return false;"
+                + "var r=el.getBoundingClientRect(),s=getComputedStyle(el);"
+                + "return r.width>3&&r.height>3&&s.display!=='none'&&s.visibility!=='hidden'"
+                + "&&Number(s.opacity||1)>0&&r.bottom>0&&r.right>0&&r.top<innerHeight&&r.left<innerWidth;}"
+                + "function items(){return Array.prototype.slice.call(document.querySelectorAll(selector)).filter(visible);}"
+                + "var active=null;"
+                + "function focus(el){if(!el)return false;"
+                + "if(active&&active!==el)active.classList.remove('abo-ezzat-remote-focus');"
+                + "active=el;active.classList.add('abo-ezzat-remote-focus');"
+                + "try{active.focus({preventScroll:true});}catch(e){try{active.focus();}catch(x){}}"
+                + "try{active.scrollIntoView({block:'nearest',inline:'nearest',behavior:'smooth'});}catch(e){}"
+                + "return true;}"
+                + "function move(dir){var list=items();if(!list.length)return;"
+                + "if(!active||!document.contains(active)||!visible(active)){focus(list[0]);return;}"
+                + "var a=active.getBoundingClientRect(),ax=a.left+a.width/2,ay=a.top+a.height/2;"
+                + "var best=null,bestScore=1e20;"
+                + "list.forEach(function(el){if(el===active)return;var r=el.getBoundingClientRect(),x=r.left+r.width/2,y=r.top+r.height/2;"
+                + "var dx=x-ax,dy=y-ay,primary=0,cross=0;"
+                + "if(dir==='right'){if(dx<=5)return;primary=dx;cross=Math.abs(dy);}"
+                + "else if(dir==='left'){if(dx>=-5)return;primary=-dx;cross=Math.abs(dy);}"
+                + "else if(dir==='down'){if(dy<=5)return;primary=dy;cross=Math.abs(dx);}"
+                + "else{if(dy>=-5)return;primary=-dy;cross=Math.abs(dx);}"
+                + "var score=primary+cross*1.65;if(score<bestScore){bestScore=score;best=el;}});"
+                + "if(best){focus(best);}else{var amount=Math.max(180,Math.floor(innerHeight*.65));"
+                + "window.scrollBy(0,(dir==='down'?amount:dir==='up'?-amount:0));"
+                + "if(dir==='left')window.scrollBy(-Math.max(180,Math.floor(innerWidth*.55)),0);"
+                + "if(dir==='right')window.scrollBy(Math.max(180,Math.floor(innerWidth*.55)),0);"
+                + "setTimeout(function(){var next=items();if(next.length)focus(next[0]);},180);}}"
+                + "window.__aboRemoteMove=move;"
+                + "window.__aboRemoteActivate=function(){if(!active||!document.contains(active)){var l=items();if(l.length)focus(l[0]);return;}"
+                + "if(active.tagName==='VIDEO'){try{if(active.paused)active.play();else active.pause();}catch(e){}}"
+                + "else{try{active.click();}catch(e){}}};"
+                + "window.__aboRemoteTogglePlayback=function(){var v=active&&active.tagName==='VIDEO'?active:document.querySelector('video');"
+                + "if(v){try{if(v.paused)v.play();else v.pause();}catch(e){}}};"
+                + "document.addEventListener('focusin',function(e){if(e.target&&e.target.matches&&e.target.matches(selector))focus(e.target);},true);"
+                + "var observer=new MutationObserver(function(){if(!active||!document.contains(active)){var l=items();if(l.length)focus(l[0]);}});"
+                + "observer.observe(document.documentElement,{childList:true,subtree:true,attributes:true,attributeFilter:['style','class','hidden']});"
+                + "if(!window.__aboRemoteInstalled){window.__aboRemoteInstalled=true;"
+                + "document.addEventListener('keydown',function(e){var k=e.key;"
+                + "if(k==='ArrowUp'||k==='ArrowDown'||k==='ArrowLeft'||k==='ArrowRight'){e.preventDefault();move(k.substring(5).toLowerCase());}"
+                + "else if(k==='Enter'){e.preventDefault();window.__aboRemoteActivate();}},true);}"
+                + "var current=document.activeElement;"
+                + "if(!current||current===document.body||current===document.documentElement){var first=items();if(first.length)focus(first[0]);}"
+                + "}catch(e){}})();";
+    }
+
+    private boolean isTvBrowserPageVisible() {
+        return tvBrowserMode && browserOverlay != null
+                && browserOverlay.getVisibility() == View.VISIBLE
+                && fallbackWebView != null
+                && fallbackWebView.getVisibility() == View.VISIBLE
+                && (browserHomePanel == null || browserHomePanel.getVisibility() != View.VISIBLE);
+    }
+
     // Last-resort browser playback: show the page without browser chrome and honor
     // HTML5 video fullscreen requests. Existing ExoPlayer remains the first choice.
     private void openTvBrowser() {
@@ -2131,9 +2190,10 @@ public class MainActivity extends Activity {
         button.setBackground(roundedBackground(Color.rgb(20, 34, 61), Color.rgb(86, 132, 255), 12));
         button.setOnFocusChangeListener((v, focused) -> {
             v.setBackground(roundedBackground(focused ? Color.rgb(43, 66, 108) : Color.rgb(20, 34, 61),
-                    focused ? Color.rgb(255, 196, 87) : Color.rgb(86, 132, 255), 12));
+                    focused ? Color.rgb(255, 212, 0) : Color.rgb(86, 132, 255), 12));
             v.setScaleX(focused ? 1.06f : 1f);
             v.setScaleY(focused ? 1.06f : 1f);
+            v.setElevation(focused ? dp(12) : dp(3));
         });
         return button;
     }
@@ -2815,6 +2875,12 @@ public class MainActivity extends Activity {
                                 + "}catch(e){}})();";
                         view.evaluateJavascript(fitScript, null);
                     }
+                    if (tvBrowserMode && view == fallbackWebView) {
+                        view.evaluateJavascript(getTvRemoteNavigationScript(), null);
+                        view.setFocusable(true);
+                        view.setFocusableInTouchMode(true);
+                        view.requestFocus();
+                    }
                 }
             });
             fallbackWebView.setDownloadListener((url, userAgent, contentDisposition, mimeType, contentLength) -> {
@@ -3309,6 +3375,35 @@ public class MainActivity extends Activity {
         if (event.getAction() == android.view.KeyEvent.ACTION_DOWN
                 && handleImageRemoteKey(event.getKeyCode())) {
             return true;
+        }
+
+        // Route TV remote navigation into the website instead of requiring a mouse.
+        // Keep Android's native focus handling for the address bar and browser toolbar.
+        if (event.getAction() == android.view.KeyEvent.ACTION_DOWN && isTvBrowserPageVisible()
+                && (browserAddress == null || !browserAddress.hasFocus())) {
+            WebView target = activePopupWebView != null ? activePopupWebView : fallbackWebView;
+            if (target != null) {
+                String direction = null;
+                switch (event.getKeyCode()) {
+                    case android.view.KeyEvent.KEYCODE_DPAD_UP: direction = "up"; break;
+                    case android.view.KeyEvent.KEYCODE_DPAD_DOWN: direction = "down"; break;
+                    case android.view.KeyEvent.KEYCODE_DPAD_LEFT: direction = "left"; break;
+                    case android.view.KeyEvent.KEYCODE_DPAD_RIGHT: direction = "right"; break;
+                    case android.view.KeyEvent.KEYCODE_DPAD_CENTER:
+                    case android.view.KeyEvent.KEYCODE_ENTER:
+                    case android.view.KeyEvent.KEYCODE_NUMPAD_ENTER:
+                        target.evaluateJavascript("window.__aboRemoteActivate&&window.__aboRemoteActivate();", null);
+                        return true;
+                    case android.view.KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE:
+                        target.evaluateJavascript("window.__aboRemoteTogglePlayback&&window.__aboRemoteTogglePlayback();", null);
+                        return true;
+                    default: break;
+                }
+                if (direction != null) {
+                    target.evaluateJavascript("window.__aboRemoteMove&&window.__aboRemoteMove('" + direction + "');", null);
+                    return true;
+                }
+            }
         }
         return super.dispatchKeyEvent(event);
     }
