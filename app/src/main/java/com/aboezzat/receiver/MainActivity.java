@@ -1934,18 +1934,19 @@ public class MainActivity extends Activity {
                 persistExtractionState();
                 return;
             }
-            try {
-                android.content.Intent viewIntent = new android.content.Intent(
-                        android.content.Intent.ACTION_VIEW, Uri.parse(currentPlaybackFallbackUrl));
-                viewIntent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK);
-                startActivity(android.content.Intent.createChooser(viewIntent, "اختَر تطبيق تشغيل فيديو YouTube"));
-                extractionStatus = "app_chooser";
-                playbackStatusMessage = "تعذر استخراج رابط مباشر؛ اختر تطبيق تشغيل الفيديو.";
-                persistExtractionState();
-                return;
-            } catch (Exception chooserError) {
-                Log.w(TAG, "Could not show YouTube app chooser", chooserError);
-            }
+            // Do not show Android's generic YouTube app chooser. Receiver remains
+            // the primary player; SmartTube is the only permitted external fallback.
+            extractionStatus = "smarttube_unavailable";
+            playbackStatusMessage = "تعذر استخراج رابط YouTube ولم يتم العثور على SmartTube.";
+            persistExtractionState();
+            runOnUiThread(() -> Toast.makeText(
+                    MainActivity.this,
+                    "تعذر تشغيل الفيديو داخل Receiver، وSmartTube غير مثبت.",
+                    Toast.LENGTH_LONG
+            ).show());
+            pendingBrowserUrl = "";
+            showWelcome();
+            return;
         }
         pendingBrowserUrl = pageUrl;
         showWelcome();
