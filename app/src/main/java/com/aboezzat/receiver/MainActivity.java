@@ -3195,8 +3195,8 @@ public class MainActivity extends Activity {
         return null;
     }
 
-    // Drama Live's SwiftData endpoint is a live HLS playlist disguised as index.html.
-    // Prefer the installed VLC app for this one known provider; other media keeps using ExoPlayer.
+    // Supported live providers may expose an HLS playlist through /<type>/<id>/index.html.
+    // Prefer VLC for this recognized live endpoint; other media keeps using ExoPlayer.
     private boolean isSwiftDataDramaLiveUrl(String url) {
         if (!isHttpUrl(url)) return false;
         try {
@@ -3204,7 +3204,7 @@ public class MainActivity extends Activity {
             String host = uri.getHost();
             String path = uri.getPath();
             return host != null && path != null
-                    && path.toLowerCase(Locale.ROOT).matches("^/fk/[^/]+/index\\.html$");
+                    && path.toLowerCase(Locale.ROOT).matches("^/[^/]+/[^/]+/index\\.html$");
         } catch (Exception e) {
             return false;
         }
@@ -3297,7 +3297,7 @@ public class MainActivity extends Activity {
             return;
         }
 
-        // Only the known SwiftData /fk/.../index.html live playlist is handed to VLC.
+        // Only the recognized /<type>/<id>/index.html live playlist is handed to VLC.
         // If VLC is unavailable, bypass generic page extraction and let Media3 use the
         // existing HLS MIME override in createPlaybackMediaItem().
         if (hasMedia && !hasAudio && !isImageUrl(mediaUrl)
@@ -3990,8 +3990,8 @@ public class MainActivity extends Activity {
 
     // Some live IPTV providers serve an HLS playlist from an .html URL.
     // Media3 otherwise infers a progressive HTML resource from the suffix and
-    // never starts the HLS parser. Restrict the override to the known SwiftData
-    // /fk/.../index.html playlist pattern; ordinary web pages remain unchanged.
+    // never starts the HLS parser. Restrict the override to the three-segment
+    // /<type>/<id>/index.html playlist pattern; ordinary web pages remain unchanged.
     private void applyKnownPlaylistMimeType(MediaItem.Builder builder, String url) {
         if (builder == null || url == null) return;
         try {
@@ -4001,9 +4001,9 @@ public class MainActivity extends Activity {
             if (host == null || path == null) return;
             host = host.toLowerCase(Locale.ROOT);
             path = path.toLowerCase(Locale.ROOT);
-            if (path.matches("^/fk/[^/]+/index\\.html$")) {
+            if (path.matches("^/[^/]+/[^/]+/index\\.html$")) {
                 builder.setMimeType(MimeTypes.APPLICATION_M3U8);
-                Log.i(TAG, "Treating /fk/.../index.html endpoint as HLS playlist");
+                Log.i(TAG, "Treating /<type>/<id>/index.html endpoint as HLS playlist");
             }
         } catch (Exception e) {
             Log.w(TAG, "Could not inspect playback URL for HLS MIME override", e);
