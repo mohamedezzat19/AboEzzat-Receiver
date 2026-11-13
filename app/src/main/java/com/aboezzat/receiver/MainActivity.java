@@ -2080,16 +2080,24 @@ public class MainActivity extends Activity {
                 + "function isVideoLink(el){var a=anchorOf(el)||el;if(!a||!a.getAttribute)return false;"
                 + "var h=a.getAttribute('href')||'';return /(?:^|\\/)watch(?:\\?|$)/i.test(h)||h.indexOf('/watch?')>=0;}"
                 + "function rawItems(){return Array.prototype.slice.call(document.querySelectorAll(selector)).filter(visible);}"
-                + "function items(){var list=rawItems();"
-                + "if(isYouTube&&!isWatchPage){var videos=list.filter(isVideoLink);"
-                + "if(videos.length){list=list.filter(function(el){return !isChannelLink(el);});"
-                + "videos.forEach(function(v){if(list.indexOf(v)<0)list.unshift(v);});}}"
+                + "function videoThumbs(){if(!isYouTube||isWatchPage)return[];"
+                + "var q='a#thumbnail[href*=\\\"watch\\\"],ytd-thumbnail a[href*=\\\"watch\\\"],a.yt-lockup-view-model__content-image[href*=\\\"watch\\\"],a[href*=\\\"/watch?\\\"]';"
+                + "var a=Array.prototype.slice.call(document.querySelectorAll(q)).filter(function(e){return visible(e)&&isVideoLink(e);});"
+                + "a.sort(function(x,y){var rx=x.getBoundingClientRect(),ry=y.getBoundingClientRect();return (ry.width*ry.height)-(rx.width*rx.height);});return a;}"
+                + "function normalizeTarget(el){if(!el)return el;var a=anchorOf(el)||el;if(isYouTube&&!isWatchPage&&isVideoLink(a)){"
+                + "var thumb=a.matches&&a.matches('a#thumbnail,a.yt-lockup-view-model__content-image')?a:"
+                + "(a.querySelector&&a.querySelector('ytd-thumbnail')?a:(a.closest&&a.closest('ytd-rich-item-renderer,ytd-video-renderer,yt-lockup-view-model')?a:null));"
+                + "if(thumb)return thumb;}return a;}"
+                + "function items(){var raw=rawItems(),list=[],seen=[];raw.forEach(function(el){var t=normalizeTarget(el);"
+                + "if(!t||seen.indexOf(t)>=0)return;seen.push(t);if(!(isYouTube&&!isWatchPage&&isChannelLink(t)))list.push(t);});"
+                + "if(isYouTube&&!isWatchPage){var thumbs=videoThumbs();thumbs.forEach(function(v){if(list.indexOf(v)<0)list.unshift(v);});"
+                + "if(thumbs.length)list=list.filter(function(el){return !isVideoLink(el)||thumbs.indexOf(el)>=0;}).concat(list.filter(function(el){return isVideoLink(el)&&thumbs.indexOf(el)<0;}));}"
                 + "return list;}"
-                + "function firstTarget(){var list=items();if(isYouTube&&!isWatchPage){"
-                + "for(var i=0;i<list.length;i++)if(isVideoLink(list[i]))return list[i];}"
+                + "function firstTarget(){var thumbs=videoThumbs();if(thumbs.length)return thumbs[0];var list=items();"
+                + "if(isYouTube&&!isWatchPage){for(var i=0;i<list.length;i++)if(isVideoLink(list[i]))return list[i];}"
                 + "return list.length?list[0]:null;}"
                 + "var active=null;"
-                + "function focus(el){if(!el)return false;"
+                + "function focus(el){if(!el)return false;el=normalizeTarget(el);"
                 + "if(isYouTube&&!isWatchPage&&isChannelLink(el)){var preferred=firstTarget();if(preferred&&preferred!==el)el=preferred;}"
                 + "if(active&&active!==el)active.classList.remove('abo-ezzat-remote-focus');"
                 + "active=el;active.classList.add('abo-ezzat-remote-focus');"
@@ -2116,8 +2124,16 @@ public class MainActivity extends Activity {
                 + "window.__aboRemoteActivate=function(){if(!active||!document.contains(active)){focus(firstTarget());return;}"
                 + "if(active.tagName==='VIDEO'){try{if(active.paused)active.play();else active.pause();}catch(e){}}"
                 + "else{try{active.click();}catch(e){}}};"
-                + "window.__aboRemoteTogglePlayback=function(){var v=active&&active.tagName==='VIDEO'?active:document.querySelector('video');"
+                + "window.__aboRemoteTogglePlayback=function(){var p=document.querySelector('#movie_player'),b=p&&p.querySelector('.ytp-play-button');"
+                + "if(b){b.click();return;}var v=active&&active.tagName==='VIDEO'?active:document.querySelector('video');"
                 + "if(v){try{if(v.paused)v.play();else v.pause();}catch(e){}}};"
+                + "window.__aboRemotePlayerCommand=function(cmd){var p=document.querySelector('#movie_player'),v=p&&p.querySelector('video')||document.querySelector('video');"
+                + "if(cmd==='toggle'){window.__aboRemoteTogglePlayback();return;}"
+                + "if(cmd==='forward'||cmd==='rewind'){if(v){try{v.currentTime=Math.max(0,v.currentTime+(cmd==='forward'?10:-10));}catch(e){}}return;}"
+                + "if(cmd==='fullscreen'){var f=p&&p.querySelector('.ytp-fullscreen-button');if(f)f.click();return;}"
+                + "if(cmd==='settings'){var q=p&&p.querySelector('.ytp-settings-button');if(q)q.click();return;}"
+                + "if(cmd==='mute'){var m=p&&p.querySelector('.ytp-mute-button');if(m)m.click();return;}"
+                + "if(cmd==='captions'){var c=p&&p.querySelector('.ytp-subtitles-button');if(c)c.click();return;}};"
                 + "document.addEventListener('focusin',function(e){if(e.target&&e.target.matches&&e.target.matches(selector)){"
                 + "if(isYouTube&&!isWatchPage&&isChannelLink(e.target)){var v=firstTarget();if(v){e.stopPropagation();focus(v);return;}}"
                 + "focus(e.target);}},true);"
@@ -3537,7 +3553,16 @@ public class MainActivity extends Activity {
                         target.evaluateJavascript("window.__aboRemoteActivate&&window.__aboRemoteActivate();", null);
                         return true;
                     case android.view.KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE:
-                        target.evaluateJavascript("window.__aboRemoteTogglePlayback&&window.__aboRemoteTogglePlayback();", null);
+                        target.evaluateJavascript("window.__aboRemotePlayerCommand&&window.__aboRemotePlayerCommand('toggle');", null);
+                        return true;
+                    case android.view.KeyEvent.KEYCODE_MEDIA_FAST_FORWARD:
+                        target.evaluateJavascript("window.__aboRemotePlayerCommand&&window.__aboRemotePlayerCommand('forward');", null);
+                        return true;
+                    case android.view.KeyEvent.KEYCODE_MEDIA_REWIND:
+                        target.evaluateJavascript("window.__aboRemotePlayerCommand&&window.__aboRemotePlayerCommand('rewind');", null);
+                        return true;
+                    case android.view.KeyEvent.KEYCODE_MENU:
+                        target.evaluateJavascript("window.__aboRemotePlayerCommand&&window.__aboRemotePlayerCommand('settings');", null);
                         return true;
                     default: break;
                 }
