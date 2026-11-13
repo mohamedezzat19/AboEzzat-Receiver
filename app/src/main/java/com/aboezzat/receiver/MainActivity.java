@@ -772,6 +772,15 @@ public class MainActivity extends Activity {
         return bg;
     }
 
+    private GradientDrawable browserFocusBackground(int fillColor, int strokeColor,
+            int radius, boolean focused) {
+        GradientDrawable background = new GradientDrawable();
+        background.setColor(fillColor);
+        background.setCornerRadius(dp(radius));
+        background.setStroke(dp(focused ? 5 : 1), strokeColor);
+        return background;
+    }
+
     private TextView makeText(
             String text,
             int size,
@@ -1027,13 +1036,14 @@ public class MainActivity extends Activity {
             homeButton.setFocusableInTouchMode(true);
             homeButton.setClickable(true);
             homeButton.setPadding(dp(6), dp(4), dp(6), dp(4));
-            homeButton.setBackground(roundedBackground(Color.rgb(20, 34, 61), Color.rgb(86, 132, 255), 14));
+            homeButton.setBackground(browserFocusBackground(Color.rgb(20, 34, 61), Color.rgb(86, 132, 255), 14, false));
             homeButton.setOnFocusChangeListener((v, focused) -> {
                 v.setScaleX(focused ? 1.12f : 1f);
                 v.setScaleY(focused ? 1.12f : 1f);
                 v.setElevation(focused ? dp(12) : dp(3));
-                v.setBackground(roundedBackground(focused ? Color.rgb(43, 66, 108) : Color.rgb(20, 34, 61),
-                        focused ? Color.rgb(255, 196, 87) : Color.rgb(86, 132, 255), 14));
+                v.setBackground(browserFocusBackground(
+                        focused ? Color.rgb(43, 66, 108) : Color.rgb(20, 34, 61),
+                        focused ? Color.rgb(255, 212, 0) : Color.rgb(86, 132, 255), 14, focused));
             });
         }
         settingsButton.setContentDescription("الإعدادات");
@@ -2187,10 +2197,11 @@ public class MainActivity extends Activity {
         button.setFocusableInTouchMode(true);
         button.setClickable(true);
         button.setContentDescription(description);
-        button.setBackground(roundedBackground(Color.rgb(20, 34, 61), Color.rgb(86, 132, 255), 12));
+        button.setBackground(browserFocusBackground(Color.rgb(20, 34, 61), Color.rgb(86, 132, 255), 12, false));
         button.setOnFocusChangeListener((v, focused) -> {
-            v.setBackground(roundedBackground(focused ? Color.rgb(43, 66, 108) : Color.rgb(20, 34, 61),
-                    focused ? Color.rgb(255, 212, 0) : Color.rgb(86, 132, 255), 12));
+            v.setBackground(browserFocusBackground(
+                    focused ? Color.rgb(43, 66, 108) : Color.rgb(20, 34, 61),
+                    focused ? Color.rgb(255, 212, 0) : Color.rgb(86, 132, 255), 12, focused));
             v.setScaleX(focused ? 1.06f : 1f);
             v.setScaleY(focused ? 1.06f : 1f);
             v.setElevation(focused ? dp(12) : dp(3));
@@ -2332,11 +2343,12 @@ public class MainActivity extends Activity {
         tile.setFocusableInTouchMode(true);
         tile.setClickable(true);
         tile.setPadding(dp(8), dp(6), dp(8), dp(6));
-        tile.setBackground(roundedBackground(Color.rgb(16, 31, 54),
-                Color.rgb(53, 82, 126), 16));
+        tile.setBackground(browserFocusBackground(Color.rgb(16, 31, 54),
+                Color.rgb(53, 82, 126), 16, false));
         tile.setOnFocusChangeListener((v, focused) -> {
-            v.setBackground(roundedBackground(focused ? Color.rgb(35, 58, 91) : Color.rgb(16, 31, 54),
-                    focused ? Color.rgb(255, 197, 74) : Color.rgb(53, 82, 126), 16));
+            v.setBackground(browserFocusBackground(
+                    focused ? Color.rgb(35, 58, 91) : Color.rgb(16, 31, 54),
+                    focused ? Color.rgb(255, 212, 0) : Color.rgb(53, 82, 126), 16, focused));
             v.setScaleX(focused ? 1.05f : 1f);
             v.setScaleY(focused ? 1.05f : 1f);
         });
@@ -4461,6 +4473,13 @@ public class MainActivity extends Activity {
         if (browserHomeButton != null) browserHomeButton.setVisibility(View.VISIBLE);
 
         updateConnectionInfo();
+        if (settingsHomeButton != null) {
+            settingsHomeButton.post(() -> {
+                if (!isFinishing() && settingsHomeButton.getVisibility() == View.VISIBLE) {
+                    settingsHomeButton.requestFocus();
+                }
+            });
+        }
     }
 
     @Override
