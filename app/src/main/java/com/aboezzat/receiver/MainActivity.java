@@ -1111,8 +1111,14 @@ public class MainActivity extends Activity {
             action.setMinWidth(dp(50));
             action.setMinHeight(dp(46));
         }
-        playerSettingsButton.setContentDescription("إعدادات الفيديو");
+        playerSettingsButton.setId(View.generateViewId());
+        playerSubtitleButton.setId(View.generateViewId());
+        playerSettingsButton.setContentDescription("إعدادات المشغل");
         playerSubtitleButton.setContentDescription("البحث عن ترجمة عربية");
+        playerSettingsButton.setNextFocusLeftId(playerSubtitleButton.getId());
+        playerSettingsButton.setNextFocusDownId(androidx.media3.ui.R.id.exo_play_pause);
+        playerSubtitleButton.setNextFocusRightId(playerSettingsButton.getId());
+        playerSubtitleButton.setNextFocusDownId(androidx.media3.ui.R.id.exo_play_pause);
         playerSettingsButton.setOnClickListener(v -> showPlaybackSettingsDialog());
         playerSubtitleButton.setOnClickListener(v -> searchAndApplyArabicSubtitle());
         playerSubtitleButton.setOnLongClickListener(v -> {
@@ -4177,6 +4183,14 @@ public class MainActivity extends Activity {
             if (playPause != null) {
                 playPause.setFocusable(true);
                 playPause.setFocusableInTouchMode(true);
+                playPause.setNextFocusUpId(playerSettingsButton == null
+                        ? View.NO_ID : playerSettingsButton.getId());
+                if (playerSettingsButton != null) {
+                    playerSettingsButton.setNextFocusDownId(playPause.getId());
+                }
+                if (playerSubtitleButton != null) {
+                    playerSubtitleButton.setNextFocusDownId(playPause.getId());
+                }
                 playPause.requestFocus();
             } else {
                 playerView.requestFocus();
