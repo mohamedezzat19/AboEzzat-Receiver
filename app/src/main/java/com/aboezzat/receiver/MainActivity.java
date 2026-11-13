@@ -3629,9 +3629,13 @@ public class MainActivity extends Activity {
                             persistExtractionState();
                             Log.e(TAG, "Media3 playback failed: " + detail,
                                     error == null ? null : error);
-                            runOnUiThread(() -> Toast.makeText(MainActivity.this,
-                                    "وصل الفيديو لكن فشل تشغيله: " + detail,
-                                    Toast.LENGTH_LONG).show());
+                            runOnUiThread(() -> {
+                                if (!tryOpenSmartTubeFallback(currentPlaybackUrl)) {
+                                    Toast.makeText(MainActivity.this,
+                                            "وصل الفيديو لكن فشل تشغيله: " + detail,
+                                            Toast.LENGTH_LONG).show();
+                                }
+                            });
                         }
 
                         @Override
@@ -4116,6 +4120,55 @@ public class MainActivity extends Activity {
     }
 
     // الصورة تظل ظاهرة بينما يشغّل ExoPlayer الصوت في الخلفية.
+
+    /**
+     * YouTube-only fallback: keep AboEzzat Receiver as the primary player.
+     * SmartTube is attempted only after Media3 reports a playback error.
+     * Ordinary MP4/HLS/DASH links are not handed to SmartTube.
+     */
+    private boolean tryOpenSmartTubeFallback(String failedUrl) {
+        if (failedUrl == null || failedUrl.trim().isEmpty()) return false;
+        android.net.Uri uri;
+        try {
+            uri = android.net.Uri.parse(failedUrl);
+        } catch (Exception ignored) {
+            return false;
+        }
+        String host = uri.getHost();
+        if (host == null) return false;
+        host = host.toLowerCase(java.util.Locale.ROOT);
+        boolean youtube = host.equals("youtu.be")
+                || host.equals("youtube.com")
+                || host.endsWith(".youtube.com")
+                || host.equals("youtube-nocookie.com")
+                || host.endsWith(".youtube-nocookie.com");
+        if (!youtube) return false;
+
+        String[] smartTubePackages = {
+                "com.liskovsoft.smarttubetv.beta",
+                "com.liskovsoft.smarttubetv"
+        };
+        for (String packageName : smartTubePackages) {
+            try {
+                android.content.Intent intent = new android.content.Intent(
+                        android.content.Intent.ACTION_VIEW, uri);
+                intent.setPackage(packageName);
+                intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK);
+                if (intent.resolveActivity(getPackageManager()) != null) {
+                    startActivity(intent);
+                    Log.i(TAG, "Opened YouTube fallback in SmartTube package " + packageName);
+                    return true;
+                }
+            } catch (Exception e) {
+                Log.w(TAG, "SmartTube fallback failed for " + packageName, e);
+            }
+        }
+        Toast.makeText(this,
+                "تعذر تشغيل الفيديو. SmartTube غير مثبت أو لا يقبل الرابط.",
+                Toast.LENGTH_LONG).show();
+        return true;
+    }
+
     private void playAudioAlongsideImage(String audioUrl) {
         currentPlaybackUrl = audioUrl;
         if (settingsHomeButton != null) settingsHomeButton.setVisibility(View.GONE);
