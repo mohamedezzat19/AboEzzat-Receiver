@@ -1764,50 +1764,14 @@ public class MainActivity extends Activity {
     private volatile int extractionGeneration = 0;
 
     private void resolveSharedVideoToStream(String pageUrl) {
-        // YouTube requires a dedicated extractor; generic page parsers only see the watch page.
+        // Receiver accepts direct media URLs from Cast. A YouTube watch page means
+        // sender-side extraction did not complete; do not run extractors on the TV.
         if (isYouTubeUrl(pageUrl)) {
-            final int generation = ++extractionGeneration;
-            extractionInProgress = true;
-            extractionAttemptCount = 1;
-            extractionStatus = "youtube_extractor";
-            playbackStatusMessage = "جاري استخراج مسار YouTube مباشر…";
+            extractionInProgress = false;
+            extractionStatus = "youtube_page_rejected";
+            playbackStatusMessage = "لم يصل رابط فيديو مباشر من Cast.";
             persistExtractionState();
-            runOnUiThread(() -> {
-                if (receiverStatusText != null) receiverStatusText.setText("جاري استخراج فيديو YouTube للتشغيل المباشر…");
-            });
-            YoutubeDirectExtractor.extract(pageUrl, new YoutubeDirectExtractor.Callback() {
-                @Override public void onSuccess(String streamUrl, String title, String quality) {
-                    runOnUiThread(() -> {
-                        if (generation != extractionGeneration || isFinishing()) return;
-                        extractionInProgress = false;
-                        extractionStatus = "youtube_resolved";
-                        playbackStatusMessage = "تم استخراج " + (title == null ? "فيديو YouTube" : title)
-                                + " بجودة " + quality + "؛ جاري التشغيل على الريسيفر.";
-                        persistExtractionState();
-                        if (receiverStatusText != null) receiverStatusText.setText("نجح استخراج YouTube؛ جاري تشغيل الفيديو مباشرة");
-                        try {
-                            playContent(streamUrl, null);
-                        } catch (Throwable playbackCrash) {
-                            Log.e(TAG, "YouTube stream handoff failed safely", playbackCrash);
-                            extractionStatus = "youtube_playback_handoff_failed";
-                            playbackStatusMessage = "تعذر تسليم مسار YouTube للمشغل؛ جاري فتح SmartTube.";
-                            persistExtractionState();
-                            if (!tryOpenSmartTubeFallback(pageUrl)) showExtractionFailureFallback(pageUrl);
-                        }
-                    });
-                }
-                @Override public void onError(String reason) {
-                    runOnUiThread(() -> {
-                        if (generation != extractionGeneration || isFinishing()) return;
-                        Log.w(TAG, "YouTube direct extraction failed: " + reason);
-                        extractionInProgress = false;
-                        extractionStatus = "youtube_extraction_failed";
-                        extractionAttemptCount = 1;
-                        persistExtractionState();
-                        showExtractionFailureFallback(pageUrl);
-                    });
-                }
-            });
+            if (!tryOpenSmartTubeFallback(pageUrl)) showExtractionFailureFallback(pageUrl);
             return;
         }
         final int generation = ++extractionGeneration;
