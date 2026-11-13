@@ -1785,7 +1785,15 @@ public class MainActivity extends Activity {
                                 + " بجودة " + quality + "؛ جاري التشغيل على الريسيفر.";
                         persistExtractionState();
                         if (receiverStatusText != null) receiverStatusText.setText("نجح استخراج YouTube؛ جاري تشغيل الفيديو مباشرة");
-                        playContent(streamUrl, null);
+                        try {
+                            playContent(streamUrl, null);
+                        } catch (Throwable playbackCrash) {
+                            Log.e(TAG, "YouTube stream handoff failed safely", playbackCrash);
+                            extractionStatus = "youtube_playback_handoff_failed";
+                            playbackStatusMessage = "تعذر تسليم مسار YouTube للمشغل؛ جاري فتح SmartTube.";
+                            persistExtractionState();
+                            if (!tryOpenSmartTubeFallback(pageUrl)) showExtractionFailureFallback(pageUrl);
+                        }
                     });
                 }
                 @Override public void onError(String reason) {
@@ -2069,12 +2077,16 @@ public class MainActivity extends Activity {
                 + "style.textContent=':focus,.abo-ezzat-remote-focus{outline:6px solid #FFD400!important;"
                 + "outline-offset:4px!important;box-shadow:0 0 0 3px #111!important;}';"
                 + "document.documentElement.appendChild(style);}"
-                + "var selector='a[href],button,input:not([type=hidden]),select,textarea,video,[role=button],[tabindex],summary,iframe';"
+                + "var selector='a[href],button,input:not([type=hidden]),select,textarea,video,[role=button],[tabindex],summary,iframe,#movie_player';"
                 + "function visible(el){if(!el||!el.getBoundingClientRect)return false;"
                 + "var r=el.getBoundingClientRect(),s=getComputedStyle(el);"
                 + "return r.width>3&&r.height>3&&el.getAttribute('tabindex')!=='-1'&&s.display!=='none'&&s.visibility!=='hidden'"
                 + "&&Number(s.opacity||1)>0&&r.bottom>0&&r.right>0&&r.top<innerHeight&&r.left<innerWidth;}"
                 + "function anchorOf(el){try{return el&&el.closest?el.closest('a[href]'):null;}catch(e){return null;}}"
+                + "function playerSurface(el){var p=document.querySelector('#movie_player');return !!(p&&el&&(el===p||p.contains(el)));}"
+                + "function playerControls(){var p=document.querySelector('#movie_player');if(!p)return[];"
+                + "var q=['.ytp-play-button','.ytp-mute-button','.ytp-subtitles-button','.ytp-settings-button','.ytp-size-button','.ytp-fullscreen-button'];"
+                + "var out=[];q.forEach(function(sel){var e=p.querySelector(sel);if(e&&visible(e))out.push(e);});return out;}"
                 + "function isChannelLink(el){var a=anchorOf(el)||el;if(!a||!a.getAttribute)return false;"
                 + "var h=a.getAttribute('href')||'';return /^\\/(?:@|channel\\/|c\\/|user\\/)/i.test(h)||/youtube\\.com\\/(?:@|channel\\/|c\\/|user\\/)/i.test(h);}"
                 + "function isVideoLink(el){var a=anchorOf(el)||el;if(!a||!a.getAttribute)return false;"
@@ -2084,12 +2096,16 @@ public class MainActivity extends Activity {
                 + "var q='a#thumbnail[href*=\\\"watch\\\"],ytd-thumbnail a[href*=\\\"watch\\\"],a.yt-lockup-view-model__content-image[href*=\\\"watch\\\"],a[href*=\\\"/watch?\\\"]';"
                 + "var a=Array.prototype.slice.call(document.querySelectorAll(q)).filter(function(e){return visible(e)&&isVideoLink(e);});"
                 + "a.sort(function(x,y){var rx=x.getBoundingClientRect(),ry=y.getBoundingClientRect();return (ry.width*ry.height)-(rx.width*rx.height);});return a;}"
-                + "function normalizeTarget(el){if(!el)return el;var a=anchorOf(el)||el;if(isYouTube&&!isWatchPage&&isVideoLink(a)){"
+                + "function normalizeTarget(el){if(!el)return el;if(isYouTube&&isWatchPage&&playerSurface(el)){var p=document.querySelector('#movie_player');if(p){p.setAttribute('tabindex','0');return p;}}var a=anchorOf(el)||el;if(isYouTube&&!isWatchPage&&isVideoLink(a)){"
                 + "var thumb=a.matches&&a.matches('a#thumbnail,a.yt-lockup-view-model__content-image')?a:"
                 + "(a.querySelector&&a.querySelector('ytd-thumbnail')?a:(a.closest&&a.closest('ytd-rich-item-renderer,ytd-video-renderer,yt-lockup-view-model')?a:null));"
                 + "if(thumb)return thumb;}return a;}"
                 + "function items(){var raw=rawItems(),list=[],seen=[];raw.forEach(function(el){var t=normalizeTarget(el);"
-                + "if(!t||seen.indexOf(t)>=0)return;seen.push(t);if(!(isYouTube&&!isWatchPage&&isChannelLink(t)))list.push(t);});"
+                + "if(!t||seen.indexOf(t)>=0)return;seen.push(t);"
+                + "if(isYouTube&&!isWatchPage&&(isChannelLink(t)||t.closest&&t.closest('ytd-menu-renderer,#menu,ytd-video-meta-block')))return;"
+                + "if(isYouTube&&isWatchPage&&playerSurface(t)){if(list.indexOf(t)<0)list.unshift(t);return;}"
+                + "if(isYouTube&&isWatchPage&&playerSurface(t))return;list.push(t);});"
+                + "if(isYouTube&&isWatchPage){var ps=document.querySelector('#movie_player');if(ps){ps.setAttribute('tabindex','0');if(visible(ps)&&list.indexOf(ps)<0)list.unshift(ps);}}"
                 + "if(isYouTube&&!isWatchPage){var thumbs=videoThumbs();thumbs.forEach(function(v){if(list.indexOf(v)<0)list.unshift(v);});"
                 + "if(thumbs.length)list=list.filter(function(el){return !isVideoLink(el)||thumbs.indexOf(el)>=0;}).concat(list.filter(function(el){return isVideoLink(el)&&thumbs.indexOf(el)<0;}));}"
                 + "return list;}"
@@ -2104,7 +2120,12 @@ public class MainActivity extends Activity {
                 + "try{active.focus({preventScroll:true});}catch(e){try{active.focus();}catch(x){}}"
                 + "try{active.scrollIntoView({block:'nearest',inline:'nearest',behavior:'smooth'});}catch(e){}"
                 + "return true;}"
-                + "function move(dir){var list=items();if(!list.length)return;"
+                + "function move(dir){"
+                + "if(isYouTube&&isWatchPage&&active&&playerSurface(active)){"
+                + "if(dir==='left'||dir==='right'){window.__aboRemotePlayerCommand(dir==='left'?'rewind':'forward');return;}"
+                + "var controls=playerControls();if(controls.length){var at=controls.indexOf(active),next=dir==='down'?Math.min(controls.length-1,at+1):Math.max(0,at-1);focus(controls[next<0?0:next]);return;}"
+                + "var surface=document.querySelector('#movie_player');if(surface)focus(surface);return;}"
+                + "var list=items();if(!list.length)return;"
                 + "if(!active||!document.contains(active)||!visible(active)){focus(firstTarget());return;}"
                 + "var a=active.getBoundingClientRect(),ax=a.left+a.width/2,ay=a.top+a.height/2;"
                 + "var best=null,bestScore=1e20;"
@@ -2122,6 +2143,7 @@ public class MainActivity extends Activity {
                 + "setTimeout(function(){var next=items();if(next.length)focus(firstTarget());},180);}}"
                 + "window.__aboRemoteMove=move;"
                 + "window.__aboRemoteActivate=function(){if(!active||!document.contains(active)){focus(firstTarget());return;}"
+                + "if(isYouTube&&isWatchPage&&playerSurface(active)){window.__aboRemotePlayerCommand('toggle');return;}"
                 + "if(active.tagName==='VIDEO'){try{if(active.paused)active.play();else active.pause();}catch(e){}}"
                 + "else{try{active.click();}catch(e){}}};"
                 + "window.__aboRemoteTogglePlayback=function(){var p=document.querySelector('#movie_player'),b=p&&p.querySelector('.ytp-play-button');"
@@ -3563,6 +3585,10 @@ public class MainActivity extends Activity {
                         return true;
                     case android.view.KeyEvent.KEYCODE_MENU:
                         target.evaluateJavascript("window.__aboRemotePlayerCommand&&window.__aboRemotePlayerCommand('settings');", null);
+                        return true;
+                    case android.view.KeyEvent.KEYCODE_INFO:
+                    case android.view.KeyEvent.KEYCODE_ZOOM_IN:
+                        target.evaluateJavascript("window.__aboRemotePlayerCommand&&window.__aboRemotePlayerCommand('fullscreen');", null);
                         return true;
                     default: break;
                 }
