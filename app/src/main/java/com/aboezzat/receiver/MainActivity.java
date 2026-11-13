@@ -3195,6 +3195,67 @@ public class MainActivity extends Activity {
         return null;
     }
 
+    // Drama Live's SwiftData endpoint is a live HLS playlist disguised as index.html.
+    // Prefer the installed VLC app for this one known provider; other media keeps using ExoPlayer.
+    private boolean isSwiftDataDramaLiveUrl(String url) {
+        if (!isHttpUrl(url)) return false;
+        try {
+            Uri uri = Uri.parse(url);
+            String host = uri.getHost();
+            String path = uri.getPath();
+            return host != null && path != null
+                    && host.toLowerCase(Locale.ROOT).contains("swiftdatahost.")
+                    && path.toLowerCase(Locale.ROOT).startsWith("/fk/")
+                    && path.toLowerCase(Locale.ROOT).endsWith("/index.html");
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    private boolean tryOpenDramaLiveInVlc(String url) {
+        if (!isSwiftDataDramaLiveUrl(url)) return false;
+        try {
+            android.content.Intent vlcIntent = new android.content.Intent(
+                    android.content.Intent.ACTION_VIEW);
+            vlcIntent.setDataAndType(Uri.parse(url), "application/vnd.apple.mpegurl");
+            vlcIntent.setPackage("org.videolan.vlc");
+            startActivity(vlcIntent);
+            extractionInProgress = false;
+            extractionAttemptCount = 0;
+            extractionStatus = "opened_in_vlc";
+            playbackStatusMessage = "تم إرسال قناة Drama Live إلى VLC على التلفزيون.";
+            persistExtractionState();
+            Toast.makeText(this, "جاري فتح قناة Drama Live في VLC…", Toast.LENGTH_LONG).show();
+            Log.i(TAG, "Opened SwiftData Drama Live playlist in VLC");
+            return true;
+        } catch (ActivityNotFoundException e) {
+            Log.i(TAG, "VLC is not installed or did not accept the HLS MIME type; trying URI intent", e);
+        } catch (Exception e) {
+            Log.w(TAG, "Could not open Drama Live in VLC with HLS MIME type", e);
+        }
+
+        // Some VLC builds register the HTTP(S) URL filter without an HLS MIME filter.
+        try {
+            android.content.Intent vlcIntent = new android.content.Intent(
+                    android.content.Intent.ACTION_VIEW, Uri.parse(url));
+            vlcIntent.setPackage("org.videolan.vlc");
+            startActivity(vlcIntent);
+            extractionInProgress = false;
+            extractionAttemptCount = 0;
+            extractionStatus = "opened_in_vlc";
+            playbackStatusMessage = "تم إرسال قناة Drama Live إلى VLC على التلفزيون.";
+            persistExtractionState();
+            Toast.makeText(this, "جاري فتح قناة Drama Live في VLC…", Toast.LENGTH_LONG).show();
+            Log.i(TAG, "Opened SwiftData Drama Live URL in VLC using URI intent");
+            return true;
+        } catch (ActivityNotFoundException e) {
+            Log.i(TAG, "VLC is not installed; falling back to Receiver's ExoPlayer", e);
+        } catch (Exception e) {
+            Log.w(TAG, "VLC URI intent failed; falling back to Receiver's ExoPlayer", e);
+        }
+        return false;
+    }
+
     // natively play media URLs; resolve page URLs to a direct stream instead of opening another app.
     private void queueIncomingMedia(String mediaUrl, String audioUrl) {
         queueIncomingMedia(mediaUrl, audioUrl, java.util.Collections.emptyMap());
@@ -3234,6 +3295,18 @@ public class MainActivity extends Activity {
             if ((originalMediaUrl != null && !originalMediaUrl.trim().isEmpty())
                     || (originalAudioUrl != null && !originalAudioUrl.trim().isEmpty())) {
                 Toast.makeText(this, "رابط غير مدعوم؛ استخدم رابط HTTP أو HTTPS صالحًا.", Toast.LENGTH_LONG).show();
+            }
+            return;
+        }
+
+        // Only the known SwiftData /fk/.../index.html live playlist is handed to VLC.
+        // If VLC is unavailable, bypass generic page extraction and let Media3 use the
+        // existing HLS MIME override in createPlaybackMediaItem().
+        if (hasMedia && !hasAudio && !isImageUrl(mediaUrl)
+                && isSwiftDataDramaLiveUrl(mediaUrl)) {
+            if (!tryOpenDramaLiveInVlc(mediaUrl)) {
+                Log.i(TAG, "Using Receiver ExoPlayer fallback for SwiftData Drama Live URL");
+                playContent(mediaUrl, null, pendingPlaybackHeaders);
             }
             return;
         }
