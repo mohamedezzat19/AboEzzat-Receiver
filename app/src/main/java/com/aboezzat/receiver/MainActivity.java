@@ -1978,12 +1978,30 @@ public class MainActivity extends Activity {
     }
 
     private void showExtractionFailureFallback(String pageUrl) {
-        if (isYouTubeUrl(currentPlaybackFallbackUrl)
-                && tryOpenSmartTubeFallback(currentPlaybackFallbackUrl)) {
-            extractionStatus = "smarttube_fallback";
-            playbackStatusMessage = "تعذر استخراج رابط مباشر؛ تم تحويل رابط YouTube الأصلي إلى SmartTube.";
-            persistExtractionState();
-            return;
+        // Some senders provide the YouTube page as mediaUrl but omit sourceUrl.
+        // Preserve that original page URL so the SmartTube fallback is not skipped.
+        if (!isYouTubeUrl(currentPlaybackFallbackUrl) && isYouTubeUrl(pageUrl)) {
+            currentPlaybackFallbackUrl = pageUrl;
+        }
+        if (isYouTubeUrl(currentPlaybackFallbackUrl)) {
+            if (tryOpenSmartTubeFallback(currentPlaybackFallbackUrl)) {
+                extractionStatus = "smarttube_fallback";
+                playbackStatusMessage = "تعذر استخراج رابط مباشر؛ تم تحويل رابط YouTube الأصلي إلى SmartTube.";
+                persistExtractionState();
+                return;
+            }
+            try {
+                android.content.Intent viewIntent = new android.content.Intent(
+                        android.content.Intent.ACTION_VIEW, Uri.parse(currentPlaybackFallbackUrl));
+                viewIntent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK);
+                startActivity(android.content.Intent.createChooser(viewIntent, "اختَر تطبيق تشغيل فيديو YouTube"));
+                extractionStatus = "app_chooser";
+                playbackStatusMessage = "تعذر استخراج رابط مباشر؛ اختر تطبيق تشغيل الفيديو.";
+                persistExtractionState();
+                return;
+            } catch (Exception chooserError) {
+                Log.w(TAG, "Could not show YouTube app chooser", chooserError);
+            }
         }
         pendingBrowserUrl = pageUrl;
         showWelcome();
@@ -3418,6 +3436,49 @@ public class MainActivity extends Activity {
         if (event.getAction() == android.view.KeyEvent.ACTION_DOWN
                 && handleImageRemoteKey(event.getKeyCode())) {
             return true;
+        }
+
+        // Consistent hardware-remote controls while the native ExoPlayer surface is active.
+        if (event.getAction() == android.view.KeyEvent.ACTION_DOWN
+                && playerView != null && playerView.getVisibility() == View.VISIBLE
+                && currentPlaybackHasVideo && player != null) {
+            switch (event.getKeyCode()) {
+                case android.view.KeyEvent.KEYCODE_DPAD_CENTER:
+                case android.view.KeyEvent.KEYCODE_ENTER:
+                case android.view.KeyEvent.KEYCODE_NUMPAD_ENTER:
+                case android.view.KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE:
+                    synchronized (playerLock) {
+                        if (player.isPlaying()) player.pause();
+                        else {
+                            if (player.getPlaybackState() == Player.STATE_ENDED) player.seekToDefaultPosition();
+                            player.play();
+                        }
+                        playerView.showController();
+                    }
+                    return true;
+                case android.view.KeyEvent.KEYCODE_MEDIA_FAST_FORWARD:
+                case android.view.KeyEvent.KEYCODE_DPAD_RIGHT:
+                    synchronized (playerLock) {
+                        long duration = player.getDuration();
+                        long target = player.getCurrentPosition() + 10000L;
+                        player.seekTo(duration > 0 ? Math.min(target, duration) : target);
+                        playerView.showController();
+                    }
+                    return true;
+                case android.view.KeyEvent.KEYCODE_MEDIA_REWIND:
+                case android.view.KeyEvent.KEYCODE_DPAD_LEFT:
+                    synchronized (playerLock) {
+                        player.seekTo(Math.max(0L, player.getCurrentPosition() - 10000L));
+                        playerView.showController();
+                    }
+                    return true;
+                case android.view.KeyEvent.KEYCODE_DPAD_UP:
+                case android.view.KeyEvent.KEYCODE_DPAD_DOWN:
+                    playerView.showController();
+                    return false;
+                default:
+                    break;
+            }
         }
 
         // Route TV remote navigation into the website instead of requiring a mouse.
