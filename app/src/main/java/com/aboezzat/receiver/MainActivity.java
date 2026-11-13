@@ -3877,7 +3877,7 @@ public class MainActivity extends Activity {
 
                     MediaSource videoSource =
                             factory.createMediaSource(
-                                    MediaItem.fromUri(playbackUrl)
+                                    createPlaybackMediaItem(playbackUrl)
                             );
 
                     MediaSource audioSource =
@@ -3896,7 +3896,7 @@ public class MainActivity extends Activity {
 
                 } else {
                     player.setMediaSource(createMediaSourceFactory(requestHeaders)
-                            .createMediaSource(MediaItem.fromUri(playbackUrl)));
+                            .createMediaSource(createPlaybackMediaItem(playbackUrl)));
                 }
 
                 player.prepare();
@@ -3915,6 +3915,35 @@ public class MainActivity extends Activity {
             Log.e(TAG, "Playback error", e);
             showWelcome();
         }
+    }
+
+    // Some live IPTV providers serve an HLS playlist from an .html URL.
+    // Media3 otherwise infers a progressive HTML resource from the suffix and
+    // never starts the HLS parser. Restrict the override to the known SwiftData
+    // /fk/.../index.html playlist pattern; ordinary web pages remain unchanged.
+    private void applyKnownPlaylistMimeType(MediaItem.Builder builder, String url) {
+        if (builder == null || url == null) return;
+        try {
+            Uri uri = Uri.parse(url);
+            String host = uri.getHost();
+            String path = uri.getPath();
+            if (host == null || path == null) return;
+            host = host.toLowerCase(Locale.ROOT);
+            path = path.toLowerCase(Locale.ROOT);
+            if (host.contains("swiftdatahost.") && path.startsWith("/fk/")
+                    && path.endsWith("/index.html")) {
+                builder.setMimeType(MimeTypes.APPLICATION_M3U8);
+                Log.i(TAG, "Treating SwiftData index.html endpoint as HLS playlist");
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "Could not inspect playback URL for HLS MIME override", e);
+        }
+    }
+
+    private MediaItem createPlaybackMediaItem(String url) {
+        MediaItem.Builder builder = new MediaItem.Builder().setUri(url);
+        applyKnownPlaylistMimeType(builder, url);
+        return builder.build();
     }
 
     private SharedPreferences getPlayerSettingsPrefs() {
@@ -4440,8 +4469,10 @@ public class MainActivity extends Activity {
                                 .setLanguage("ar")
                                 .setSelectionFlags(C.SELECTION_FLAG_DEFAULT)
                                 .build();
-                MediaItem videoItem = new MediaItem.Builder()
-                        .setUri(currentPlaybackUrl)
+                MediaItem.Builder videoItemBuilder = new MediaItem.Builder()
+                        .setUri(currentPlaybackUrl);
+                applyKnownPlaylistMimeType(videoItemBuilder, currentPlaybackUrl);
+                MediaItem videoItem = videoItemBuilder
                         .setSubtitleConfigurations(java.util.Collections.singletonList(subtitleConfig))
                         .build();
                 DefaultMediaSourceFactory factory = createMediaSourceFactory(currentPlaybackHeaders);
