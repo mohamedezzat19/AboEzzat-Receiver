@@ -159,6 +159,7 @@ public class MainActivity extends Activity {
     private final Object playerLock = new Object();
     private SharedPreferences playbackPrefs;
     private String currentPlaybackUrl = "";
+    private boolean smartTubeFallbackAttempted = false;
     private final Handler playbackProgressHandler = new Handler(Looper.getMainLooper());
     // Persist the position against the URI actually loaded in ExoPlayer. The
     // mutable currentPlaybackUrl can already point at the next request.
@@ -3571,6 +3572,7 @@ public class MainActivity extends Activity {
             return;
         }
 
+        smartTubeFallbackAttempted = false;
         currentPlaybackUrl = playbackUrl;
         currentPlaybackHasVideo = mediaUrl != null && !mediaUrl.trim().isEmpty() && !isImageUrl(mediaUrl);
         currentPlaybackAudioUrl = audioUrl == null ? "" : audioUrl;
@@ -3630,9 +3632,16 @@ public class MainActivity extends Activity {
                             Log.e(TAG, "Media3 playback failed: " + detail,
                                     error == null ? null : error);
                             runOnUiThread(() -> {
+                                if (!currentPlaybackHasVideo || smartTubeFallbackAttempted) {
+                                    Toast.makeText(MainActivity.this,
+                                            "فشل تشغيل الوسائط: " + detail,
+                                            Toast.LENGTH_LONG).show();
+                                    return;
+                                }
+                                smartTubeFallbackAttempted = true;
                                 if (!tryOpenSmartTubeFallback(currentPlaybackUrl)) {
                                     Toast.makeText(MainActivity.this,
-                                            "وصل الفيديو لكن فشل تشغيله: " + detail,
+                                            "فشل تشغيل الفيديو، ولا يوجد تطبيق SmartTube متوافق مع الرابط.",
                                             Toast.LENGTH_LONG).show();
                                 }
                             });
@@ -4126,23 +4135,23 @@ public class MainActivity extends Activity {
      * SmartTube is attempted only after Media3 reports a playback error.
      * Ordinary MP4/HLS/DASH links are not handed to SmartTube.
      */
+    /**
+     * Try SmartTube as a one-shot fallback after Receiver fails to play a video.
+     * SmartTube may accept YouTube links and some direct media URLs depending on
+     * its installed version and intent filters. Receiver remains the primary player.
+     */
     private boolean tryOpenSmartTubeFallback(String failedUrl) {
         if (failedUrl == null || failedUrl.trim().isEmpty()) return false;
         android.net.Uri uri;
         try {
-            uri = android.net.Uri.parse(failedUrl);
+            uri = android.net.Uri.parse(failedUrl.trim());
         } catch (Exception ignored) {
             return false;
         }
-        String host = uri.getHost();
-        if (host == null) return false;
-        host = host.toLowerCase(java.util.Locale.ROOT);
-        boolean youtube = host.equals("youtu.be")
-                || host.equals("youtube.com")
-                || host.endsWith(".youtube.com")
-                || host.equals("youtube-nocookie.com")
-                || host.endsWith(".youtube-nocookie.com");
-        if (!youtube) return false;
+        String scheme = uri.getScheme();
+        if (!"http".equalsIgnoreCase(scheme) && !"https".equalsIgnoreCase(scheme)) {
+            return false;
+        }
 
         String[] smartTubePackages = {
                 "com.liskovsoft.smarttubetv.beta",
@@ -4156,17 +4165,15 @@ public class MainActivity extends Activity {
                 intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK);
                 if (intent.resolveActivity(getPackageManager()) != null) {
                     startActivity(intent);
-                    Log.i(TAG, "Opened YouTube fallback in SmartTube package " + packageName);
+                    Log.i(TAG, "Opened SmartTube fallback package " + packageName
+                            + " for " + uri.getHost());
                     return true;
                 }
             } catch (Exception e) {
                 Log.w(TAG, "SmartTube fallback failed for " + packageName, e);
             }
         }
-        Toast.makeText(this,
-                "تعذر تشغيل الفيديو. SmartTube غير مثبت أو لا يقبل الرابط.",
-                Toast.LENGTH_LONG).show();
-        return true;
+        return false;
     }
 
     private void playAudioAlongsideImage(String audioUrl) {
