@@ -232,6 +232,17 @@ public class MainActivity extends Activity {
         startReceiverService();
         handleExternalIntent(getIntent());
         playbackProgressHandler.postDelayed(playbackProgressRunnable, 3000L);
+
+        // Check for a newer Receiver release automatically when launched from its icon.
+        // Do not interrupt media arriving through Android's share/view intents.
+        String launchAction = getIntent() == null ? null : getIntent().getAction();
+        if (launchAction == null || android.content.Intent.ACTION_MAIN.equals(launchAction)) {
+            new Handler(Looper.getMainLooper()).postDelayed(() -> {
+                if (!isFinishing() && !isDestroyed()) {
+                    new AppUpdater(this).checkForUpdate(false);
+                }
+            }, 700L);
+        }
     }
 
     @Override
@@ -478,54 +489,7 @@ public class MainActivity extends Activity {
     }
 
     private void checkReceiverUpdate() {
-        Toast.makeText(this, "جارٍ البحث عن تحديث للريسيفر…", Toast.LENGTH_SHORT).show();
-        new Thread(() -> {
-            java.net.HttpURLConnection connection = null;
-            try {
-                URL url = new URL("https://api.github.com/repos/mohamedezzat19/AboEzzat-Receiver/releases/latest");
-                connection = (java.net.HttpURLConnection) url.openConnection();
-                connection.setConnectTimeout(12000);
-                connection.setReadTimeout(12000);
-                connection.setRequestProperty("Accept", "application/vnd.github+json");
-                int status = connection.getResponseCode();
-                if (status < 200 || status >= 300) throw new Exception("HTTP " + status);
-                StringBuilder body = new StringBuilder();
-                try (java.io.BufferedReader reader = new java.io.BufferedReader(new java.io.InputStreamReader(connection.getInputStream(), java.nio.charset.StandardCharsets.UTF_8))) {
-                    String line; while ((line = reader.readLine()) != null) body.append(line);
-                }
-                org.json.JSONObject release = new org.json.JSONObject(body.toString());
-                java.util.regex.Matcher matcher = java.util.regex.Pattern.compile("versionCode\\s*:\\s*(\\d+)").matcher(release.optString("body", ""));
-                long latest = matcher.find() ? Long.parseLong(matcher.group(1)) : 0L;
-                android.content.pm.PackageInfo installedInfo = getPackageManager().getPackageInfo(getPackageName(), 0);
-                long installed = android.os.Build.VERSION.SDK_INT >= 28 ? installedInfo.getLongVersionCode() : installedInfo.versionCode;
-                String apkUrl = null;
-                org.json.JSONArray assets = release.optJSONArray("assets");
-                if (assets != null) for (int i = 0; i < assets.length(); i++) {
-                    org.json.JSONObject asset = assets.optJSONObject(i);
-                    if (asset != null && "app-release.apk".equals(asset.optString("name"))) { apkUrl = asset.optString("browser_download_url", null); break; }
-                }
-                final long latestCode = latest;
-                final long installedCode = installed;
-                final String downloadUrl = apkUrl;
-                runOnUiThread(() -> {
-                    if (latestCode <= installedCode || downloadUrl == null || downloadUrl.isEmpty()) {
-                        new AlertDialog.Builder(this).setTitle("البحث عن التحديثات")
-                                .setMessage("أنت على أحدث إصدار متاح، أو لم تُنشر نسخة APK موقّعة بعد.\nالإصدار المثبت: " + installedCode + "\nأحدث إصدار: " + latestCode)
-                                .setPositiveButton("حسنًا", null).show();
-                        return;
-                    }
-                    new AlertDialog.Builder(this).setTitle("تحديث جديد متاح")
-                            .setMessage("الإصدار المثبت: " + installedCode + "\nالإصدار الجديد: " + latestCode + "\nهل تريد تنزيله وتثبيته؟")
-                            .setNegativeButton("لاحقًا", null)
-                            .setPositiveButton("تنزيل وتثبيت", (d,w) -> downloadAndInstallReceiver(downloadUrl))
-                            .show();
-                });
-            } catch (Exception e) {
-                Log.e(TAG, "Receiver update check failed", e);
-                runOnUiThread(() -> new AlertDialog.Builder(this).setTitle("تعذّر البحث عن التحديث")
-                        .setMessage("تأكد من اتصال الإنترنت ثم حاول مرة أخرى.").setPositiveButton("حسنًا", null).show());
-            } finally { if (connection != null) connection.disconnect(); }
-        }, "receiver-update-check").start();
+        new AppUpdater(this).checkForUpdate(true);
     }
 
     private void downloadAndInstallReceiver(String apkUrl) {
