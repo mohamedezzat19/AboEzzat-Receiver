@@ -3996,17 +3996,29 @@ public class MainActivity extends Activity {
         if (builder == null || url == null) return;
         try {
             Uri uri = Uri.parse(url);
-            String host = uri.getHost();
             String path = uri.getPath();
-            if (host == null || path == null) return;
-            host = host.toLowerCase(Locale.ROOT);
-            path = path.toLowerCase(Locale.ROOT);
-            if (path.matches("^/[^/]+/[^/]+/index\\.html$")) {
+            String lowerUrl = url.toLowerCase(Locale.ROOT);
+            String lowerPath = path == null ? "" : path.toLowerCase(Locale.ROOT);
+
+            // Some providers expose a manifest at an extension-less URL and
+            // identify its format only through MIME/format query parameters.
+            boolean hlsManifest = lowerUrl.contains("application/vnd.apple.mpegurl")
+                    || lowerUrl.contains("application/x-mpegurl")
+                    || lowerUrl.contains("format=m3u8")
+                    || lowerUrl.contains("playlist.m3u8")
+                    || lowerUrl.contains("chunklist");
+            boolean dashManifest = lowerUrl.contains("application/dash+xml")
+                    || lowerUrl.contains("format=mpd");
+
+            if (hlsManifest || lowerPath.matches("^/[^/]+/[^/]+/index\\.html$")) {
                 builder.setMimeType(MimeTypes.APPLICATION_M3U8);
-                Log.i(TAG, "Treating /<type>/<id>/index.html endpoint as HLS playlist");
+                Log.i(TAG, "Treating URL as an HLS playlist");
+            } else if (dashManifest) {
+                builder.setMimeType(MimeTypes.APPLICATION_MPD);
+                Log.i(TAG, "Treating URL as a DASH manifest");
             }
         } catch (Exception e) {
-            Log.w(TAG, "Could not inspect playback URL for HLS MIME override", e);
+            Log.w(TAG, "Could not inspect playback URL for playlist MIME override", e);
         }
     }
 
