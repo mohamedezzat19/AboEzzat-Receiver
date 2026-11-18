@@ -125,8 +125,8 @@ public final class VlcPlaybackEngine {
             media.setHWDecoderEnabled(hardwareDecoder, false);
             media.addOption(":network-caching=" + DEFAULT_NETWORK_CACHING_MS);
             media.addOption(":clock-jitter=0");
-            String lower = url.toLowerCase(Locale.ROOT);
-            if (lower.contains("/index.html") || lower.endsWith(".m3u8")
+            String lower = Uri.decode(url).toLowerCase(Locale.ROOT);
+            if (lower.contains("/index.html") || lower.contains(".m3u8")
                     || lower.contains("format=m3u8") || lower.contains("chunklist")) {
                 media.addOption(":demux=adaptive");
             }
