@@ -49,6 +49,7 @@ import androidx.media3.common.C;
 import androidx.media3.common.MimeTypes;
 import androidx.media3.common.util.UnstableApi;
 import androidx.media3.exoplayer.ExoPlayer;
+import androidx.media3.exoplayer.DefaultLoadControl;
 import androidx.media3.datasource.DefaultHttpDataSource;
 import androidx.media3.datasource.DefaultDataSource;
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory;
@@ -1934,18 +1935,10 @@ public class MainActivity extends Activity {
                 persistExtractionState();
                 return;
             }
-            try {
-                android.content.Intent viewIntent = new android.content.Intent(
-                        android.content.Intent.ACTION_VIEW, Uri.parse(currentPlaybackFallbackUrl));
-                viewIntent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK);
-                startActivity(android.content.Intent.createChooser(viewIntent, "اختَر تطبيق تشغيل فيديو YouTube"));
-                extractionStatus = "app_chooser";
-                playbackStatusMessage = "تعذر استخراج رابط مباشر؛ اختر تطبيق تشغيل الفيديو.";
-                persistExtractionState();
-                return;
-            } catch (Exception chooserError) {
-                Log.w(TAG, "Could not show YouTube app chooser", chooserError);
-            }
+            // No Android app chooser for YouTube. SmartTube is the only external fallback.
+            extractionStatus = "smarttube_unavailable";
+            playbackStatusMessage = "تعذر الاستخراج المباشر وSmartTube غير متاح؛ لم يتم فتح منتقي التطبيقات.";
+            persistExtractionState();
         }
         pendingBrowserUrl = pageUrl;
         showWelcome();
@@ -3864,7 +3857,12 @@ public class MainActivity extends Activity {
         try {
             synchronized (playerLock) {
                 if (player == null) {
-                    player = new ExoPlayer.Builder(this).build();
+                    player = new ExoPlayer.Builder(this)
+                            .setLoadControl(new DefaultLoadControl.Builder()
+                                    // Deeper safety buffer for variable YouTube/googlevideo throughput.
+                                    .setBufferDurationsMs(20000, 60000, 1200, 3500)
+                                    .build())
+                            .build();
                     applySavedPlayerSettings();
                     player.addListener(new Player.Listener() {
                         @Override
@@ -4645,7 +4643,12 @@ public class MainActivity extends Activity {
         try {
             synchronized (playerLock) {
                 if (player == null) {
-                    player = new ExoPlayer.Builder(this).build();
+                    player = new ExoPlayer.Builder(this)
+                            .setLoadControl(new DefaultLoadControl.Builder()
+                                    // Deeper safety buffer for variable YouTube/googlevideo throughput.
+                                    .setBufferDurationsMs(20000, 60000, 1200, 3500)
+                                    .build())
+                            .build();
                     player.setVolume(muted ? 0.0f : lastNonZeroVolume);
                     playerView.setPlayer(player);
                 }
