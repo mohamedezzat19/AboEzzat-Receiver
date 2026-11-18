@@ -57,7 +57,7 @@ public final class VlcPlaybackEngine {
         mediaPlayer.setEventListener(event -> {
             Listener callback = this.listener;
             if (callback == null || released) return;
-            final int type = event.getType();
+            final int type = event.type;
             if (type == MediaPlayer.Event.Playing) callback.onPlaying();
             else if (type == MediaPlayer.Event.Paused) callback.onPaused();
             else if (type == MediaPlayer.Event.EndReached) callback.onEnded();
@@ -176,7 +176,9 @@ public final class VlcPlaybackEngine {
     }
     public boolean addExternalSubtitle(String localPath) {
         ensureActive();
-        return mediaPlayer.setSubtitleFile(localPath);
+        return localPath != null && !localPath.trim().isEmpty()
+                && mediaPlayer.addSlave(IMedia.Slave.Type.Subtitle,
+                Uri.fromFile(new java.io.File(localPath)), true);
     }
 
     // LibVLC delay values are microseconds; Receiver settings can present milliseconds.
