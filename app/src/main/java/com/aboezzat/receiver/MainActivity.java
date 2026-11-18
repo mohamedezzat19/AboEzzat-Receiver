@@ -3549,6 +3549,34 @@ public class MainActivity extends Activity {
             return true;
         }
 
+        // VLC has its own transport adapter; never send its keys to the hidden ExoPlayer.
+        if (event.getAction() == android.view.KeyEvent.ACTION_DOWN
+                && vlcContainer != null && vlcContainer.getVisibility() == View.VISIBLE
+                && vlcEngine != null && currentPlaybackHasVideo) {
+            int key = event.getKeyCode();
+            if (key == android.view.KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE) {
+                togglePlaybackFromRemote(); return true;
+            }
+            if (key == android.view.KeyEvent.KEYCODE_MEDIA_FAST_FORWARD) {
+                seekByConfiguredIncrement(1); return true;
+            }
+            if (key == android.view.KeyEvent.KEYCODE_MEDIA_REWIND) {
+                seekByConfiguredIncrement(-1); return true;
+            }
+            if (key == android.view.KeyEvent.KEYCODE_DPAD_LEFT) {
+                seekByConfiguredIncrement(-1); return true;
+            }
+            if (key == android.view.KeyEvent.KEYCODE_DPAD_RIGHT) {
+                seekByConfiguredIncrement(1); return true;
+            }
+            if ((key == android.view.KeyEvent.KEYCODE_DPAD_CENTER
+                    || key == android.view.KeyEvent.KEYCODE_ENTER
+                    || key == android.view.KeyEvent.KEYCODE_NUMPAD_ENTER)
+                    && (getCurrentFocus() == null || getCurrentFocus() == vlcContainer)) {
+                togglePlaybackFromRemote(); return true;
+            }
+        }
+
         // Consistent hardware-remote controls while the native ExoPlayer surface is active.
         if (event.getAction() == android.view.KeyEvent.ACTION_DOWN
                 && playerView != null && playerView.getVisibility() == View.VISIBLE
@@ -3649,6 +3677,17 @@ public class MainActivity extends Activity {
                 return;
             }
 
+            if (vlcEngine != null) {
+                switch (command) {
+                    case "play_pause": togglePlaybackFromRemote(); return;
+                    case "rw": seekByConfiguredIncrement(-1); return;
+                    case "ff": seekByConfiguredIncrement(1); return;
+                    case "stop": showWelcome(); return;
+                    case "previous": playQueueRelative(-1); return;
+                    case "next": playQueueRelative(1); return;
+                    default: Log.w(TAG, "Unsupported VLC remote command: " + command); return;
+                }
+            }
             if (player == null) {
                 // If playback is happening in another TV app (for example SmartTube),
                 // route media keys through Android's active media-session system.
@@ -4125,6 +4164,11 @@ public class MainActivity extends Activity {
 
         if (fallbackWebView != null) fallbackWebView.setVisibility(View.GONE);
         if (webFullscreenView != null) closeWebFullscreen();
+        if (shouldUseVlc(playbackUrl, audioUrl, requestHeaders)
+                && startVlcPlayback(playbackUrl, requestHeaders)) {
+            return;
+        }
+        releaseVlcEngine();
         welcomeBackground.setVisibility(View.GONE);
         welcomeScreen.setVisibility(View.GONE);
         connectionCard.setVisibility(View.GONE);
@@ -4509,6 +4553,12 @@ public class MainActivity extends Activity {
     }
 
     private void togglePlaybackFromRemote() {
+        if (vlcEngine != null) {
+            vlcEngine.togglePlayback();
+            if (vlcPlayPauseButton != null) vlcPlayPauseButton.setText(
+                    vlcEngine.isPlaying() ? "⏸" : "▶");
+            return;
+        }
         if (player == null) return;
         synchronized (playerLock) {
             if (player.isPlaying()) player.pause();
@@ -4521,6 +4571,12 @@ public class MainActivity extends Activity {
     }
 
     private void seekByConfiguredIncrement(int direction) {
+        if (vlcEngine != null) {
+            long increment = getPlayerSettingsPrefs().getLong("seek_increment_ms", 10000L);
+            vlcEngine.seekBy(direction >= 0 ? increment : -increment);
+            updateVlcProgress();
+            return;
+        }
         if (player == null) return;
         synchronized (playerLock) {
             long increment = player.getSeekForwardIncrement();
@@ -4532,6 +4588,14 @@ public class MainActivity extends Activity {
     }
 
     private void restartCurrentVideo() {
+        if (vlcEngine != null) {
+            vlcEngine.seekTo(0L);
+            vlcEngine.play();
+            if (playbackPrefs != null && currentPlaybackUrl != null) {
+                playbackPrefs.edit().remove("position_" + currentPlaybackUrl.hashCode()).apply();
+            }
+            return;
+        }
         if (player == null) return;
         synchronized (playerLock) {
             player.seekTo(0L);
@@ -4926,6 +4990,7 @@ public class MainActivity extends Activity {
     }
 
     private void playAudioAlongsideImage(String audioUrl) {
+        releaseVlcEngine();
         currentPlaybackUrl = audioUrl;
         if (settingsHomeButton != null) settingsHomeButton.setVisibility(View.GONE);
         if (browserHomeButton != null) browserHomeButton.setVisibility(View.GONE);
