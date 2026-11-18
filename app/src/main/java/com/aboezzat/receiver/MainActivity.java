@@ -3552,7 +3552,7 @@ public class MainActivity extends Activity {
         // VLC has its own transport adapter; never send its keys to the hidden ExoPlayer.
         if (event.getAction() == android.view.KeyEvent.ACTION_DOWN
                 && vlcContainer != null && vlcContainer.getVisibility() == View.VISIBLE
-                && vlcEngine != null && currentPlaybackHasVideo) {
+                && vlcEngine != null) {
             int key = event.getKeyCode();
             if (key == android.view.KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE) {
                 togglePlaybackFromRemote(); return true;
@@ -3930,6 +3930,11 @@ public class MainActivity extends Activity {
                 }
             }
             playerView.setVisibility(View.GONE);
+            if (welcomeBackground != null) welcomeBackground.setVisibility(View.GONE);
+            if (welcomeScreen != null) welcomeScreen.setVisibility(View.GONE);
+            if (connectionCard != null) connectionCard.setVisibility(View.GONE);
+            if (fallbackWebView != null) fallbackWebView.setVisibility(View.GONE);
+            if (browserShortcut != null) browserShortcut.setVisibility(View.GONE);
             vlcContainer.setVisibility(View.VISIBLE);
             vlcSurfaceHost.removeAllViews();
             org.videolan.libvlc.util.VLCVideoLayout videoLayout =
