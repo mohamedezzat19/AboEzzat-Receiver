@@ -1698,6 +1698,71 @@ public class MainActivity extends Activity {
 
     private volatile int extractionGeneration = 0;
 
+    /**
+     * YouTube pages received from Cast are resolved on the Receiver itself using
+     * the exact NewPipe extractor and stream-selection policy used by Cast's
+     * working native YouTube share route. The original page URL is retained only
+     * for the SmartTube fallback if direct extraction fails.
+     */
+    private void extractYouTubeOnReceiver(String pageUrl) {
+        final int generation = ++extractionGeneration;
+        currentPlaybackFallbackUrl = pageUrl;
+        smartTubeFallbackAttempted = false;
+        extractionInProgress = true;
+        extractionAttemptCount = 0;
+        extractionStatus = "youtube_receiver_extracting";
+        playbackStatusMessage = "الريسيفر يستخرج رابط الفيديو والصوت مباشرة من YouTube…";
+        persistExtractionState();
+        runOnUiThread(() -> {
+            if (receiverStatusText != null) {
+                receiverStatusText.setText("جاري استخراج فيديو YouTube على الريسيفر…");
+            }
+        });
+
+        YoutubeDirectExtractor.extract(pageUrl, new YoutubeDirectExtractor.Callback() {
+            @Override
+            public void onSuccess(String videoUrl, String audioUrl, String title, String quality) {
+                if (generation != extractionGeneration || isFinishing()) return;
+                if (videoUrl == null || videoUrl.trim().isEmpty() || !isHttpUrl(videoUrl)) {
+                    onError("المستخرج لم يرجع رابط فيديو HTTP صالحًا");
+                    return;
+                }
+                if (audioUrl != null && !audioUrl.trim().isEmpty() && !isHttpUrl(audioUrl)) {
+                    audioUrl = null;
+                }
+
+                java.util.Map<String, String> streamHeaders = new java.util.LinkedHashMap<>();
+                String userAgent = YoutubeDirectExtractor.getStreamUserAgent();
+                if (userAgent != null && !userAgent.trim().isEmpty()) {
+                    streamHeaders.put("User-Agent", userAgent);
+                }
+                streamHeaders.put("Referer", "https://www.youtube.com/");
+                streamHeaders.put("Origin", "https://www.youtube.com");
+                streamHeaders.put("Accept-Language", "ar-EG,ar;q=0.9,en-US;q=0.8");
+
+                extractionInProgress = false;
+                extractionStatus = "youtube_receiver_extracted";
+                playbackStatusMessage = "تم استخراج فيديو YouTube على الريسيفر: "
+                        + (title == null ? "" : title) + " — " + quality;
+                persistExtractionState();
+                Log.i(TAG, "Receiver extracted YouTube stream: quality=" + quality
+                        + ", separateAudio=" + (audioUrl != null && !audioUrl.isEmpty()));
+                playContent(videoUrl, audioUrl, streamHeaders);
+            }
+
+            @Override
+            public void onError(String reason) {
+                if (generation != extractionGeneration || isFinishing()) return;
+                extractionInProgress = false;
+                extractionStatus = "youtube_receiver_extract_failed";
+                playbackStatusMessage = "فشل استخراج YouTube على الريسيفر: " + reason;
+                persistExtractionState();
+                Log.e(TAG, "Receiver-side YouTube extraction failed: " + reason);
+                showExtractionFailureFallback(pageUrl);
+            }
+        });
+    }
+
     private void resolveSharedVideoToStream(String pageUrl) {
         // Receiver accepts direct media URLs from Cast. A YouTube watch page means
         // sender-side extraction did not complete; do not run extractors on the TV.
@@ -3322,7 +3387,11 @@ public class MainActivity extends Activity {
             }
             pendingVisualUrl = null;
             pendingAudioUrl = null;
-            resolveSharedVideoToStream(mediaUrl);
+            if (isYouTubeUrl(mediaUrl)) {
+                extractYouTubeOnReceiver(mediaUrl);
+            } else {
+                resolveSharedVideoToStream(mediaUrl);
+            }
             return;
         }
 
