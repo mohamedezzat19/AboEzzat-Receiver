@@ -1049,6 +1049,7 @@ public class MainActivity extends Activity {
         vlcControls.setPadding(dp(12), dp(8), dp(12), dp(8));
         vlcControls.setBackgroundColor(Color.argb(190, 8, 14, 26));
         vlcPlayPauseButton = makeText("⏸", 22, Color.WHITE, true);
+        vlcPlayPauseButton.setId(View.generateViewId());
         vlcPlayPauseButton.setGravity(Gravity.CENTER);
         vlcPlayPauseButton.setFocusable(true);
         vlcPlayPauseButton.setMinWidth(dp(54));
@@ -3994,9 +3995,14 @@ public class MainActivity extends Activity {
             vlcContainer.setVisibility(View.VISIBLE);
             vlcControls.setVisibility(View.VISIBLE);
             if (vlcPlayPauseButton != null) vlcPlayPauseButton.setText("⏸");
-            if (playerSettingsButton != null) playerSettingsButton.setVisibility(View.VISIBLE);
-            if (playerSubtitleButton != null) playerSubtitleButton.setVisibility(currentPlaybackHasVideo
-                    ? View.VISIBLE : View.GONE);
+            if (playerSettingsButton != null) {
+                playerSettingsButton.setVisibility(View.VISIBLE);
+                playerSettingsButton.setNextFocusDownId(vlcPlayPauseButton.getId());
+            }
+            if (playerSubtitleButton != null) {
+                playerSubtitleButton.setVisibility(currentPlaybackHasVideo ? View.VISIBLE : View.GONE);
+                playerSubtitleButton.setNextFocusDownId(vlcPlayPauseButton.getId());
+            }
             vlcPlayPauseButton.requestFocus();
             vlcUiHandler.removeCallbacks(vlcProgressRunnable);
             vlcUiHandler.post(vlcProgressRunnable);
@@ -4178,6 +4184,8 @@ public class MainActivity extends Activity {
         welcomeScreen.setVisibility(View.GONE);
         connectionCard.setVisibility(View.GONE);
         playerView.setVisibility(View.VISIBLE);
+        if (playerSettingsButton != null) playerSettingsButton.setNextFocusDownId(androidx.media3.ui.R.id.exo_play_pause);
+        if (playerSubtitleButton != null) playerSubtitleButton.setNextFocusDownId(androidx.media3.ui.R.id.exo_play_pause);
         if (playerSubtitleButton != null) playerSubtitleButton.setVisibility(View.GONE);
         if (playerSettingsButton != null) playerSettingsButton.setVisibility(View.GONE);
         playerView.setFocusable(true);
