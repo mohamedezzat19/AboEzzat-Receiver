@@ -16,6 +16,18 @@ android {
         targetSdk 33
         versionCode ciVersionCode
         versionName ciVersionName
+        // Receiver targets Android phones and TV devices (32-bit and 64-bit ARM).
+        // Exclude desktop/emulator ABIs to avoid shipping unused VLC native binaries.
+        ndk {
+            abiFilters 'armeabi-v7a', 'arm64-v8a'
+        }
+    }
+
+    // Compress native VLC libraries in the APK to reduce download size.
+    packaging {
+        jniLibs {
+            useLegacyPackaging true
+        }
     }
 
     compileOptions {
