@@ -110,6 +110,7 @@ public class MainActivity extends Activity {
     private PlayerView playerView;
     private VlcPlaybackEngine vlcEngine;
     private FrameLayout vlcContainer;
+    private FrameLayout vlcSurfaceHost;
     private LinearLayout vlcControls;
     private TextView vlcPlayPauseButton;
     private TextView vlcTimeLabel;
@@ -1038,6 +1039,9 @@ public class MainActivity extends Activity {
         vlcContainer.setBackgroundColor(Color.BLACK);
         vlcContainer.setVisibility(View.GONE);
         root.addView(vlcContainer, new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
+        vlcSurfaceHost = new FrameLayout(this);
+        vlcContainer.addView(vlcSurfaceHost, new FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
         vlcControls = new LinearLayout(this);
         vlcControls.setOrientation(LinearLayout.HORIZONTAL);
@@ -3863,6 +3867,215 @@ public class MainActivity extends Activity {
         playbackQueueIndex = target;
         String url = playbackQueue.get(target);
         queueIncomingMedia(url, null);
+    }
+
+    private boolean shouldUseVlc(String url, String audioUrl, java.util.Map<String, String> headers) {
+        if (url == null || url.trim().isEmpty()) return false;
+        if (audioUrl != null && !audioUrl.trim().isEmpty()) return false;
+        if (!VlcPlaybackEngine.supportsHeaders(headers) || isYouTubeUrl(url)) return false;
+        if (url.equals(vlcFailedUrl)) return false;
+        String lower = url.toLowerCase(Locale.ROOT);
+        // Preserve Media3's explicit HLS MIME handling for HTML-named manifests.
+        if (lower.contains("/index.html") || lower.endsWith(".html") || lower.endsWith(".htm")) return false;
+        return true;
+    }
+
+    private boolean startVlcPlayback(String url, java.util.Map<String, String> headers) {
+        try {
+            releaseVlcEngine();
+            synchronized (playerLock) {
+                if (player != null) {
+                    savePlaybackPositionLocked();
+                    player.stop();
+                    player.clearMediaItems();
+                }
+            }
+            playerView.setVisibility(View.GONE);
+            vlcContainer.setVisibility(View.VISIBLE);
+            vlcSurfaceHost.removeAllViews();
+            org.videolan.libvlc.util.VLCVideoLayout videoLayout =
+                    (org.videolan.libvlc.util.VLCVideoLayout) getLayoutInflater()
+                            .inflate(R.layout.vlc_video_layout, vlcSurfaceHost, false);
+            vlcSurfaceHost.addView(videoLayout, new FrameLayout.LayoutParams(
+                    FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
+            vlcEngine = new VlcPlaybackEngine(this, videoLayout, new VlcPlaybackEngine.Listener() {
+                @Override public void onPlaying() {
+                    runOnUiThread(() -> {
+                        if (vlcPlayPauseButton != null) vlcPlayPauseButton.setText("⏸");
+                        extractionStatus = "playing";
+                        playbackStatusMessage = "بدأ تشغيل الوسائط بمحرك VLC داخل Receiver.";
+                        persistExtractionState();
+                    });
+                }
+                @Override public void onPaused() {
+                    runOnUiThread(() -> {
+                        if (vlcPlayPauseButton != null) vlcPlayPauseButton.setText("▶");
+                    });
+                }
+                @Override public void onEnded() {
+                    runOnUiThread(() -> {
+                        if (playbackPrefs != null && currentPlaybackUrl != null) {
+                            playbackPrefs.edit().remove("position_" + currentPlaybackUrl.hashCode()).apply();
+                        }
+                        if (vlcPlayPauseButton != null) vlcPlayPauseButton.setText("▶");
+                    });
+                }
+                @Override public void onError() {
+                    runOnUiThread(() -> {
+                        String failedUrl = currentPlaybackUrl;
+                        java.util.Map<String, String> failedHeaders = new java.util.LinkedHashMap<>(currentPlaybackHeaders);
+                        vlcFailedUrl = failedUrl;
+                        Log.w(TAG, "LibVLC failed; retrying the same media through Media3");
+                        releaseVlcEngine();
+                        Toast.makeText(MainActivity.this,
+                                "تعذّر تشغيل الرابط بمحرك VLC؛ جارٍ تجربة المشغل الاحتياطي",
+                                Toast.LENGTH_SHORT).show();
+                        playContent(failedUrl, null, failedHeaders);
+                    });
+                }
+                @Override public void onTimeChanged(long positionMs) {
+                    runOnUiThread(() -> updateVlcProgress());
+                }
+            });
+            vlcEngine.setVolume(muted ? 0f : lastNonZeroVolume);
+            float speed = getPlayerSettingsPrefs().getFloat("playback_speed", 1f);
+            vlcEngine.setRate(speed);
+            vlcEngine.play(url, headers);
+            long saved = playbackPrefs == null ? 0L
+                    : playbackPrefs.getLong("position_" + url.hashCode(), 0L);
+            if (saved > 5000L) {
+                vlcEngine.seekTo(saved);
+                Toast.makeText(this, "تم استئناف التشغيل من آخر موضع محفوظ", Toast.LENGTH_SHORT).show();
+            }
+            vlcContainer.setVisibility(View.VISIBLE);
+            vlcControls.setVisibility(View.VISIBLE);
+            if (vlcPlayPauseButton != null) vlcPlayPauseButton.setText("⏸");
+            if (playerSettingsButton != null) playerSettingsButton.setVisibility(View.VISIBLE);
+            if (playerSubtitleButton != null) playerSubtitleButton.setVisibility(currentPlaybackHasVideo
+                    ? View.VISIBLE : View.GONE);
+            vlcPlayPauseButton.requestFocus();
+            vlcUiHandler.removeCallbacks(vlcProgressRunnable);
+            vlcUiHandler.post(vlcProgressRunnable);
+            return true;
+        } catch (Exception e) {
+            Log.e(TAG, "Could not start VLC playback; falling back to Media3", e);
+            releaseVlcEngine();
+            return false;
+        }
+    }
+
+    private void releaseVlcEngine() {
+        vlcUiHandler.removeCallbacks(vlcProgressRunnable);
+        if (vlcEngine != null) {
+            try {
+                vlcEngine.stop();
+                vlcEngine.release();
+            } catch (Exception e) {
+                Log.w(TAG, "Error releasing VLC playback engine", e);
+            }
+            vlcEngine = null;
+        }
+        if (vlcContainer != null) vlcContainer.setVisibility(View.GONE);
+        if (vlcSurfaceHost != null) vlcSurfaceHost.removeAllViews();
+    }
+
+    private void updateVlcProgress() {
+        if (vlcEngine == null) return;
+        long position = vlcEngine.getPositionMs();
+        long duration = vlcEngine.getDurationMs();
+        if (!vlcUserSeeking && vlcSeekBar != null) {
+            vlcSeekBar.setProgress(duration > 0 ? (int) Math.min(1000L, position * 1000L / duration) : 0);
+        }
+        if (vlcTimeLabel != null) {
+            vlcTimeLabel.setText(formatPlaybackTime(position) + " / "
+                    + (duration > 0 ? formatPlaybackTime(duration) : "--:--"));
+        }
+        if (playbackPrefs != null && duration > 0 && currentPlaybackUrl != null
+                && !currentPlaybackUrl.isEmpty()) {
+            playbackPrefs.edit().putLong("position_" + currentPlaybackUrl.hashCode(), position).apply();
+        }
+    }
+
+    private String formatPlaybackTime(long millis) {
+        long seconds = Math.max(0L, millis / 1000L);
+        long hours = seconds / 3600L;
+        long minutes = (seconds % 3600L) / 60L;
+        long remainder = seconds % 60L;
+        return hours > 0
+                ? String.format(Locale.US, "%d:%02d:%02d", hours, minutes, remainder)
+                : String.format(Locale.US, "%02d:%02d", minutes, remainder);
+    }
+
+    private void showVlcSettingsDialog() {
+        if (vlcEngine == null) return;
+        String[] options = {"مسار الصوت", "مسار الترجمة", "سرعة التشغيل", "أبعاد الصورة"};
+        new AlertDialog.Builder(this).setTitle("إعدادات VLC")
+                .setItems(options, (dialog, which) -> {
+                    if (vlcEngine == null) return;
+                    if (which == 0) showVlcTrackDialog(true);
+                    else if (which == 1) showVlcTrackDialog(false);
+                    else if (which == 2) showVlcSpeedDialog();
+                    else showVlcAspectDialog();
+                }).setNegativeButton("إغلاق", null).show();
+    }
+
+    private void showVlcTrackDialog(boolean audio) {
+        if (vlcEngine == null) return;
+        org.videolan.libvlc.MediaPlayer.TrackDescription[] tracks = audio
+                ? vlcEngine.getAudioTracks() : vlcEngine.getSubtitleTracks();
+        java.util.ArrayList<String> labels = new java.util.ArrayList<>();
+        java.util.ArrayList<Integer> ids = new java.util.ArrayList<>();
+        if (!audio) { labels.add("إيقاف الترجمة"); ids.add(-1); }
+        if (tracks != null) for (org.videolan.libvlc.MediaPlayer.TrackDescription track : tracks) {
+            labels.add(track.name == null || track.name.trim().isEmpty()
+                    ? (audio ? "مسار صوت" : "ترجمة") + " " + track.id : track.name);
+            ids.add(track.id);
+        }
+        if (labels.isEmpty()) {
+            Toast.makeText(this, audio ? "لا توجد مسارات صوت إضافية" : "لا توجد ترجمات مدمجة",
+                    Toast.LENGTH_SHORT).show();
+            return;
+        }
+        int selectedId = audio ? vlcEngine.getAudioTrack() : vlcEngine.getSubtitleTrack();
+        int selected = ids.indexOf(selectedId);
+        new AlertDialog.Builder(this).setTitle(audio ? "مسار الصوت" : "مسار الترجمة")
+                .setSingleChoiceItems(labels.toArray(new String[0]), Math.max(0, selected), (d, which) -> {
+                    if (vlcEngine != null) {
+                        if (audio) vlcEngine.setAudioTrack(ids.get(which));
+                        else vlcEngine.setSubtitleTrack(ids.get(which));
+                    }
+                    d.dismiss();
+                }).setNegativeButton("إغلاق", null).show();
+    }
+
+    private void showVlcSpeedDialog() {
+        final float[] values = {0.5f, 0.75f, 1f, 1.25f, 1.5f, 1.75f, 2f};
+        String[] labels = {"0.5x", "0.75x", "1.0x", "1.25x", "1.5x", "1.75x", "2.0x"};
+        float current = vlcEngine == null ? 1f : vlcEngine.getRate();
+        int selected = 2;
+        for (int i = 0; i < values.length; i++) if (Math.abs(values[i] - current) < 0.02f) selected = i;
+        new AlertDialog.Builder(this).setTitle("سرعة التشغيل")
+                .setSingleChoiceItems(labels, selected, (d, which) -> {
+                    if (vlcEngine != null) vlcEngine.setRate(values[which]);
+                    getPlayerSettingsPrefs().edit().putFloat("playback_speed", values[which]).apply();
+                    d.dismiss();
+                }).setNegativeButton("إغلاق", null).show();
+    }
+
+    private void showVlcAspectDialog() {
+        String[] labels = {"تلقائي", "16:9", "4:3", "1:1", "ملء الشاشة"};
+        String[] ratios = {null, "16:9", "4:3", "1:1", "fill"};
+        new AlertDialog.Builder(this).setTitle("أبعاد الصورة")
+                .setItems(labels, (d, which) -> {
+                    if (vlcEngine != null) {
+                        if (which == 4) vlcEngine.setScale(0f);
+                        else {
+                            vlcEngine.setScale(0f);
+                            vlcEngine.setAspectRatio(ratios[which]);
+                        }
+                    }
+                    d.dismiss();
+                }).setNegativeButton("إغلاق", null).show();
     }
 
     private void playContent(String mediaUrl, String audioUrl) {
