@@ -91,6 +91,9 @@ public class MainActivity extends Activity {
     private TextView receiverStatusText;
 
     private VlcPlaybackEngine vlcEngine;
+    private LocalMediaProxyServer mediaProxyServer;
+    private String currentVlcProxyUrl = "";
+    private String currentAudioProxyUrl = "";
     private FrameLayout vlcContainer;
     private FrameLayout vlcSurfaceHost;
     private LinearLayout vlcControls;
@@ -3690,8 +3693,9 @@ public class MainActivity extends Activity {
                         vlcSoftwareRetryAttempted=true;
                         try{
                             Toast.makeText(MainActivity.this,"جاري إعادة المحاولة بمحرك فك الفيديو البرمجي في VLC…",Toast.LENGTH_SHORT).show();
-                            vlcEngine.playSoftwareFallback(currentPlaybackUrl,currentPlaybackHeaders,
-                                    currentPlaybackAudioUrl.isEmpty()?null:currentPlaybackAudioUrl);
+                            vlcEngine.playSoftwareFallback(currentVlcProxyUrl,
+                                    java.util.Collections.emptyMap(),
+                                    currentAudioProxyUrl.isEmpty()?null:currentAudioProxyUrl);
                             return;
                         }catch(Exception retryError){
                             Log.e(TAG,"LibVLC software decode retry could not start",retryError);
@@ -3709,7 +3713,12 @@ public class MainActivity extends Activity {
                 });}
                 @Override public void onTimeChanged(long p){runOnUiThread(()->updateVlcProgress());}
             });
-            vlcLoadedUrl=url;vlcSoftwareRetryAttempted=false;SharedPreferences prefs=getPlayerSettingsPrefs();vlcEngine.setVolume(muted?0f:lastNonZeroVolume);vlcEngine.setRate(prefs.getFloat("playback_speed",1f));vlcEngine.setPreferredVideoHeight(prefs.getInt("max_video_height",0));vlcEngine.play(url,headers,separateAudioUrl);
+            mediaProxyServer = new LocalMediaProxyServer(headers);
+            mediaProxyServer.start();
+            currentVlcProxyUrl = mediaProxyServer.proxyUrl(url);
+            currentAudioProxyUrl = separateAudioUrl == null || separateAudioUrl.trim().isEmpty()
+                    ? "" : mediaProxyServer.proxyUrl(separateAudioUrl);
+            vlcLoadedUrl=url;vlcSoftwareRetryAttempted=false;SharedPreferences prefs=getPlayerSettingsPrefs();vlcEngine.setVolume(muted?0f:lastNonZeroVolume);vlcEngine.setRate(prefs.getFloat("playback_speed",1f));vlcEngine.setPreferredVideoHeight(prefs.getInt("max_video_height",0));vlcEngine.play(currentVlcProxyUrl,java.util.Collections.emptyMap(),currentAudioProxyUrl.isEmpty()?null:currentAudioProxyUrl);
             long saved=playbackPrefs==null?0:playbackPrefs.getLong("position_"+url.hashCode(),0);if(saved>5000){vlcEngine.seekTo(saved);Toast.makeText(this,"تم استئناف التشغيل من آخر موضع محفوظ",Toast.LENGTH_SHORT).show();}
             vlcContainer.setVisibility(View.VISIBLE);vlcControls.setVisibility(View.VISIBLE);if(vlcPlayPauseButton!=null)vlcPlayPauseButton.setText("⏸");
             if(playerSettingsButton!=null){playerSettingsButton.setVisibility(View.VISIBLE);playerSettingsButton.setNextFocusDownId(vlcPlayPauseButton.getId());}
@@ -3721,6 +3730,8 @@ public class MainActivity extends Activity {
     private void releaseVlcEngine(){
         vlcUiHandler.removeCallbacks(vlcProgressRunnable);vlcUiHandler.removeCallbacks(playbackProgressRunnable);
         if(vlcEngine!=null){try{synchronized(playerLock){savePlaybackPositionLocked();}vlcEngine.stop();vlcEngine.release();}catch(Exception e){Log.w(TAG,"VLC release error",e);}vlcEngine=null;}
+        if(mediaProxyServer!=null){try{mediaProxyServer.close();}catch(Exception e){Log.w(TAG,"Media proxy shutdown failed",e);}mediaProxyServer=null;}
+        currentVlcProxyUrl="";currentAudioProxyUrl="";
         vlcLoadedUrl="";if(vlcContainer!=null)vlcContainer.setVisibility(View.GONE);if(vlcSurfaceHost!=null)vlcSurfaceHost.removeAllViews();
     }
 
