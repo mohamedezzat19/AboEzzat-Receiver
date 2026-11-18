@@ -3713,11 +3713,20 @@ public class MainActivity extends Activity {
                 });}
                 @Override public void onTimeChanged(long p){runOnUiThread(()->updateVlcProgress());}
             });
-            mediaProxyServer = new LocalMediaProxyServer(headers);
-            mediaProxyServer.start();
-            currentVlcProxyUrl = mediaProxyServer.proxyUrl(url);
-            currentAudioProxyUrl = separateAudioUrl == null || separateAudioUrl.trim().isEmpty()
-                    ? "" : mediaProxyServer.proxyUrl(separateAudioUrl);
+            // Keep ordinary MP4/audio streams on LibVLC's native HTTP path.
+            // The loopback bridge is only needed when the sender supplied
+            // authentication/custom headers that LibVLC 3 cannot attach.
+            boolean needsHeaderProxy = headers != null && !headers.isEmpty();
+            currentVlcProxyUrl = url;
+            currentAudioProxyUrl = separateAudioUrl == null ? "" : separateAudioUrl;
+            if (needsHeaderProxy) {
+                mediaProxyServer = new LocalMediaProxyServer(headers);
+                mediaProxyServer.start();
+                currentVlcProxyUrl = mediaProxyServer.proxyUrl(url);
+                if (!currentAudioProxyUrl.trim().isEmpty()) {
+                    currentAudioProxyUrl = mediaProxyServer.proxyUrl(currentAudioProxyUrl);
+                }
+            }
             vlcLoadedUrl=url;vlcSoftwareRetryAttempted=false;SharedPreferences prefs=getPlayerSettingsPrefs();vlcEngine.setVolume(muted?0f:lastNonZeroVolume);vlcEngine.setRate(prefs.getFloat("playback_speed",1f));vlcEngine.setPreferredVideoHeight(prefs.getInt("max_video_height",0));vlcEngine.play(currentVlcProxyUrl,java.util.Collections.emptyMap(),currentAudioProxyUrl.isEmpty()?null:currentAudioProxyUrl);
             long saved=playbackPrefs==null?0:playbackPrefs.getLong("position_"+url.hashCode(),0);if(saved>5000){vlcEngine.seekTo(saved);Toast.makeText(this,"تم استئناف التشغيل من آخر موضع محفوظ",Toast.LENGTH_SHORT).show();}
             vlcContainer.setVisibility(View.VISIBLE);vlcControls.setVisibility(View.VISIBLE);if(vlcPlayPauseButton!=null)vlcPlayPauseButton.setText("⏸");
