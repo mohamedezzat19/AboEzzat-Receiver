@@ -1036,10 +1036,16 @@ public class MainActivity extends Activity {
             promptSubtitleTitleAndSearch();
             return true;
         });
+        int subtitleEndMargin = compactPlayerChrome ? dp(114) : dp(130);
         FrameLayout.LayoutParams playerSubtitleParams = new FrameLayout.LayoutParams(
-                dp(46), dp(44), Gravity.TOP | Gravity.START);
-        playerSubtitleParams.setMargins(dp(10), dp(10), dp(8), dp(8));
+                dp(46), dp(44), Gravity.TOP | Gravity.END);
+        playerSubtitleParams.setMargins(dp(8), dp(10), subtitleEndMargin, dp(8));
         root.addView(playerSubtitleButton, playerSubtitleParams);
+
+        // These overlays must sit above the full-screen PlayerView on phones and TVs.
+        settingsHomeButton.bringToFront();
+        browserHomeButton.bringToFront();
+        playerSubtitleButton.bringToFront();
 
         playerView.setControllerVisibilityListener((PlayerView.ControllerVisibilityListener) visibility -> {
             boolean controlsVisible = visibility == View.VISIBLE
