@@ -31,23 +31,14 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Install Gradle 8.11.1
+      - name: Install Gradle 8.7
         shell: bash
         run: |
           set -euo pipefail
-          curl -fL --retry 3 https://services.gradle.org/distributions/gradle-8.11.1-bin.zip -o "$RUNNER_TEMP/gradle-8.11.1-bin.zip"
-          unzip -q "$RUNNER_TEMP/gradle-8.11.1-bin.zip" -d "$RUNNER_TEMP"
-          echo "$RUNNER_TEMP/gradle-8.11.1/bin" >> "$GITHUB_PATH"
-          "$RUNNER_TEMP/gradle-8.11.1/bin/gradle" --version
-
-      - name: Install Android SDK 36
-        shell: bash
-        run: |
-          set -euo pipefail
-          SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
-          test -x "$SDKMANAGER" || { echo "::error::Android SDK manager not found."; exit 1; }
-          yes | "$SDKMANAGER" --licenses >/dev/null || true
-          "$SDKMANAGER" "platforms;android-36"
+          curl -fL --retry 3 https://services.gradle.org/distributions/gradle-8.7-bin.zip -o "$RUNNER_TEMP/gradle-8.7-bin.zip"
+          unzip -q "$RUNNER_TEMP/gradle-8.7-bin.zip" -d "$RUNNER_TEMP"
+          echo "$RUNNER_TEMP/gradle-8.7/bin" >> "$GITHUB_PATH"
+          "$RUNNER_TEMP/gradle-8.7/bin/gradle" --version
 
       - name: Detect signing configuration
         id: signing

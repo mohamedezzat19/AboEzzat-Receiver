@@ -36,7 +36,6 @@ import android.widget.ImageView;
 import android.widget.TextView;
 import android.widget.Toast;
 import android.widget.ProgressBar;
-import android.widget.SeekBar;
 import android.widget.EditText;
 import org.json.JSONObject;
 
@@ -108,25 +107,6 @@ public class MainActivity extends Activity {
     private TextView receiverStatusText;
 
     private PlayerView playerView;
-    private VlcPlaybackEngine vlcEngine;
-    private FrameLayout vlcContainer;
-    private FrameLayout vlcSurfaceHost;
-    private LinearLayout vlcControls;
-    private TextView vlcPlayPauseButton;
-    private TextView vlcTimeLabel;
-    private SeekBar vlcSeekBar;
-    private boolean vlcUserSeeking = false;
-    private String vlcFailedUrl = "";
-    private final Handler vlcUiHandler = new Handler(Looper.getMainLooper());
-    private final Runnable vlcProgressRunnable = new Runnable() {
-        @Override public void run() {
-            if (vlcEngine != null && vlcContainer != null
-                    && vlcContainer.getVisibility() == View.VISIBLE) {
-                updateVlcProgress();
-                vlcUiHandler.postDelayed(this, 500L);
-            }
-        }
-    };
     private TextView playerSubtitleButton;
     private TextView playerSettingsButton;
     private boolean currentPlaybackHasVideo = false;
@@ -185,8 +165,6 @@ public class MainActivity extends Activity {
     private String currentPlaybackUrl = "";
     private String currentPlaybackFallbackUrl = "";
     private boolean smartTubeFallbackAttempted = false;
-    // ExoPlayer is the default engine. VLC is tried only once after an ExoPlayer error.
-    private boolean vlcFallbackAttempted = false;
     private final Handler playbackProgressHandler = new Handler(Looper.getMainLooper());
     // Persist the position against the URI actually loaded in ExoPlayer. The
     // mutable currentPlaybackUrl can already point at the next request.
@@ -538,7 +516,6 @@ public class MainActivity extends Activity {
             String command = intent.getStringExtra(ReceiverServerService.EXTRA_COMMAND);
             String incomingUrl = intent.getStringExtra(ReceiverServerService.EXTRA_URL);
             String incomingAudio = intent.getStringExtra(ReceiverServerService.EXTRA_AUDIO);
-            String incomingSourceUrl = intent.getStringExtra("server_source_url");
             java.util.Map<String, String> incomingHeaders = new java.util.LinkedHashMap<>();
             try {
                 JSONObject headerJson = new JSONObject(intent.getStringExtra("server_headers") == null
@@ -554,7 +531,7 @@ public class MainActivity extends Activity {
                 handleRemoteCommand(command.trim());
             } else {
                 clearPendingServerMedia();
-                queueIncomingMedia(incomingUrl, incomingAudio, incomingHeaders, incomingSourceUrl);
+                queueIncomingMedia(incomingUrl, incomingAudio, incomingHeaders);
             }
             return;
         }
@@ -597,22 +574,11 @@ public class MainActivity extends Activity {
         SharedPreferences pending = getSharedPreferences("AboEzzatReceiverPending", MODE_PRIVATE);
         String pendingUrl = pending.getString("url", "");
         String pendingAudio = pending.getString("audio", "");
-        String pendingHeadersJson = pending.getString("headers", "{}");
-        java.util.Map<String, String> pendingHeaders = new java.util.LinkedHashMap<>();
-        try {
-            JSONObject savedHeaders = new JSONObject(pendingHeadersJson);
-            java.util.Iterator<String> keys = savedHeaders.keys();
-            while (keys.hasNext()) {
-                String key = keys.next();
-                String value = savedHeaders.optString(key, "");
-                if (!value.isEmpty()) pendingHeaders.put(key, value);
-            }
-        } catch (Exception ignored) { }
         long receivedAt = pending.getLong("received_at", 0L);
         if (System.currentTimeMillis() - receivedAt <= 10 * 60 * 1000L
                 && (!pendingUrl.trim().isEmpty() || !pendingAudio.trim().isEmpty())) {
             clearPendingServerMedia();
-            queueIncomingMedia(pendingUrl, pendingAudio, pendingHeaders);
+            queueIncomingMedia(pendingUrl, pendingAudio);
         } else if (receivedAt != 0L) {
             clearPendingServerMedia();
         }
@@ -622,7 +588,6 @@ public class MainActivity extends Activity {
         getSharedPreferences("AboEzzatReceiverPending", MODE_PRIVATE).edit()
                 .remove("url")
                 .remove("audio")
-                .remove("headers")
                 .remove("received_at")
                 .apply();
     }
@@ -1035,63 +1000,6 @@ public class MainActivity extends Activity {
                 FrameLayout.LayoutParams.MATCH_PARENT
         ));
 
-        // VLC owns a separate video surface and matching controls; it never reuses
-        // Media3's PlayerView controller because that controller cannot control LibVLC.
-        vlcContainer = new FrameLayout(this);
-        vlcContainer.setBackgroundColor(Color.BLACK);
-        vlcContainer.setVisibility(View.GONE);
-        root.addView(vlcContainer, new FrameLayout.LayoutParams(
-                FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
-        vlcSurfaceHost = new FrameLayout(this);
-        vlcContainer.addView(vlcSurfaceHost, new FrameLayout.LayoutParams(
-                FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
-        vlcControls = new LinearLayout(this);
-        vlcControls.setOrientation(LinearLayout.HORIZONTAL);
-        vlcControls.setGravity(Gravity.CENTER_VERTICAL);
-        vlcControls.setPadding(dp(12), dp(8), dp(12), dp(8));
-        vlcControls.setBackgroundColor(Color.argb(190, 8, 14, 26));
-        vlcPlayPauseButton = makeText("⏸", 22, Color.WHITE, true);
-        vlcPlayPauseButton.setId(View.generateViewId());
-        vlcPlayPauseButton.setGravity(Gravity.CENTER);
-        vlcPlayPauseButton.setFocusable(true);
-        vlcPlayPauseButton.setMinWidth(dp(54));
-        vlcPlayPauseButton.setOnClickListener(v -> togglePlaybackFromRemote());
-        TextView vlcRewindButton = makeText("⏪", 20, Color.WHITE, true);
-        vlcRewindButton.setGravity(Gravity.CENTER);
-        vlcRewindButton.setFocusable(true);
-        vlcRewindButton.setMinWidth(dp(48));
-        vlcRewindButton.setOnClickListener(v -> seekByConfiguredIncrement(-1));
-        TextView vlcForwardButton = makeText("⏩", 20, Color.WHITE, true);
-        vlcForwardButton.setGravity(Gravity.CENTER);
-        vlcForwardButton.setFocusable(true);
-        vlcForwardButton.setMinWidth(dp(48));
-        vlcForwardButton.setOnClickListener(v -> seekByConfiguredIncrement(1));
-        vlcSeekBar = new SeekBar(this);
-        vlcSeekBar.setMax(1000);
-        vlcSeekBar.setLayoutParams(new LinearLayout.LayoutParams(0, dp(42), 1f));
-        vlcSeekBar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
-            @Override public void onProgressChanged(SeekBar seekBar, int progress, boolean fromUser) { }
-            @Override public void onStartTrackingTouch(SeekBar seekBar) { vlcUserSeeking = true; }
-            @Override public void onStopTrackingTouch(SeekBar seekBar) {
-                vlcUserSeeking = false;
-                if (vlcEngine != null) {
-                    long duration = vlcEngine.getDurationMs();
-                    if (duration > 0) vlcEngine.seekTo(duration * seekBar.getProgress() / 1000L);
-                }
-            }
-        });
-        vlcTimeLabel = makeText("00:00 / 00:00", 12, Color.WHITE, false);
-        vlcTimeLabel.setGravity(Gravity.CENTER);
-        vlcTimeLabel.setMinWidth(dp(112));
-        vlcControls.addView(vlcRewindButton);
-        vlcControls.addView(vlcPlayPauseButton);
-        vlcControls.addView(vlcForwardButton);
-        vlcControls.addView(vlcSeekBar);
-        vlcControls.addView(vlcTimeLabel);
-        FrameLayout.LayoutParams vlcControlsParams = new FrameLayout.LayoutParams(
-                FrameLayout.LayoutParams.MATCH_PARENT, dp(62), Gravity.BOTTOM);
-        vlcContainer.addView(vlcControls, vlcControlsParams);
-
         // أدوات المشغل الإضافية تظهر وتختفي مع شريط تحكم ExoPlayer.
         playerSettingsButton = makeText("⚙", 23, Color.WHITE, true);
         playerSubtitleButton = makeText("CC", 15, Color.WHITE, true);
@@ -1126,10 +1034,7 @@ public class MainActivity extends Activity {
         playerSettingsButton.setNextFocusDownId(androidx.media3.ui.R.id.exo_play_pause);
         playerSubtitleButton.setNextFocusRightId(playerSettingsButton.getId());
         playerSubtitleButton.setNextFocusDownId(androidx.media3.ui.R.id.exo_play_pause);
-        playerSettingsButton.setOnClickListener(v -> {
-            if (vlcEngine != null) showVlcSettingsDialog();
-            else showPlaybackSettingsDialog();
-        });
+        playerSettingsButton.setOnClickListener(v -> showPlaybackSettingsDialog());
         playerSubtitleButton.setOnClickListener(v -> searchAndApplyArabicSubtitle());
         playerSubtitleButton.setOnLongClickListener(v -> {
             promptSubtitleTitleAndSearch();
@@ -1727,48 +1632,11 @@ public class MainActivity extends Activity {
                 ? candidate : null;
     }
 
-    // Resolve media references embedded in HTML (including relative /assets/*.m3u8 URLs)
-    // against the page URL. This is deliberately limited to HTTP(S) media candidates.
-    private String resolveHtmlMediaUrl(String value, String pageUrl) {
-        String cleaned = cleanExtractedUrl(value);
-        if (cleaned != null) return cleaned;
-        if (value == null || pageUrl == null) return null;
-        String candidate = value.trim().replace("\\/", "/")
-                .replace("&amp;", "&").replace("\\u0026", "&");
-        if (candidate.isEmpty() || candidate.startsWith("data:")
-                || candidate.startsWith("javascript:") || candidate.startsWith("blob:")) return null;
-        try {
-            java.net.URI base = new java.net.URI(pageUrl);
-            java.net.URI resolved = base.resolve(new java.net.URI(candidate));
-            String scheme = resolved.getScheme();
-            if (scheme == null || !(scheme.equalsIgnoreCase("http") || scheme.equalsIgnoreCase("https"))) return null;
-            return resolved.toString();
-        } catch (Exception ignored) {
-            return null;
-        }
-    }
-
     // Extract only publicly exposed media URLs from page metadata or player JSON.
     // No login, DRM, signature bypass, or protected-stream circumvention is attempted.
     private String extractDirectMediaFromHtml(String html, String pageUrl) {
         if (html == null || html.isEmpty()) return null;
         java.util.LinkedHashSet<String> candidates = new java.util.LinkedHashSet<>();
-
-        // HTML5 media elements and common player wrappers often keep the real stream
-        // in src/data-src/data-hls instead of OpenGraph metadata.
-        java.util.regex.Matcher mediaTags = java.util.regex.Pattern
-                .compile("(?is)<(?:video|audio|source|track)\\b[^>]*>")
-                .matcher(html);
-        while (mediaTags.find()) {
-            String tag = mediaTags.group();
-            java.util.regex.Matcher attrs = java.util.regex.Pattern
-                    .compile("(?i)(?:src|data-src|data-url|data-video|data-hls|data-m3u8)\\s*=\\s*[\"']([^\"']{3,})[\"']")
-                    .matcher(tag);
-            while (attrs.find()) {
-                String candidate = resolveHtmlMediaUrl(attrs.group(1), pageUrl);
-                if (candidate != null && isDirectStreamUrl(candidate)) candidates.add(candidate);
-            }
-        }
 
         java.util.regex.Matcher metaTags = java.util.regex.Pattern
                 .compile("(?is)<meta\\b[^>]*>")
@@ -1800,8 +1668,7 @@ public class MainActivity extends Activity {
                 "hls_pull_url", "hlsPullUrl", "flv_pull_url", "flvPullUrl",
                 "pull_url", "pullUrl", "liveUrl", "live_url",
                 "flvUrl", "flv_url", "flvPullUrl", "flv_pull_url",
-                "hlsPullUrl", "hls_pull_url", "live_play_url", "livePlayUrl",
-                "manifestUrl", "manifest_url", "videoSrc", "video_src", "mediaUrl", "media_url"
+                "hlsPullUrl", "hls_pull_url", "live_play_url", "livePlayUrl"
         };
         for (String field : fieldNames) {
             java.util.regex.Matcher matcher = java.util.regex.Pattern
@@ -1809,8 +1676,8 @@ public class MainActivity extends Activity {
                             + "['\\\"]?\\s*[:=]\\s*['\\\"]([^'\\\"]{8,})['\\\"]")
                     .matcher(html);
             while (matcher.find()) {
-                String candidate = resolveHtmlMediaUrl(matcher.group(1), pageUrl);
-                if (candidate != null && isDirectStreamUrl(candidate)) candidates.add(candidate);
+                String candidate = cleanExtractedUrl(matcher.group(1));
+                if (candidate != null) candidates.add(candidate);
             }
         }
 
@@ -1818,7 +1685,7 @@ public class MainActivity extends Activity {
                 .compile("(?is)(https?:\\\\?/\\\\?/[^\\s'\\\"><]+?\\.(?:mp4|m4v|webm|mov|m3u8|mpd|mp3|m4a|aac|ogg|oga|opus|wav|flac)(?:\\?[^\\s'\\\"><]*)?)")
                 .matcher(html);
         while (rawMedia.find()) {
-            String candidate = resolveHtmlMediaUrl(rawMedia.group(1), pageUrl);
+            String candidate = cleanExtractedUrl(rawMedia.group(1));
             if (candidate != null) candidates.add(candidate);
         }
 
@@ -1987,7 +1854,7 @@ public class MainActivity extends Activity {
         void candidate(String url, String engine, boolean cobaltResult, boolean contentTypeResult) {
             runOnUiThread(() -> {
                 if (finished || generation != extractionGeneration || isFinishing()) return;
-                if (!isHttpUrl(url) || (pageUrl.equals(url) && !contentTypeResult)) {
+                if (!isHttpUrl(url) || pageUrl.equals(url)) {
                     failedOnMain();
                     return;
                 }
@@ -3328,8 +3195,64 @@ public class MainActivity extends Activity {
         return null;
     }
 
-    // index.html endpoints are resolved as web pages first; extracted media is
-    // handed to Receiver's in-app playback pipeline instead of an external VLC app.
+    // Supported live providers may expose an HLS playlist through /<type>/<id>/index.html.
+    // Prefer VLC for this recognized live endpoint; other media keeps using ExoPlayer.
+    private boolean isSwiftDataDramaLiveUrl(String url) {
+        if (!isHttpUrl(url)) return false;
+        try {
+            Uri uri = Uri.parse(url);
+            String host = uri.getHost();
+            String path = uri.getPath();
+            return host != null && path != null
+                    && path.toLowerCase(Locale.ROOT).matches("^/[^/]+/[^/]+/index\\.html$");
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    private boolean tryOpenDramaLiveInVlc(String url) {
+        if (!isSwiftDataDramaLiveUrl(url)) return false;
+        try {
+            android.content.Intent vlcIntent = new android.content.Intent(
+                    android.content.Intent.ACTION_VIEW);
+            vlcIntent.setDataAndType(Uri.parse(url), "application/vnd.apple.mpegurl");
+            vlcIntent.setPackage("org.videolan.vlc");
+            startActivity(vlcIntent);
+            extractionInProgress = false;
+            extractionAttemptCount = 0;
+            extractionStatus = "opened_in_vlc";
+            playbackStatusMessage = "تم إرسال قناة Drama Live إلى VLC على التلفزيون.";
+            persistExtractionState();
+            Toast.makeText(this, "جاري فتح قناة Drama Live في VLC…", Toast.LENGTH_LONG).show();
+            Log.i(TAG, "Opened SwiftData Drama Live playlist in VLC");
+            return true;
+        } catch (ActivityNotFoundException e) {
+            Log.i(TAG, "VLC is not installed or did not accept the HLS MIME type; trying URI intent", e);
+        } catch (Exception e) {
+            Log.w(TAG, "Could not open Drama Live in VLC with HLS MIME type", e);
+        }
+
+        // Some VLC builds register the HTTP(S) URL filter without an HLS MIME filter.
+        try {
+            android.content.Intent vlcIntent = new android.content.Intent(
+                    android.content.Intent.ACTION_VIEW, Uri.parse(url));
+            vlcIntent.setPackage("org.videolan.vlc");
+            startActivity(vlcIntent);
+            extractionInProgress = false;
+            extractionAttemptCount = 0;
+            extractionStatus = "opened_in_vlc";
+            playbackStatusMessage = "تم إرسال قناة Drama Live إلى VLC على التلفزيون.";
+            persistExtractionState();
+            Toast.makeText(this, "جاري فتح قناة Drama Live في VLC…", Toast.LENGTH_LONG).show();
+            Log.i(TAG, "Opened SwiftData Drama Live URL in VLC using URI intent");
+            return true;
+        } catch (ActivityNotFoundException e) {
+            Log.i(TAG, "VLC is not installed; falling back to Receiver's ExoPlayer", e);
+        } catch (Exception e) {
+            Log.w(TAG, "VLC URI intent failed; falling back to Receiver's ExoPlayer", e);
+        }
+        return false;
+    }
 
     // natively play media URLs; resolve page URLs to a direct stream instead of opening another app.
     private void queueIncomingMedia(String mediaUrl, String audioUrl) {
@@ -3374,8 +3297,18 @@ public class MainActivity extends Activity {
             return;
         }
 
-        // HTML/index endpoints continue through the page resolver below. If the
-        // response itself is an HLS manifest, its content type will identify it.
+        // Only the recognized /<type>/<id>/index.html live playlist is handed to VLC.
+        // If VLC is unavailable, bypass generic page extraction and let Media3 use the
+        // existing HLS MIME override in createPlaybackMediaItem().
+        if (hasMedia && !hasAudio && !isImageUrl(mediaUrl)
+                && isSwiftDataDramaLiveUrl(mediaUrl)) {
+            if (!tryOpenDramaLiveInVlc(mediaUrl)) {
+                Log.i(TAG, "Using Receiver ExoPlayer fallback for SwiftData Drama Live URL");
+                playContent(mediaUrl, null, pendingPlaybackHeaders);
+            }
+            return;
+        }
+
         if (mediaUrl != null && isDirectStreamUrl(mediaUrl)) {
             extractionInProgress = false;
             extractionAttemptCount = 0;
@@ -3552,34 +3485,6 @@ public class MainActivity extends Activity {
             return true;
         }
 
-        // VLC has its own transport adapter; never send its keys to the hidden ExoPlayer.
-        if (event.getAction() == android.view.KeyEvent.ACTION_DOWN
-                && vlcContainer != null && vlcContainer.getVisibility() == View.VISIBLE
-                && vlcEngine != null) {
-            int key = event.getKeyCode();
-            if (key == android.view.KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE) {
-                togglePlaybackFromRemote(); return true;
-            }
-            if (key == android.view.KeyEvent.KEYCODE_MEDIA_FAST_FORWARD) {
-                seekByConfiguredIncrement(1); return true;
-            }
-            if (key == android.view.KeyEvent.KEYCODE_MEDIA_REWIND) {
-                seekByConfiguredIncrement(-1); return true;
-            }
-            if (key == android.view.KeyEvent.KEYCODE_DPAD_LEFT) {
-                seekByConfiguredIncrement(-1); return true;
-            }
-            if (key == android.view.KeyEvent.KEYCODE_DPAD_RIGHT) {
-                seekByConfiguredIncrement(1); return true;
-            }
-            if ((key == android.view.KeyEvent.KEYCODE_DPAD_CENTER
-                    || key == android.view.KeyEvent.KEYCODE_ENTER
-                    || key == android.view.KeyEvent.KEYCODE_NUMPAD_ENTER)
-                    && (getCurrentFocus() == null || getCurrentFocus() == vlcContainer)) {
-                togglePlaybackFromRemote(); return true;
-            }
-        }
-
         // Consistent hardware-remote controls while the native ExoPlayer surface is active.
         if (event.getAction() == android.view.KeyEvent.ACTION_DOWN
                 && playerView != null && playerView.getVisibility() == View.VISIBLE
@@ -3680,17 +3585,6 @@ public class MainActivity extends Activity {
                 return;
             }
 
-            if (vlcEngine != null) {
-                switch (command) {
-                    case "play_pause": togglePlaybackFromRemote(); return;
-                    case "rw": seekByConfiguredIncrement(-1); return;
-                    case "ff": seekByConfiguredIncrement(1); return;
-                    case "stop": showWelcome(); return;
-                    case "previous": playQueueRelative(-1); return;
-                    case "next": playQueueRelative(1); return;
-                    default: Log.w(TAG, "Unsupported VLC remote command: " + command); return;
-                }
-            }
             if (player == null) {
                 // If playback is happening in another TV app (for example SmartTube),
                 // route media keys through Android's active media-session system.
@@ -3799,7 +3693,6 @@ public class MainActivity extends Activity {
     }
 
     private void stopCurrentPlayer() {
-        releaseVlcEngine();
         synchronized (playerLock) {
             if (player != null) {
                 savePlaybackPositionLocked();
@@ -3911,225 +3804,6 @@ public class MainActivity extends Activity {
         queueIncomingMedia(url, null);
     }
 
-    private boolean shouldUseVlc(String url, String audioUrl, java.util.Map<String, String> headers) {
-        if (url == null || url.trim().isEmpty()) return false;
-        if (audioUrl != null && !audioUrl.trim().isEmpty()) return false;
-        if (!VlcPlaybackEngine.supportsHeaders(headers) || isYouTubeUrl(url)) return false;
-        if (url.equals(vlcFailedUrl)) return false;
-        String lower = url.toLowerCase(Locale.ROOT);
-        // Preserve Media3's explicit HLS MIME handling for HTML-named manifests.
-        if (lower.contains("/index.html") || lower.endsWith(".html") || lower.endsWith(".htm")) return false;
-        return true;
-    }
-
-    private boolean startVlcPlayback(String url, java.util.Map<String, String> headers) {
-        try {
-            releaseVlcEngine();
-            synchronized (playerLock) {
-                if (player != null) {
-                    savePlaybackPositionLocked();
-                    player.stop();
-                    player.clearMediaItems();
-                }
-            }
-            playerView.setVisibility(View.GONE);
-            if (welcomeBackground != null) welcomeBackground.setVisibility(View.GONE);
-            if (welcomeScreen != null) welcomeScreen.setVisibility(View.GONE);
-            if (connectionCard != null) connectionCard.setVisibility(View.GONE);
-            if (fallbackWebView != null) fallbackWebView.setVisibility(View.GONE);
-            if (browserShortcut != null) browserShortcut.setVisibility(View.GONE);
-            vlcContainer.setVisibility(View.VISIBLE);
-            vlcSurfaceHost.removeAllViews();
-            org.videolan.libvlc.util.VLCVideoLayout videoLayout =
-                    (org.videolan.libvlc.util.VLCVideoLayout) getLayoutInflater()
-                            .inflate(R.layout.vlc_video_layout, vlcSurfaceHost, false);
-            vlcSurfaceHost.addView(videoLayout, new FrameLayout.LayoutParams(
-                    FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
-            vlcEngine = new VlcPlaybackEngine(this, videoLayout, new VlcPlaybackEngine.Listener() {
-                @Override public void onPlaying() {
-                    runOnUiThread(() -> {
-                        if (vlcPlayPauseButton != null) vlcPlayPauseButton.setText("⏸");
-                        extractionStatus = "playing";
-                        playbackStatusMessage = "بدأ تشغيل الوسائط بمحرك VLC داخل Receiver.";
-                        persistExtractionState();
-                    });
-                }
-                @Override public void onPaused() {
-                    runOnUiThread(() -> {
-                        if (vlcPlayPauseButton != null) vlcPlayPauseButton.setText("▶");
-                    });
-                }
-                @Override public void onEnded() {
-                    runOnUiThread(() -> {
-                        if (playbackPrefs != null && currentPlaybackUrl != null) {
-                            playbackPrefs.edit().remove("position_" + currentPlaybackUrl.hashCode()).apply();
-                        }
-                        if (vlcPlayPauseButton != null) vlcPlayPauseButton.setText("▶");
-                    });
-                }
-                @Override public void onError() {
-                    runOnUiThread(() -> {
-                        String failedUrl = currentPlaybackUrl;
-                        java.util.Map<String, String> failedHeaders = new java.util.LinkedHashMap<>(currentPlaybackHeaders);
-                        vlcFailedUrl = failedUrl;
-                        Log.w(TAG, "LibVLC failed; retrying the same media through Media3");
-                        releaseVlcEngine();
-                        Toast.makeText(MainActivity.this,
-                                "تعذّر تشغيل الرابط بمحرك VLC؛ جارٍ تجربة المشغل الاحتياطي",
-                                Toast.LENGTH_SHORT).show();
-                        playContent(failedUrl, null, failedHeaders);
-                    });
-                }
-                @Override public void onTimeChanged(long positionMs) {
-                    runOnUiThread(() -> updateVlcProgress());
-                }
-            });
-            vlcEngine.setVolume(muted ? 0f : lastNonZeroVolume);
-            float speed = getPlayerSettingsPrefs().getFloat("playback_speed", 1f);
-            vlcEngine.setRate(speed);
-            vlcEngine.play(url, headers);
-            long saved = playbackPrefs == null ? 0L
-                    : playbackPrefs.getLong("position_" + url.hashCode(), 0L);
-            if (saved > 5000L) {
-                vlcEngine.seekTo(saved);
-                Toast.makeText(this, "تم استئناف التشغيل من آخر موضع محفوظ", Toast.LENGTH_SHORT).show();
-            }
-            vlcContainer.setVisibility(View.VISIBLE);
-            vlcControls.setVisibility(View.VISIBLE);
-            if (vlcPlayPauseButton != null) vlcPlayPauseButton.setText("⏸");
-            if (playerSettingsButton != null) {
-                playerSettingsButton.setVisibility(View.VISIBLE);
-                playerSettingsButton.setNextFocusDownId(vlcPlayPauseButton.getId());
-            }
-            if (playerSubtitleButton != null) {
-                playerSubtitleButton.setVisibility(currentPlaybackHasVideo ? View.VISIBLE : View.GONE);
-                playerSubtitleButton.setNextFocusDownId(vlcPlayPauseButton.getId());
-            }
-            vlcPlayPauseButton.requestFocus();
-            vlcUiHandler.removeCallbacks(vlcProgressRunnable);
-            vlcUiHandler.post(vlcProgressRunnable);
-            return true;
-        } catch (Exception e) {
-            Log.e(TAG, "Could not start VLC playback; falling back to Media3", e);
-            releaseVlcEngine();
-            return false;
-        }
-    }
-
-    private void releaseVlcEngine() {
-        vlcUiHandler.removeCallbacks(vlcProgressRunnable);
-        if (vlcEngine != null) {
-            try {
-                vlcEngine.stop();
-                vlcEngine.release();
-            } catch (Exception e) {
-                Log.w(TAG, "Error releasing VLC playback engine", e);
-            }
-            vlcEngine = null;
-        }
-        if (vlcContainer != null) vlcContainer.setVisibility(View.GONE);
-        if (vlcSurfaceHost != null) vlcSurfaceHost.removeAllViews();
-    }
-
-    private void updateVlcProgress() {
-        if (vlcEngine == null) return;
-        long position = vlcEngine.getPositionMs();
-        long duration = vlcEngine.getDurationMs();
-        if (!vlcUserSeeking && vlcSeekBar != null) {
-            vlcSeekBar.setProgress(duration > 0 ? (int) Math.min(1000L, position * 1000L / duration) : 0);
-        }
-        if (vlcTimeLabel != null) {
-            vlcTimeLabel.setText(formatPlaybackTime(position) + " / "
-                    + (duration > 0 ? formatPlaybackTime(duration) : "--:--"));
-        }
-        if (playbackPrefs != null && duration > 0 && currentPlaybackUrl != null
-                && !currentPlaybackUrl.isEmpty()) {
-            playbackPrefs.edit().putLong("position_" + currentPlaybackUrl.hashCode(), position).apply();
-        }
-    }
-
-    private String formatPlaybackTime(long millis) {
-        long seconds = Math.max(0L, millis / 1000L);
-        long hours = seconds / 3600L;
-        long minutes = (seconds % 3600L) / 60L;
-        long remainder = seconds % 60L;
-        return hours > 0
-                ? String.format(Locale.US, "%d:%02d:%02d", hours, minutes, remainder)
-                : String.format(Locale.US, "%02d:%02d", minutes, remainder);
-    }
-
-    private void showVlcSettingsDialog() {
-        if (vlcEngine == null) return;
-        String[] options = {"مسار الصوت", "مسار الترجمة", "سرعة التشغيل", "أبعاد الصورة"};
-        new AlertDialog.Builder(this).setTitle("إعدادات VLC")
-                .setItems(options, (dialog, which) -> {
-                    if (vlcEngine == null) return;
-                    if (which == 0) showVlcTrackDialog(true);
-                    else if (which == 1) showVlcTrackDialog(false);
-                    else if (which == 2) showVlcSpeedDialog();
-                    else showVlcAspectDialog();
-                }).setNegativeButton("إغلاق", null).show();
-    }
-
-    private void showVlcTrackDialog(boolean audio) {
-        if (vlcEngine == null) return;
-        org.videolan.libvlc.MediaPlayer.TrackDescription[] tracks = audio
-                ? vlcEngine.getAudioTracks() : vlcEngine.getSubtitleTracks();
-        java.util.ArrayList<String> labels = new java.util.ArrayList<>();
-        java.util.ArrayList<Integer> ids = new java.util.ArrayList<>();
-        if (!audio) { labels.add("إيقاف الترجمة"); ids.add(-1); }
-        if (tracks != null) for (org.videolan.libvlc.MediaPlayer.TrackDescription track : tracks) {
-            labels.add(track.name == null || track.name.trim().isEmpty()
-                    ? (audio ? "مسار صوت" : "ترجمة") + " " + track.id : track.name);
-            ids.add(track.id);
-        }
-        if (labels.isEmpty()) {
-            Toast.makeText(this, audio ? "لا توجد مسارات صوت إضافية" : "لا توجد ترجمات مدمجة",
-                    Toast.LENGTH_SHORT).show();
-            return;
-        }
-        int selectedId = audio ? vlcEngine.getAudioTrack() : vlcEngine.getSubtitleTrack();
-        int selected = ids.indexOf(selectedId);
-        new AlertDialog.Builder(this).setTitle(audio ? "مسار الصوت" : "مسار الترجمة")
-                .setSingleChoiceItems(labels.toArray(new String[0]), Math.max(0, selected), (d, which) -> {
-                    if (vlcEngine != null) {
-                        if (audio) vlcEngine.setAudioTrack(ids.get(which));
-                        else vlcEngine.setSubtitleTrack(ids.get(which));
-                    }
-                    d.dismiss();
-                }).setNegativeButton("إغلاق", null).show();
-    }
-
-    private void showVlcSpeedDialog() {
-        final float[] values = {0.5f, 0.75f, 1f, 1.25f, 1.5f, 1.75f, 2f};
-        String[] labels = {"0.5x", "0.75x", "1.0x", "1.25x", "1.5x", "1.75x", "2.0x"};
-        float current = vlcEngine == null ? 1f : vlcEngine.getRate();
-        int selected = 2;
-        for (int i = 0; i < values.length; i++) if (Math.abs(values[i] - current) < 0.02f) selected = i;
-        new AlertDialog.Builder(this).setTitle("سرعة التشغيل")
-                .setSingleChoiceItems(labels, selected, (d, which) -> {
-                    if (vlcEngine != null) vlcEngine.setRate(values[which]);
-                    getPlayerSettingsPrefs().edit().putFloat("playback_speed", values[which]).apply();
-                    d.dismiss();
-                }).setNegativeButton("إغلاق", null).show();
-    }
-
-    private void showVlcAspectDialog() {
-        String[] labels = {"تلقائي", "16:9", "4:3", "1:1", "ملء الشاشة"};
-        String[] ratios = {null, "16:9", "4:3", "1:1", "fill"};
-        new AlertDialog.Builder(this).setTitle("أبعاد الصورة")
-                .setItems(labels, (d, which) -> {
-                    if (vlcEngine != null) {
-                        if (which == 4) vlcEngine.setScale(0f);
-                        else {
-                            vlcEngine.setScale(0f);
-                            vlcEngine.setAspectRatio(ratios[which]);
-                        }
-                    }
-                    d.dismiss();
-                }).setNegativeButton("إغلاق", null).show();
-    }
-
     private void playContent(String mediaUrl, String audioUrl) {
         playContent(mediaUrl, audioUrl, java.util.Collections.emptyMap());
     }
@@ -4163,7 +3837,6 @@ public class MainActivity extends Activity {
         }
 
         smartTubeFallbackAttempted = false;
-        vlcFallbackAttempted = false;
         currentPlaybackUrl = playbackUrl;
         currentPlaybackHasVideo = mediaUrl != null && !mediaUrl.trim().isEmpty() && !isImageUrl(mediaUrl);
         currentPlaybackAudioUrl = audioUrl == null ? "" : audioUrl;
@@ -4178,15 +3851,10 @@ public class MainActivity extends Activity {
 
         if (fallbackWebView != null) fallbackWebView.setVisibility(View.GONE);
         if (webFullscreenView != null) closeWebFullscreen();
-        // Keep Media3 ExoPlayer as the fast/default path for normal playback.
-        // LibVLC remains available as a one-shot fallback after Media3 reports an error.
-        releaseVlcEngine();
         welcomeBackground.setVisibility(View.GONE);
         welcomeScreen.setVisibility(View.GONE);
         connectionCard.setVisibility(View.GONE);
         playerView.setVisibility(View.VISIBLE);
-        if (playerSettingsButton != null) playerSettingsButton.setNextFocusDownId(androidx.media3.ui.R.id.exo_play_pause);
-        if (playerSubtitleButton != null) playerSubtitleButton.setNextFocusDownId(androidx.media3.ui.R.id.exo_play_pause);
         if (playerSubtitleButton != null) playerSubtitleButton.setVisibility(View.GONE);
         if (playerSettingsButton != null) playerSettingsButton.setVisibility(View.GONE);
         playerView.setFocusable(true);
@@ -4228,20 +3896,6 @@ public class MainActivity extends Activity {
                             Log.e(TAG, "Media3 playback failed: " + detail,
                                     error == null ? null : error);
                             runOnUiThread(() -> {
-                                String failedUrl = currentPlaybackUrl;
-                                // If Media3 cannot decode/open a normal direct stream, make one
-                                // controlled attempt with LibVLC. Never route YouTube, merged
-                                // audio/video, HTML pages, or unsupported custom headers here.
-                                if (!vlcFallbackAttempted
-                                        && shouldUseVlc(failedUrl, currentPlaybackAudioUrl,
-                                                currentPlaybackHeaders)) {
-                                    vlcFallbackAttempted = true;
-                                    Toast.makeText(MainActivity.this,
-                                            "المشغل الأساسي لم يفتح الرابط؛ جارٍ تجربة VLC كبديل",
-                                            Toast.LENGTH_SHORT).show();
-                                    if (startVlcPlayback(failedUrl, currentPlaybackHeaders)) return;
-                                }
-
                                 String fallbackUrl = currentPlaybackFallbackUrl;
                                 if (!currentPlaybackHasVideo || smartTubeFallbackAttempted
                                         || !isYouTubeUrl(fallbackUrl)) {
@@ -4400,10 +4054,6 @@ public class MainActivity extends Activity {
     }
 
     private void showPlaybackSettingsDialog() {
-        if (vlcEngine != null) {
-            showVlcSettingsDialog();
-            return;
-        }
         if (player == null || currentPlaybackUrl == null || currentPlaybackUrl.isEmpty()) {
             Toast.makeText(this, "لا يوجد محتوى يعمل حاليًا", Toast.LENGTH_SHORT).show();
             return;
@@ -4581,12 +4231,6 @@ public class MainActivity extends Activity {
     }
 
     private void togglePlaybackFromRemote() {
-        if (vlcEngine != null) {
-            vlcEngine.togglePlayback();
-            if (vlcPlayPauseButton != null) vlcPlayPauseButton.setText(
-                    vlcEngine.isPlaying() ? "⏸" : "▶");
-            return;
-        }
         if (player == null) return;
         synchronized (playerLock) {
             if (player.isPlaying()) player.pause();
@@ -4599,12 +4243,6 @@ public class MainActivity extends Activity {
     }
 
     private void seekByConfiguredIncrement(int direction) {
-        if (vlcEngine != null) {
-            long increment = getPlayerSettingsPrefs().getLong("seek_increment_ms", 10000L);
-            vlcEngine.seekBy(direction >= 0 ? increment : -increment);
-            updateVlcProgress();
-            return;
-        }
         if (player == null) return;
         synchronized (playerLock) {
             long increment = player.getSeekForwardIncrement();
@@ -4616,14 +4254,6 @@ public class MainActivity extends Activity {
     }
 
     private void restartCurrentVideo() {
-        if (vlcEngine != null) {
-            vlcEngine.seekTo(0L);
-            vlcEngine.play();
-            if (playbackPrefs != null && currentPlaybackUrl != null) {
-                playbackPrefs.edit().remove("position_" + currentPlaybackUrl.hashCode()).apply();
-            }
-            return;
-        }
         if (player == null) return;
         synchronized (playerLock) {
             player.seekTo(0L);
@@ -4709,7 +4339,7 @@ public class MainActivity extends Activity {
     // Guest API access is provided by subtitles.website; availability/rate limits depend on that service.
     private void searchAndApplyArabicSubtitle() {
         final String videoUrl = currentPlaybackUrl;
-        if (videoUrl == null || videoUrl.trim().isEmpty() || (player == null && vlcEngine == null)) {
+        if (videoUrl == null || videoUrl.trim().isEmpty() || player == null) {
             Toast.makeText(this, "لا يوجد فيديو يعمل حاليًا", Toast.LENGTH_SHORT).show();
             return;
         }
@@ -4908,17 +4538,8 @@ public class MainActivity extends Activity {
     }
 
     private boolean applySubtitleFile(File subtitleFile) {
-        if (currentPlaybackUrl == null || currentPlaybackUrl.trim().isEmpty()
+        if (player == null || currentPlaybackUrl == null || currentPlaybackUrl.trim().isEmpty()
                 || subtitleFile == null || !subtitleFile.isFile()) return false;
-        if (vlcEngine != null) {
-            try {
-                return vlcEngine.addExternalSubtitle(subtitleFile.getAbsolutePath());
-            } catch (Exception e) {
-                Log.e(TAG, "Could not add subtitle to VLC", e);
-                return false;
-            }
-        }
-        if (player == null) return false;
         try {
             synchronized (playerLock) {
                 long position = Math.max(0L, player.getCurrentPosition());
@@ -5018,7 +4639,6 @@ public class MainActivity extends Activity {
     }
 
     private void playAudioAlongsideImage(String audioUrl) {
-        releaseVlcEngine();
         currentPlaybackUrl = audioUrl;
         if (settingsHomeButton != null) settingsHomeButton.setVisibility(View.GONE);
         if (browserHomeButton != null) browserHomeButton.setVisibility(View.GONE);
@@ -5082,7 +4702,6 @@ public class MainActivity extends Activity {
         resetImageTransform();
 
         playerView.setVisibility(View.GONE);
-        releaseVlcEngine();
         if (playerSubtitleButton != null) playerSubtitleButton.setVisibility(View.GONE);
         if (playerSettingsButton != null) playerSettingsButton.setVisibility(View.GONE);
         if (fallbackWebView != null) fallbackWebView.setVisibility(View.GONE);
@@ -5251,8 +4870,6 @@ public class MainActivity extends Activity {
 
     @Override
     protected void onDestroy() {
-        releaseVlcEngine();
-        vlcUiHandler.removeCallbacks(vlcProgressRunnable);
         backPressHandler.removeCallbacks(resetBrowserBackPress);
         playbackProgressHandler.removeCallbacks(playbackProgressRunnable);
         synchronized (playerLock) {

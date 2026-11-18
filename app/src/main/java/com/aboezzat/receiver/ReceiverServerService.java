@@ -254,7 +254,6 @@ public class ReceiverServerService extends Service {
         String command = null;
         boolean invalidMediaUrl = false;
         JSONObject incomingHeaders = new JSONObject();
-        String requestSourceUrl = "";
         try (Socket socket = client) {
             socket.setSoTimeout(5000);
             InputStream input = socket.getInputStream();
@@ -295,8 +294,6 @@ public class ReceiverServerService extends Service {
                     // /play POST requests may carry a separate DASH audio-only track.
                     // Preserve it exactly like the legacy GET ?audio=... path.
                     audioUrl = payload.optString("audio", "");
-                    String suppliedSourceUrl = payload.optString("sourceUrl", "");
-                    if (isHttpUrl(suppliedSourceUrl)) requestSourceUrl = suppliedSourceUrl;
                     JSONObject suppliedHeaders = payload.optJSONObject("headers");
                     JSONObject safeHeaders = new JSONObject();
                     if (suppliedHeaders != null) {
@@ -305,7 +302,7 @@ public class ReceiverServerService extends Service {
                             String value = suppliedHeaders.optString(key, "");
                             int max = "cookie".equals(key) ? 8192 : 2048;
                             if (!value.isEmpty() && value.length() <= max
-                                    && !value.contains("\r") && !value.contains("\n")) {
+                                    && !value.contains("\\r") && !value.contains("\\n")) {
                                 safeHeaders.put(key, value);
                             }
                         }
@@ -313,7 +310,8 @@ public class ReceiverServerService extends Service {
                     // Persist playback headers with the pending URL so the player can use
                     // the same authorization context that Share supplied.
                     incomingHeaders = safeHeaders;
-                    // Headers are stored with their matching pending media URL below.
+                    getSharedPreferences("AboEzzatReceiverPending", MODE_PRIVATE).edit()
+                            .putString("headers", safeHeaders.toString()).apply();
                 }
             } else if (target.contains("?")) {
                 int questionIndex = target.indexOf('?');
@@ -344,12 +342,12 @@ public class ReceiverServerService extends Service {
                 contentType = "application/json; charset=utf-8";
             }
             byte[] bodyBytes = body.getBytes(StandardCharsets.UTF_8);
-            byte[] responseHeaders = ("HTTP/1.1 " + responseStatus + "\r\n"
-                    + "Content-Type: " + contentType + "\r\n"
-                    + "Access-Control-Allow-Origin: *\r\n"
-                    + "Access-Control-Allow-Methods: GET, POST, OPTIONS\r\n"
-                    + "Connection: close\r\n"
-                    + "Content-Length: " + bodyBytes.length + "\r\n\r\n")
+            byte[] responseHeaders = ("HTTP/1.1 " + responseStatus + "\\r\\n"
+                    + "Content-Type: " + contentType + "\\r\\n"
+                    + "Access-Control-Allow-Origin: *\\r\\n"
+                    + "Access-Control-Allow-Methods: GET, POST, OPTIONS\\r\\n"
+                    + "Connection: close\\r\\n"
+                    + "Content-Length: " + bodyBytes.length + "\\r\\n\\r\\n")
                     .getBytes(StandardCharsets.UTF_8);
             OutputStream output = socket.getOutputStream();
             output.write(responseHeaders);
@@ -374,7 +372,6 @@ public class ReceiverServerService extends Service {
             getSharedPreferences("AboEzzatReceiverPending", MODE_PRIVATE).edit()
                     .putString("url", mediaUrl == null ? "" : mediaUrl)
                     .putString("audio", audioUrl == null ? "" : audioUrl)
-                    .putString("headers", incomingHeaders.toString())
                     .putLong("received_at", System.currentTimeMillis())
                     .apply();
         }
@@ -383,7 +380,6 @@ public class ReceiverServerService extends Service {
         request.setAction(ACTION_SERVER_REQUEST);
         request.putExtra(EXTRA_URL, mediaUrl);
         request.putExtra(EXTRA_AUDIO, audioUrl);
-        request.putExtra("server_source_url", requestSourceUrl);
         request.putExtra(EXTRA_COMMAND, command);
         request.putExtra("server_headers", incomingHeaders.toString());
         request.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK
