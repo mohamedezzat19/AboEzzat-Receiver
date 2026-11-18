@@ -1645,11 +1645,48 @@ public class MainActivity extends Activity {
                 ? candidate : null;
     }
 
+    // Resolve media references embedded in HTML (including relative /assets/*.m3u8 URLs)
+    // against the page URL. This is deliberately limited to HTTP(S) media candidates.
+    private String resolveHtmlMediaUrl(String value, String pageUrl) {
+        String cleaned = cleanExtractedUrl(value);
+        if (cleaned != null) return cleaned;
+        if (value == null || pageUrl == null) return null;
+        String candidate = value.trim().replace("\\\\/", "/")
+                .replace("&amp;", "&").replace("\\\\u0026", "&");
+        if (candidate.isEmpty() || candidate.startsWith("data:")
+                || candidate.startsWith("javascript:") || candidate.startsWith("blob:")) return null;
+        try {
+            java.net.URI base = new java.net.URI(pageUrl);
+            java.net.URI resolved = base.resolve(new java.net.URI(candidate));
+            String scheme = resolved.getScheme();
+            if (scheme == null || !(scheme.equalsIgnoreCase("http") || scheme.equalsIgnoreCase("https"))) return null;
+            return resolved.toString();
+        } catch (Exception ignored) {
+            return null;
+        }
+    }
+
     // Extract only publicly exposed media URLs from page metadata or player JSON.
     // No login, DRM, signature bypass, or protected-stream circumvention is attempted.
     private String extractDirectMediaFromHtml(String html, String pageUrl) {
         if (html == null || html.isEmpty()) return null;
         java.util.LinkedHashSet<String> candidates = new java.util.LinkedHashSet<>();
+
+        // HTML5 media elements and common player wrappers often keep the real stream
+        // in src/data-src/data-hls instead of OpenGraph metadata.
+        java.util.regex.Matcher mediaTags = java.util.regex.Pattern
+                .compile("(?is)<(?:video|audio|source|track)\\\\b[^>]*>")
+                .matcher(html);
+        while (mediaTags.find()) {
+            String tag = mediaTags.group();
+            java.util.regex.Matcher attrs = java.util.regex.Pattern
+                    .compile("(?i)(?:src|data-src|data-url|data-video|data-hls|data-m3u8)\\\\s*=\\\\s*['\\\"]([^'\\\"]{3,})['\\\"]")
+                    .matcher(tag);
+            while (attrs.find()) {
+                String candidate = resolveHtmlMediaUrl(attrs.group(1), pageUrl);
+                if (candidate != null && isDirectStreamUrl(candidate)) candidates.add(candidate);
+            }
+        }
 
         java.util.regex.Matcher metaTags = java.util.regex.Pattern
                 .compile("(?is)<meta\\b[^>]*>")
@@ -1681,7 +1718,8 @@ public class MainActivity extends Activity {
                 "hls_pull_url", "hlsPullUrl", "flv_pull_url", "flvPullUrl",
                 "pull_url", "pullUrl", "liveUrl", "live_url",
                 "flvUrl", "flv_url", "flvPullUrl", "flv_pull_url",
-                "hlsPullUrl", "hls_pull_url", "live_play_url", "livePlayUrl"
+                "hlsPullUrl", "hls_pull_url", "live_play_url", "livePlayUrl",
+                "manifestUrl", "manifest_url", "videoSrc", "video_src", "mediaUrl", "media_url"
         };
         for (String field : fieldNames) {
             java.util.regex.Matcher matcher = java.util.regex.Pattern
@@ -1689,8 +1727,8 @@ public class MainActivity extends Activity {
                             + "['\\\"]?\\s*[:=]\\s*['\\\"]([^'\\\"]{8,})['\\\"]")
                     .matcher(html);
             while (matcher.find()) {
-                String candidate = cleanExtractedUrl(matcher.group(1));
-                if (candidate != null) candidates.add(candidate);
+                String candidate = resolveHtmlMediaUrl(matcher.group(1), pageUrl);
+                if (candidate != null && isDirectStreamUrl(candidate)) candidates.add(candidate);
             }
         }
 
@@ -1698,7 +1736,7 @@ public class MainActivity extends Activity {
                 .compile("(?is)(https?:\\\\?/\\\\?/[^\\s'\\\"><]+?\\.(?:mp4|m4v|webm|mov|m3u8|mpd|mp3|m4a|aac|ogg|oga|opus|wav|flac)(?:\\?[^\\s'\\\"><]*)?)")
                 .matcher(html);
         while (rawMedia.find()) {
-            String candidate = cleanExtractedUrl(rawMedia.group(1));
+            String candidate = resolveHtmlMediaUrl(rawMedia.group(1), pageUrl);
             if (candidate != null) candidates.add(candidate);
         }
 
