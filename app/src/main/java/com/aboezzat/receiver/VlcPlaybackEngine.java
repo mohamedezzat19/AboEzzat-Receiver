@@ -41,6 +41,7 @@ public final class VlcPlaybackEngine {
     private final VLCVideoLayout videoLayout;
     private Listener listener;
     private boolean released;
+    private int preferredVideoHeight;
 
     public VlcPlaybackEngine(Context context, VLCVideoLayout layout, Listener listener) {
         if (context == null) throw new IllegalArgumentException("Context is required");
@@ -68,8 +69,9 @@ public final class VlcPlaybackEngine {
     }
 
     /**
-     * LibVLC 3 supports standard HTTP user-agent and referrer options.
-     * Unknown headers must stay on the ExoPlayer route rather than being lost.
+     * LibVLC 3 exposes User-Agent and Referer as explicit HTTP options.
+     * Other request headers are logged by the caller because LibVLC's HTTP
+     * access module does not provide arbitrary per-request header injection.
      */
     public static boolean supportsHeaders(Map<String, String> headers) {
         if (headers == null || headers.isEmpty()) return true;
@@ -78,20 +80,28 @@ public final class VlcPlaybackEngine {
             String normalized = key.trim().toLowerCase(Locale.ROOT);
             if (!normalized.equals("user-agent")
                     && !normalized.equals("referer")
-                    && !normalized.equals("referrer")) {
-                return false;
-            }
+                    && !normalized.equals("referrer")) return false;
         }
         return true;
     }
 
+    public void setPreferredVideoHeight(int height) {
+        ensureActive();
+        preferredVideoHeight = Math.max(0, height);
+    }
+
     public void play(String url, Map<String, String> requestHeaders) {
+        play(url, requestHeaders, null);
+    }
+
+    /**
+     * Play the primary media and, when supplied, attach a separate audio stream
+     * as a LibVLC audio slave before playback begins.
+     */
+    public void play(String url, Map<String, String> requestHeaders, String separateAudioUrl) {
         ensureActive();
         if (url == null || url.trim().isEmpty()) {
             throw new IllegalArgumentException("Media URL is empty");
-        }
-        if (!supportsHeaders(requestHeaders)) {
-            throw new IllegalArgumentException("This request uses HTTP headers not supported by the VLC route");
         }
 
         mediaPlayer.stop();
@@ -99,6 +109,14 @@ public final class VlcPlaybackEngine {
         try {
             media.setHWDecoderEnabled(true, false);
             media.addOption(":network-caching=" + DEFAULT_NETWORK_CACHING_MS);
+            String lower = url.toLowerCase(Locale.ROOT);
+            if (lower.contains("/index.html") || lower.endsWith(".m3u8")
+                    || lower.contains("format=m3u8") || lower.contains("chunklist")) {
+                media.addOption(":demux=adaptive");
+            }
+            if (preferredVideoHeight > 0) {
+                media.addOption(":preferred-resolution=" + preferredVideoHeight);
+            }
             if (requestHeaders != null) {
                 for (Map.Entry<String, String> entry : requestHeaders.entrySet()) {
                     if (entry.getKey() == null || entry.getValue() == null) continue;
@@ -108,10 +126,21 @@ public final class VlcPlaybackEngine {
                     if ("user-agent".equals(key)) media.addOption(":http-user-agent=" + value);
                     else if ("referer".equals(key) || "referrer".equals(key)) {
                         media.addOption(":http-referrer=" + value);
+                    } else {
+                        Log.w(TAG, "LibVLC 3 cannot apply arbitrary HTTP header: " + key);
                     }
                 }
             }
-            mediaPlayer.setMedia(media);
+            if (separateAudioUrl != null && !separateAudioUrl.trim().isEmpty()) {
+                mediaPlayer.setMedia(media);
+                boolean attached = mediaPlayer.addSlave(IMedia.Slave.Type.Audio,
+                        Uri.parse(separateAudioUrl.trim()), true);
+                if (!attached) {
+                    Log.w(TAG, "LibVLC could not attach separate audio stream");
+                }
+            } else {
+                mediaPlayer.setMedia(media);
+            }
         } finally {
             media.release();
         }
