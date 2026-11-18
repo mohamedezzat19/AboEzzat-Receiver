@@ -20,6 +20,8 @@ import java.nio.charset.StandardCharsets;
 import java.util.LinkedHashMap;
 import java.util.Locale;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -38,7 +40,12 @@ public final class LocalMediaProxyServer implements AutoCloseable {
             Pattern.compile("(?i)(URI\\s*=\\s*)\"([^\"]+)\"");
     private final Map<String, String> sourceHeaders;
     private final AtomicBoolean running = new AtomicBoolean(false);
-    private final ExecutorService clients = Executors.newFixedThreadPool(6);
+    private final Set<Socket> activeSockets = ConcurrentHashMap.newKeySet();
+    private final ExecutorService clients = Executors.newFixedThreadPool(4, runnable -> {
+        Thread thread = new Thread(runnable, "ReceiverMediaProxy-Client");
+        thread.setDaemon(true);
+        return thread;
+    });
     private ServerSocket server;
     private Thread acceptThread;
 
@@ -62,8 +69,15 @@ public final class LocalMediaProxyServer implements AutoCloseable {
             while (running.get()) {
                 try {
                     Socket socket = server.accept();
-                    socket.setSoTimeout(35000);
-                    clients.execute(() -> handle(socket));
+                    socket.setSoTimeout(20000);
+                    activeSockets.add(socket);
+                    try {
+                        clients.execute(() -> handle(socket));
+                    } catch (RuntimeException rejected) {
+                        activeSockets.remove(socket);
+                        try { socket.close(); } catch (Exception ignored) { }
+                        if (running.get()) Log.w(TAG, "Proxy client rejected", rejected);
+                    }
                 } catch (Exception e) {
                     if (running.get()) Log.w(TAG, "Proxy accept failed", e);
                 }
@@ -184,6 +198,7 @@ public final class LocalMediaProxyServer implements AutoCloseable {
             try { writeError(socket.getOutputStream(), 502, "Bad Gateway"); }
             catch (Exception ignored) { }
         } finally {
+            activeSockets.remove(socket);
             if (upstream != null) upstream.disconnect();
         }
     }
@@ -292,6 +307,10 @@ public final class LocalMediaProxyServer implements AutoCloseable {
     @Override public synchronized void close() {
         if (!running.getAndSet(false)) return;
         try { if (server != null) server.close(); } catch (Exception ignored) { }
+        for (Socket socket : activeSockets) {
+            try { socket.close(); } catch (Exception ignored) { }
+        }
+        activeSockets.clear();
         clients.shutdownNow();
         Log.i(TAG, "Loopback media proxy stopped");
     }
