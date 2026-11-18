@@ -1680,7 +1680,7 @@ public class MainActivity extends Activity {
         while (mediaTags.find()) {
             String tag = mediaTags.group();
             java.util.regex.Matcher attrs = java.util.regex.Pattern
-                    .compile("(?i)(?:src|data-src|data-url|data-video|data-hls|data-m3u8)\\s*=\\s*['\\"]([^'\\"]{3,})['\\"]")
+                    .compile("(?i)(?:src|data-src|data-url|data-video|data-hls|data-m3u8)\\s*=\\s*[\"']([^\"']{3,})[\"']")
                     .matcher(tag);
             while (attrs.find()) {
                 String candidate = resolveHtmlMediaUrl(attrs.group(1), pageUrl);
