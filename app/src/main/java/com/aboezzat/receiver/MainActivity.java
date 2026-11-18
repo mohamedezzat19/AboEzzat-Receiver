@@ -516,6 +516,7 @@ public class MainActivity extends Activity {
             String command = intent.getStringExtra(ReceiverServerService.EXTRA_COMMAND);
             String incomingUrl = intent.getStringExtra(ReceiverServerService.EXTRA_URL);
             String incomingAudio = intent.getStringExtra(ReceiverServerService.EXTRA_AUDIO);
+            String incomingSourceUrl = intent.getStringExtra("server_source_url");
             java.util.Map<String, String> incomingHeaders = new java.util.LinkedHashMap<>();
             try {
                 JSONObject headerJson = new JSONObject(intent.getStringExtra("server_headers") == null
@@ -531,7 +532,7 @@ public class MainActivity extends Activity {
                 handleRemoteCommand(command.trim());
             } else {
                 clearPendingServerMedia();
-                queueIncomingMedia(incomingUrl, incomingAudio, incomingHeaders);
+                queueIncomingMedia(incomingUrl, incomingAudio, incomingHeaders, incomingSourceUrl);
             }
             return;
         }
@@ -574,11 +575,22 @@ public class MainActivity extends Activity {
         SharedPreferences pending = getSharedPreferences("AboEzzatReceiverPending", MODE_PRIVATE);
         String pendingUrl = pending.getString("url", "");
         String pendingAudio = pending.getString("audio", "");
+        String pendingHeadersJson = pending.getString("headers", "{}");
+        java.util.Map<String, String> pendingHeaders = new java.util.LinkedHashMap<>();
+        try {
+            JSONObject savedHeaders = new JSONObject(pendingHeadersJson);
+            java.util.Iterator<String> keys = savedHeaders.keys();
+            while (keys.hasNext()) {
+                String key = keys.next();
+                String value = savedHeaders.optString(key, "");
+                if (!value.isEmpty()) pendingHeaders.put(key, value);
+            }
+        } catch (Exception ignored) { }
         long receivedAt = pending.getLong("received_at", 0L);
         if (System.currentTimeMillis() - receivedAt <= 10 * 60 * 1000L
                 && (!pendingUrl.trim().isEmpty() || !pendingAudio.trim().isEmpty())) {
             clearPendingServerMedia();
-            queueIncomingMedia(pendingUrl, pendingAudio);
+            queueIncomingMedia(pendingUrl, pendingAudio, pendingHeaders);
         } else if (receivedAt != 0L) {
             clearPendingServerMedia();
         }
@@ -588,6 +600,7 @@ public class MainActivity extends Activity {
         getSharedPreferences("AboEzzatReceiverPending", MODE_PRIVATE).edit()
                 .remove("url")
                 .remove("audio")
+                .remove("headers")
                 .remove("received_at")
                 .apply();
     }
