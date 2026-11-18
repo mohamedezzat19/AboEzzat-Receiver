@@ -99,6 +99,21 @@ public final class VlcPlaybackEngine {
      * as a LibVLC audio slave before playback begins.
      */
     public void play(String url, Map<String, String> requestHeaders, String separateAudioUrl) {
+        playInternal(url, requestHeaders, separateAudioUrl, true);
+    }
+
+    /**
+     * Second-chance decode path for devices whose hardware decoder rejects a stream.
+     * This remains LibVLC playback; it only switches VLC's decoder to software.
+     */
+    public void playSoftwareFallback(String url, Map<String, String> requestHeaders,
+                                     String separateAudioUrl) {
+        Log.w(TAG, "Retrying failed stream with LibVLC software decoding");
+        playInternal(url, requestHeaders, separateAudioUrl, false);
+    }
+
+    private void playInternal(String url, Map<String, String> requestHeaders,
+                              String separateAudioUrl, boolean hardwareDecoder) {
         ensureActive();
         if (url == null || url.trim().isEmpty()) {
             throw new IllegalArgumentException("Media URL is empty");
@@ -107,8 +122,9 @@ public final class VlcPlaybackEngine {
         mediaPlayer.stop();
         Media media = new Media(libVlc, Uri.parse(url.trim()));
         try {
-            media.setHWDecoderEnabled(true, false);
+            media.setHWDecoderEnabled(hardwareDecoder, false);
             media.addOption(":network-caching=" + DEFAULT_NETWORK_CACHING_MS);
+            media.addOption(":clock-jitter=0");
             String lower = url.toLowerCase(Locale.ROOT);
             if (lower.contains("/index.html") || lower.endsWith(".m3u8")
                     || lower.contains("format=m3u8") || lower.contains("chunklist")) {
@@ -131,19 +147,19 @@ public final class VlcPlaybackEngine {
                     }
                 }
             }
+            mediaPlayer.setMedia(media);
             if (separateAudioUrl != null && !separateAudioUrl.trim().isEmpty()) {
-                mediaPlayer.setMedia(media);
                 boolean attached = mediaPlayer.addSlave(IMedia.Slave.Type.Audio,
                         Uri.parse(separateAudioUrl.trim()), true);
                 if (!attached) {
                     Log.w(TAG, "LibVLC could not attach separate audio stream");
                 }
-            } else {
-                mediaPlayer.setMedia(media);
             }
         } finally {
             media.release();
         }
+        Log.i(TAG, "Starting LibVLC playback; hardwareDecoder=" + hardwareDecoder
+                + ", separateAudio=" + (separateAudioUrl != null && !separateAudioUrl.trim().isEmpty()));
         mediaPlayer.play();
     }
 
