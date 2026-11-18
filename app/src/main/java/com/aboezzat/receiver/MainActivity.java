@@ -99,6 +99,7 @@ public class MainActivity extends Activity {
     private SeekBar vlcSeekBar;
     private boolean vlcUserSeeking = false;
     private String vlcLoadedUrl = "";
+    private boolean vlcSoftwareRetryAttempted = false;
     private final Handler vlcUiHandler = new Handler(Looper.getMainLooper());
     private final Runnable vlcProgressRunnable = new Runnable() {
         @Override public void run() {
@@ -3681,10 +3682,34 @@ public class MainActivity extends Activity {
                 @Override public void onPlaying(){runOnUiThread(()->{if(vlcPlayPauseButton!=null)vlcPlayPauseButton.setText("⏸");extractionStatus="playing";playbackStatusMessage="بدأ تشغيل الوسائط بمحرك VLC داخل Receiver.";persistExtractionState();});}
                 @Override public void onPaused(){runOnUiThread(()->{if(vlcPlayPauseButton!=null)vlcPlayPauseButton.setText("▶");});}
                 @Override public void onEnded(){runOnUiThread(()->{if(getPlayerSettingsPrefs().getBoolean("repeat_one",false)&&vlcEngine!=null){vlcEngine.seekTo(0);vlcEngine.play();}else{if(playbackPrefs!=null&&vlcLoadedUrl!=null)playbackPrefs.edit().remove("position_"+vlcLoadedUrl.hashCode()).apply();if(vlcPlayPauseButton!=null)vlcPlayPauseButton.setText("▶");}});}
-                @Override public void onError(){runOnUiThread(()->{String fb=currentPlaybackFallbackUrl;Log.e(TAG,"LibVLC failed "+currentPlaybackUrl);extractionStatus="error";playbackStatusMessage="فشل VLC في تشغيل الرابط.";persistExtractionState();releaseVlcEngine();if(currentPlaybackHasVideo&&!smartTubeFallbackAttempted&&isYouTubeUrl(fb)){smartTubeFallbackAttempted=true;if(tryOpenSmartTubeFallback(fb))return;}Toast.makeText(MainActivity.this,"محرك VLC لم يتمكن من تشغيل هذا الرابط. راجع صيغة الرابط أو بيانات الوصول.",Toast.LENGTH_LONG).show();});}
+                @Override public void onError(){runOnUiThread(()->{
+                    String fb=currentPlaybackFallbackUrl;
+                    Log.e(TAG,"LibVLC playback error for host="+safeMediaHost(currentPlaybackUrl)
+                            +", softwareRetryAttempted="+vlcSoftwareRetryAttempted);
+                    if(!vlcSoftwareRetryAttempted&&vlcEngine!=null){
+                        vlcSoftwareRetryAttempted=true;
+                        try{
+                            Toast.makeText(MainActivity.this,"جاري إعادة المحاولة بمحرك فك الفيديو البرمجي في VLC…",Toast.LENGTH_SHORT).show();
+                            vlcEngine.playSoftwareFallback(currentPlaybackUrl,currentPlaybackHeaders,
+                                    currentPlaybackAudioUrl.isEmpty()?null:currentPlaybackAudioUrl);
+                            return;
+                        }catch(Exception retryError){
+                            Log.e(TAG,"LibVLC software decode retry could not start",retryError);
+                        }
+                    }
+                    extractionStatus="error";
+                    playbackStatusMessage="فشل VLC في التشغيل بعد المحاولة العتادية والبرمجية.";
+                    persistExtractionState();
+                    releaseVlcEngine();
+                    if(currentPlaybackHasVideo&&!smartTubeFallbackAttempted&&isYouTubeUrl(fb)){
+                        smartTubeFallbackAttempted=true;
+                        if(tryOpenSmartTubeFallback(fb))return;
+                    }
+                    Toast.makeText(MainActivity.this,"VLC فشل في تشغيل الفيديو حتى بعد إعادة المحاولة. راجع رابط الفيديو أو صلاحية الوصول إليه.",Toast.LENGTH_LONG).show();
+                });}
                 @Override public void onTimeChanged(long p){runOnUiThread(()->updateVlcProgress());}
             });
-            vlcLoadedUrl=url;SharedPreferences prefs=getPlayerSettingsPrefs();vlcEngine.setVolume(muted?0f:lastNonZeroVolume);vlcEngine.setRate(prefs.getFloat("playback_speed",1f));vlcEngine.setPreferredVideoHeight(prefs.getInt("max_video_height",0));vlcEngine.play(url,headers,separateAudioUrl);
+            vlcLoadedUrl=url;vlcSoftwareRetryAttempted=false;SharedPreferences prefs=getPlayerSettingsPrefs();vlcEngine.setVolume(muted?0f:lastNonZeroVolume);vlcEngine.setRate(prefs.getFloat("playback_speed",1f));vlcEngine.setPreferredVideoHeight(prefs.getInt("max_video_height",0));vlcEngine.play(url,headers,separateAudioUrl);
             long saved=playbackPrefs==null?0:playbackPrefs.getLong("position_"+url.hashCode(),0);if(saved>5000){vlcEngine.seekTo(saved);Toast.makeText(this,"تم استئناف التشغيل من آخر موضع محفوظ",Toast.LENGTH_SHORT).show();}
             vlcContainer.setVisibility(View.VISIBLE);vlcControls.setVisibility(View.VISIBLE);if(vlcPlayPauseButton!=null)vlcPlayPauseButton.setText("⏸");
             if(playerSettingsButton!=null){playerSettingsButton.setVisibility(View.VISIBLE);playerSettingsButton.setNextFocusDownId(vlcPlayPauseButton.getId());}
@@ -3754,6 +3779,10 @@ public class MainActivity extends Activity {
     private SharedPreferences getPlayerSettingsPrefs(){return getSharedPreferences("AboEzzatReceiverPlayerSettings",MODE_PRIVATE);}
     private void showPlaybackSettingsDialog(){if(vlcEngine==null){Toast.makeText(this,"لا يوجد محتوى يعمل حاليًا",Toast.LENGTH_SHORT).show();return;}showVlcSettingsDialog();}
     private void showSeekIncrementDialog(){int[] sec={10,15,30,60};String[] l={"10 ثوانٍ","15 ثانية","30 ثانية","60 ثانية"};long c=getPlayerSettingsPrefs().getLong("seek_increment_ms",10000);int s=0;for(int i=0;i<sec.length;i++)if(sec[i]*1000L==c)s=i;new AlertDialog.Builder(this).setTitle("مدة التقديم والترجيع").setSingleChoiceItems(l,s,(d,w)->{getPlayerSettingsPrefs().edit().putLong("seek_increment_ms",sec[w]*1000L).apply();d.dismiss();}).setNegativeButton("إغلاق",null).show();}
+    private String safeMediaHost(String mediaUrl){
+        try{android.net.Uri uri=android.net.Uri.parse(mediaUrl);return uri.getHost()==null?"unknown":uri.getHost();}
+        catch(Exception ignored){return "unknown";}
+    }
     private void togglePlaybackFromRemote(){if(vlcEngine!=null){vlcEngine.togglePlayback();if(vlcPlayPauseButton!=null)vlcPlayPauseButton.setText(vlcEngine.isPlaying()?"⏸":"▶");}}
     private void seekByConfiguredIncrement(int dir){if(vlcEngine!=null){long inc=getPlayerSettingsPrefs().getLong("seek_increment_ms",10000);vlcEngine.seekBy(dir>=0?inc:-inc);updateVlcProgress();}}
     private void restartCurrentVideo(){if(vlcEngine!=null){vlcEngine.seekTo(0);vlcEngine.play();if(playbackPrefs!=null&&vlcLoadedUrl!=null)playbackPrefs.edit().remove("position_"+vlcLoadedUrl.hashCode()).apply();Toast.makeText(this,"بدأ التشغيل من البداية",Toast.LENGTH_SHORT).show();}}
