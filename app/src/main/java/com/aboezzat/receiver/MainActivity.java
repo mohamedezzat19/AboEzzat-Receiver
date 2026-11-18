@@ -1651,8 +1651,8 @@ public class MainActivity extends Activity {
         String cleaned = cleanExtractedUrl(value);
         if (cleaned != null) return cleaned;
         if (value == null || pageUrl == null) return null;
-        String candidate = value.trim().replace("\\\\/", "/")
-                .replace("&amp;", "&").replace("\\\\u0026", "&");
+        String candidate = value.trim().replace("\\/", "/")
+                .replace("&amp;", "&").replace("\\u0026", "&");
         if (candidate.isEmpty() || candidate.startsWith("data:")
                 || candidate.startsWith("javascript:") || candidate.startsWith("blob:")) return null;
         try {
@@ -1675,12 +1675,12 @@ public class MainActivity extends Activity {
         // HTML5 media elements and common player wrappers often keep the real stream
         // in src/data-src/data-hls instead of OpenGraph metadata.
         java.util.regex.Matcher mediaTags = java.util.regex.Pattern
-                .compile("(?is)<(?:video|audio|source|track)\\\\b[^>]*>")
+                .compile("(?is)<(?:video|audio|source|track)\\b[^>]*>")
                 .matcher(html);
         while (mediaTags.find()) {
             String tag = mediaTags.group();
             java.util.regex.Matcher attrs = java.util.regex.Pattern
-                    .compile("(?i)(?:src|data-src|data-url|data-video|data-hls|data-m3u8)\\\\s*=\\\\s*['\\\"]([^'\\\"]{3,})['\\\"]")
+                    .compile("(?i)(?:src|data-src|data-url|data-video|data-hls|data-m3u8)\\s*=\\s*['\\"]([^'\\"]{3,})['\\"]")
                     .matcher(tag);
             while (attrs.find()) {
                 String candidate = resolveHtmlMediaUrl(attrs.group(1), pageUrl);
