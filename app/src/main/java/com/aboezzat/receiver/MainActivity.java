@@ -213,7 +213,7 @@ public class MainActivity extends Activity {
         buildScreen();
         startReceiverService();
         handleExternalIntent(getIntent());
-        playbackProgressHandler.postDelayed(playbackProgressRunnable, 3000L);
+        vlcUiHandler.postDelayed(playbackProgressRunnable, 3000L);
 
         // Check for a newer Receiver release automatically when launched from its icon.
         // Do not interrupt media arriving through Android's share/view intents.
