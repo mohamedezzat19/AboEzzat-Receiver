@@ -4209,11 +4209,8 @@ public class MainActivity extends Activity {
     protected void onDestroy() {
         releaseVlcEngine();
         vlcUiHandler.removeCallbacks(vlcProgressRunnable);
+        vlcUiHandler.removeCallbacks(playbackProgressRunnable);
         backPressHandler.removeCallbacks(resetBrowserBackPress);
-        playbackProgressHandler.removeCallbacks(playbackProgressRunnable);
-        synchronized (playerLock) {
-            savePlaybackPositionLocked();
-        }
         running = false;
         heartbeatRunning = false;
         if (pendingPlayback != null) {
@@ -4237,8 +4234,6 @@ public class MainActivity extends Activity {
             fallbackWebView.destroy();
             fallbackWebView = null;
         }
-        releaseVlcEngine();
-
         super.onDestroy();
     }
 }
