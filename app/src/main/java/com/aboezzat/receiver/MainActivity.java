@@ -36,6 +36,7 @@ import android.widget.ImageView;
 import android.widget.TextView;
 import android.widget.Toast;
 import android.widget.ProgressBar;
+import android.widget.SeekBar;
 import android.widget.EditText;
 import org.json.JSONObject;
 
@@ -107,6 +108,24 @@ public class MainActivity extends Activity {
     private TextView receiverStatusText;
 
     private PlayerView playerView;
+    private VlcPlaybackEngine vlcEngine;
+    private FrameLayout vlcContainer;
+    private LinearLayout vlcControls;
+    private TextView vlcPlayPauseButton;
+    private TextView vlcTimeLabel;
+    private SeekBar vlcSeekBar;
+    private boolean vlcUserSeeking = false;
+    private String vlcFailedUrl = "";
+    private final Handler vlcUiHandler = new Handler(Looper.getMainLooper());
+    private final Runnable vlcProgressRunnable = new Runnable() {
+        @Override public void run() {
+            if (vlcEngine != null && vlcContainer != null
+                    && vlcContainer.getVisibility() == View.VISIBLE) {
+                updateVlcProgress();
+                vlcUiHandler.postDelayed(this, 500L);
+            }
+        }
+    };
     private TextView playerSubtitleButton;
     private TextView playerSettingsButton;
     private boolean currentPlaybackHasVideo = false;
@@ -1013,6 +1032,59 @@ public class MainActivity extends Activity {
                 FrameLayout.LayoutParams.MATCH_PARENT
         ));
 
+        // VLC owns a separate video surface and matching controls; it never reuses
+        // Media3's PlayerView controller because that controller cannot control LibVLC.
+        vlcContainer = new FrameLayout(this);
+        vlcContainer.setBackgroundColor(Color.BLACK);
+        vlcContainer.setVisibility(View.GONE);
+        root.addView(vlcContainer, new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
+        vlcControls = new LinearLayout(this);
+        vlcControls.setOrientation(LinearLayout.HORIZONTAL);
+        vlcControls.setGravity(Gravity.CENTER_VERTICAL);
+        vlcControls.setPadding(dp(12), dp(8), dp(12), dp(8));
+        vlcControls.setBackgroundColor(Color.argb(190, 8, 14, 26));
+        vlcPlayPauseButton = makeText("⏸", 22, Color.WHITE, true);
+        vlcPlayPauseButton.setGravity(Gravity.CENTER);
+        vlcPlayPauseButton.setFocusable(true);
+        vlcPlayPauseButton.setMinWidth(dp(54));
+        vlcPlayPauseButton.setOnClickListener(v -> togglePlaybackFromRemote());
+        TextView vlcRewindButton = makeText("⏪", 20, Color.WHITE, true);
+        vlcRewindButton.setGravity(Gravity.CENTER);
+        vlcRewindButton.setFocusable(true);
+        vlcRewindButton.setMinWidth(dp(48));
+        vlcRewindButton.setOnClickListener(v -> seekByConfiguredIncrement(-1));
+        TextView vlcForwardButton = makeText("⏩", 20, Color.WHITE, true);
+        vlcForwardButton.setGravity(Gravity.CENTER);
+        vlcForwardButton.setFocusable(true);
+        vlcForwardButton.setMinWidth(dp(48));
+        vlcForwardButton.setOnClickListener(v -> seekByConfiguredIncrement(1));
+        vlcSeekBar = new SeekBar(this);
+        vlcSeekBar.setMax(1000);
+        vlcSeekBar.setLayoutParams(new LinearLayout.LayoutParams(0, dp(42), 1f));
+        vlcSeekBar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+            @Override public void onProgressChanged(SeekBar seekBar, int progress, boolean fromUser) { }
+            @Override public void onStartTrackingTouch(SeekBar seekBar) { vlcUserSeeking = true; }
+            @Override public void onStopTrackingTouch(SeekBar seekBar) {
+                vlcUserSeeking = false;
+                if (vlcEngine != null) {
+                    long duration = vlcEngine.getDurationMs();
+                    if (duration > 0) vlcEngine.seekTo(duration * seekBar.getProgress() / 1000L);
+                }
+            }
+        });
+        vlcTimeLabel = makeText("00:00 / 00:00", 12, Color.WHITE, false);
+        vlcTimeLabel.setGravity(Gravity.CENTER);
+        vlcTimeLabel.setMinWidth(dp(112));
+        vlcControls.addView(vlcRewindButton);
+        vlcControls.addView(vlcPlayPauseButton);
+        vlcControls.addView(vlcForwardButton);
+        vlcControls.addView(vlcSeekBar);
+        vlcControls.addView(vlcTimeLabel);
+        FrameLayout.LayoutParams vlcControlsParams = new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT, dp(62), Gravity.BOTTOM);
+        vlcContainer.addView(vlcControls, vlcControlsParams);
+
         // أدوات المشغل الإضافية تظهر وتختفي مع شريط تحكم ExoPlayer.
         playerSettingsButton = makeText("⚙", 23, Color.WHITE, true);
         playerSubtitleButton = makeText("CC", 15, Color.WHITE, true);
@@ -1047,7 +1119,10 @@ public class MainActivity extends Activity {
         playerSettingsButton.setNextFocusDownId(androidx.media3.ui.R.id.exo_play_pause);
         playerSubtitleButton.setNextFocusRightId(playerSettingsButton.getId());
         playerSubtitleButton.setNextFocusDownId(androidx.media3.ui.R.id.exo_play_pause);
-        playerSettingsButton.setOnClickListener(v -> showPlaybackSettingsDialog());
+        playerSettingsButton.setOnClickListener(v -> {
+            if (vlcEngine != null) showVlcSettingsDialog();
+            else showPlaybackSettingsDialog();
+        });
         playerSubtitleButton.setOnClickListener(v -> searchAndApplyArabicSubtitle());
         playerSubtitleButton.setOnLongClickListener(v -> {
             promptSubtitleTitleAndSearch();
@@ -3678,6 +3753,7 @@ public class MainActivity extends Activity {
     }
 
     private void stopCurrentPlayer() {
+        releaseVlcEngine();
         synchronized (playerLock) {
             if (player != null) {
                 savePlaybackPositionLocked();
@@ -4039,6 +4115,10 @@ public class MainActivity extends Activity {
     }
 
     private void showPlaybackSettingsDialog() {
+        if (vlcEngine != null) {
+            showVlcSettingsDialog();
+            return;
+        }
         if (player == null || currentPlaybackUrl == null || currentPlaybackUrl.isEmpty()) {
             Toast.makeText(this, "لا يوجد محتوى يعمل حاليًا", Toast.LENGTH_SHORT).show();
             return;
@@ -4324,7 +4404,7 @@ public class MainActivity extends Activity {
     // Guest API access is provided by subtitles.website; availability/rate limits depend on that service.
     private void searchAndApplyArabicSubtitle() {
         final String videoUrl = currentPlaybackUrl;
-        if (videoUrl == null || videoUrl.trim().isEmpty() || player == null) {
+        if (videoUrl == null || videoUrl.trim().isEmpty() || (player == null && vlcEngine == null)) {
             Toast.makeText(this, "لا يوجد فيديو يعمل حاليًا", Toast.LENGTH_SHORT).show();
             return;
         }
@@ -4523,8 +4603,17 @@ public class MainActivity extends Activity {
     }
 
     private boolean applySubtitleFile(File subtitleFile) {
-        if (player == null || currentPlaybackUrl == null || currentPlaybackUrl.trim().isEmpty()
+        if (currentPlaybackUrl == null || currentPlaybackUrl.trim().isEmpty()
                 || subtitleFile == null || !subtitleFile.isFile()) return false;
+        if (vlcEngine != null) {
+            try {
+                return vlcEngine.addExternalSubtitle(subtitleFile.getAbsolutePath());
+            } catch (Exception e) {
+                Log.e(TAG, "Could not add subtitle to VLC", e);
+                return false;
+            }
+        }
+        if (player == null) return false;
         try {
             synchronized (playerLock) {
                 long position = Math.max(0L, player.getCurrentPosition());
@@ -4687,6 +4776,7 @@ public class MainActivity extends Activity {
         resetImageTransform();
 
         playerView.setVisibility(View.GONE);
+        releaseVlcEngine();
         if (playerSubtitleButton != null) playerSubtitleButton.setVisibility(View.GONE);
         if (playerSettingsButton != null) playerSettingsButton.setVisibility(View.GONE);
         if (fallbackWebView != null) fallbackWebView.setVisibility(View.GONE);
@@ -4855,6 +4945,8 @@ public class MainActivity extends Activity {
 
     @Override
     protected void onDestroy() {
+        releaseVlcEngine();
+        vlcUiHandler.removeCallbacks(vlcProgressRunnable);
         backPressHandler.removeCallbacks(resetBrowserBackPress);
         playbackProgressHandler.removeCallbacks(playbackProgressRunnable);
         synchronized (playerLock) {
