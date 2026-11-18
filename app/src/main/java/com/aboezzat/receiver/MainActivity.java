@@ -109,7 +109,6 @@ public class MainActivity extends Activity {
 
     private PlayerView playerView;
     private TextView playerSubtitleButton;
-    private TextView playerSettingsButton;
     private boolean currentPlaybackHasVideo = false;
     private String currentPlaybackAudioUrl = "";
     private java.util.Map<String, String> currentPlaybackHeaders = java.util.Collections.emptyMap();
@@ -956,34 +955,39 @@ public class MainActivity extends Activity {
         TextView settingsButton = settingsHomeButton;
         settingsButton.setId(View.generateViewId());
         browserHomeButton.setId(View.generateViewId());
+        boolean compactPlayerChrome = getResources().getConfiguration().smallestScreenWidthDp < 600;
+        int homeActionSize = dp(compactPlayerChrome ? 44 : 52);
         TextView[] homeButtons = {settingsButton, browserHomeButton};
         for (TextView homeButton : homeButtons) {
             homeButton.setGravity(Gravity.CENTER);
             homeButton.setFocusable(true);
             homeButton.setFocusableInTouchMode(true);
             homeButton.setClickable(true);
-            homeButton.setPadding(dp(6), dp(4), dp(6), dp(4));
-            homeButton.setBackground(browserFocusBackground(Color.rgb(20, 34, 61), Color.rgb(86, 132, 255), 14, false));
+            homeButton.setPadding(dp(4), dp(3), dp(4), dp(3));
+            if (android.os.Build.VERSION.SDK_INT >= 26) homeButton.setDefaultFocusHighlightEnabled(false);
+            homeButton.setBackground(browserFocusBackground(Color.rgb(20, 34, 61), Color.rgb(86, 132, 255), 12, false));
             homeButton.setOnFocusChangeListener((v, focused) -> {
-                v.setScaleX(focused ? 1.12f : 1f);
-                v.setScaleY(focused ? 1.12f : 1f);
-                v.setElevation(focused ? dp(12) : dp(3));
+                v.setScaleX(focused ? 1.05f : 1f);
+                v.setScaleY(focused ? 1.05f : 1f);
+                v.setElevation(focused ? dp(5) : 0);
                 v.setBackground(browserFocusBackground(
-                        focused ? Color.rgb(43, 66, 108) : Color.rgb(20, 34, 61),
-                        focused ? Color.rgb(255, 212, 0) : Color.rgb(86, 132, 255), 14, focused));
+                        focused ? Color.argb(48, 105, 185, 255) : Color.rgb(20, 34, 61),
+                        focused ? Color.rgb(105, 185, 255) : Color.rgb(86, 132, 255), 12, focused));
             });
         }
         settingsButton.setContentDescription("الإعدادات");
         browserHomeButton.setContentDescription("المتصفح");
-        settingsButton.setNextFocusDownId(browserHomeButton.getId());
-        browserHomeButton.setNextFocusUpId(settingsButton.getId());
+        settingsButton.setNextFocusLeftId(browserHomeButton.getId());
+        browserHomeButton.setNextFocusRightId(settingsButton.getId());
         settingsButton.setOnClickListener(v -> showReceiverSettings());
         browserHomeButton.setOnClickListener(v -> browserShortcut.performClick());
-        FrameLayout.LayoutParams settingsButtonParams = new FrameLayout.LayoutParams(dp(58), dp(52), Gravity.TOP | Gravity.END);
-        settingsButtonParams.setMargins(dp(8), dp(12), dp(12), dp(8));
+        FrameLayout.LayoutParams settingsButtonParams = new FrameLayout.LayoutParams(
+                homeActionSize, homeActionSize, Gravity.TOP | Gravity.END);
+        settingsButtonParams.setMargins(dp(8), dp(10), dp(10), dp(8));
         root.addView(settingsButton, settingsButtonParams);
-        FrameLayout.LayoutParams browserHomeParams = new FrameLayout.LayoutParams(dp(58), dp(52), Gravity.TOP | Gravity.END);
-        browserHomeParams.setMargins(dp(8), dp(72), dp(12), dp(8));
+        FrameLayout.LayoutParams browserHomeParams = new FrameLayout.LayoutParams(
+                homeActionSize, homeActionSize, Gravity.TOP | Gravity.END);
+        browserHomeParams.setMargins(dp(8), dp(10), dp(compactPlayerChrome ? 62 : 70), dp(8));
         root.addView(browserHomeButton, browserHomeParams);
 
         // مشغل الفيديو والصوت.
@@ -991,6 +995,9 @@ public class MainActivity extends Activity {
         // on Android TV devices; PlayerView exposes this setting through XML attributes.
         playerView = (PlayerView) getLayoutInflater().inflate(R.layout.player_view_texture, root, false);
         playerView.setUseController(true);
+        // Hide the native controls exactly two seconds after playback or the last interaction.
+        playerView.setControllerShowTimeoutMs(2000);
+        playerView.setControllerHideOnTouch(true);
         playerView.setResizeMode(getPlayerSettingsPrefs().getInt("resize_mode",
                                         androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_FIT));
         playerView.setVisibility(View.GONE);
@@ -1001,63 +1008,48 @@ public class MainActivity extends Activity {
                 FrameLayout.LayoutParams.MATCH_PARENT
         ));
 
-        // أدوات المشغل الإضافية تظهر وتختفي مع شريط تحكم ExoPlayer.
-        playerSettingsButton = makeText("⚙", 23, Color.WHITE, true);
+        // لا نكرر زر الإعدادات داخل المشغل؛ زر الإعدادات العلوي هو الوحيد.
+        // زر الترجمة فقط يظهر مؤقتًا مع أدوات التشغيل.
         playerSubtitleButton = makeText("CC", 15, Color.WHITE, true);
-        TextView[] playerActions = {playerSubtitleButton, playerSettingsButton};
-        for (TextView action : playerActions) {
-            action.setGravity(Gravity.CENTER);
-            action.setFocusable(true);
-            action.setFocusableInTouchMode(true);
-            action.setClickable(true);
-            action.setBackground(browserFocusBackground(
-                    Color.TRANSPARENT, Color.TRANSPARENT, 14, false));
-            action.setOnFocusChangeListener((view, focused) -> {
-                // Clean player controls: no dark button tile; a soft blue focus cue
-                // replaces the heavy yellow frame while keeping the active control clear.
-                view.setBackground(browserFocusBackground(
-                        focused ? Color.argb(42, 112, 190, 255) : Color.TRANSPARENT,
-                        focused ? Color.rgb(112, 190, 255) : Color.TRANSPARENT,
-                        14, focused));
-                view.setElevation(focused ? dp(5) : 0);
-                view.setScaleX(focused ? 1.04f : 1.0f);
-                view.setScaleY(focused ? 1.04f : 1.0f);
-            });
-            action.setVisibility(View.GONE);
-            action.setMinWidth(dp(50));
-            action.setMinHeight(dp(46));
-        }
-        playerSettingsButton.setId(View.generateViewId());
+        playerSubtitleButton.setGravity(Gravity.CENTER);
+        playerSubtitleButton.setFocusable(true);
+        playerSubtitleButton.setFocusableInTouchMode(true);
+        playerSubtitleButton.setClickable(true);
+        if (android.os.Build.VERSION.SDK_INT >= 26) playerSubtitleButton.setDefaultFocusHighlightEnabled(false);
+        playerSubtitleButton.setBackground(browserFocusBackground(
+                Color.TRANSPARENT, Color.TRANSPARENT, 12, false));
+        playerSubtitleButton.setOnFocusChangeListener((view, focused) -> {
+            view.setBackground(browserFocusBackground(
+                    focused ? Color.argb(48, 105, 185, 255) : Color.TRANSPARENT,
+                    focused ? Color.rgb(105, 185, 255) : Color.TRANSPARENT, 12, focused));
+            view.setElevation(focused ? dp(4) : 0);
+            view.setScaleX(focused ? 1.04f : 1f);
+            view.setScaleY(focused ? 1.04f : 1f);
+        });
+        playerSubtitleButton.setVisibility(View.GONE);
+        playerSubtitleButton.setMinWidth(dp(46));
+        playerSubtitleButton.setMinHeight(dp(44));
         playerSubtitleButton.setId(View.generateViewId());
-        playerSettingsButton.setContentDescription("إعدادات المشغل");
         playerSubtitleButton.setContentDescription("البحث عن ترجمة عربية");
-        playerSettingsButton.setNextFocusLeftId(playerSubtitleButton.getId());
-        playerSettingsButton.setNextFocusDownId(androidx.media3.ui.R.id.exo_play_pause);
-        playerSubtitleButton.setNextFocusRightId(playerSettingsButton.getId());
-        playerSubtitleButton.setNextFocusDownId(androidx.media3.ui.R.id.exo_play_pause);
-        playerSettingsButton.setOnClickListener(v -> showPlaybackSettingsDialog());
         playerSubtitleButton.setOnClickListener(v -> searchAndApplyArabicSubtitle());
         playerSubtitleButton.setOnLongClickListener(v -> {
             promptSubtitleTitleAndSearch();
             return true;
         });
-
-        FrameLayout.LayoutParams playerSettingsParams = new FrameLayout.LayoutParams(
-                dp(50), dp(46), Gravity.TOP | Gravity.END);
-        playerSettingsParams.setMargins(dp(8), dp(14), dp(16), dp(8));
-        root.addView(playerSettingsButton, playerSettingsParams);
-
         FrameLayout.LayoutParams playerSubtitleParams = new FrameLayout.LayoutParams(
-                dp(50), dp(46), Gravity.TOP | Gravity.END);
-        playerSubtitleParams.setMargins(dp(8), dp(14), dp(74), dp(8));
+                dp(46), dp(44), Gravity.TOP | Gravity.START);
+        playerSubtitleParams.setMargins(dp(10), dp(10), dp(8), dp(8));
         root.addView(playerSubtitleButton, playerSubtitleParams);
 
         playerView.setControllerVisibilityListener((PlayerView.ControllerVisibilityListener) visibility -> {
             boolean controlsVisible = visibility == View.VISIBLE
                     && playerView != null && playerView.getVisibility() == View.VISIBLE;
             playerControllerVisible = controlsVisible;
-            if (playerSettingsButton != null) {
-                playerSettingsButton.setVisibility(controlsVisible ? View.VISIBLE : View.GONE);
+            if (settingsHomeButton != null) {
+                settingsHomeButton.setVisibility(controlsVisible ? View.VISIBLE : View.GONE);
+            }
+            if (browserHomeButton != null) {
+                browserHomeButton.setVisibility(controlsVisible ? View.VISIBLE : View.GONE);
             }
             if (playerSubtitleButton != null) {
                 playerSubtitleButton.setVisibility(controlsVisible && currentPlaybackHasVideo
@@ -3918,7 +3910,6 @@ public class MainActivity extends Activity {
         connectionCard.setVisibility(View.GONE);
         playerView.setVisibility(View.VISIBLE);
         if (playerSubtitleButton != null) playerSubtitleButton.setVisibility(View.GONE);
-        if (playerSettingsButton != null) playerSettingsButton.setVisibility(View.GONE);
         playerView.setFocusable(true);
         playerView.setFocusableInTouchMode(true);
         playerView.requestFocus();
@@ -4253,14 +4244,15 @@ public class MainActivity extends Activity {
         if (!(view instanceof ViewGroup) && (view.isClickable() || view.isFocusable())) {
             view.setFocusable(true);
             view.setFocusableInTouchMode(true);
+            if (android.os.Build.VERSION.SDK_INT >= 26) view.setDefaultFocusHighlightEnabled(false);
             view.setBackground(browserFocusBackground(Color.TRANSPARENT,
                     Color.TRANSPARENT, 10, false));
             view.setOnFocusChangeListener((focusedView, focused) -> {
                 // Transparent at rest; a slim cool-blue outline and subtle tint
                 // identify only the currently focused playback control.
                 focusedView.setBackground(browserFocusBackground(
-                        focused ? Color.argb(42, 112, 190, 255) : Color.TRANSPARENT,
-                        focused ? Color.rgb(112, 190, 255) : Color.TRANSPARENT,
+                        focused ? Color.argb(48, 105, 185, 255) : Color.TRANSPARENT,
+                        focused ? Color.rgb(105, 185, 255) : Color.TRANSPARENT,
                         10, focused));
                 focusedView.setElevation(focused ? dp(4) : 0);
             });
@@ -4282,14 +4274,11 @@ public class MainActivity extends Activity {
             if (playPause != null) {
                 playPause.setFocusable(true);
                 playPause.setFocusableInTouchMode(true);
-                playPause.setNextFocusUpId(playerSettingsButton == null
-                        ? View.NO_ID : playerSettingsButton.getId());
-                if (playerSettingsButton != null) {
-                    playerSettingsButton.setNextFocusDownId(playPause.getId());
-                }
-                if (playerSubtitleButton != null) {
-                    playerSubtitleButton.setNextFocusDownId(playPause.getId());
-                }
+                playPause.setNextFocusUpId(settingsHomeButton == null
+                        ? View.NO_ID : settingsHomeButton.getId());
+                if (settingsHomeButton != null) settingsHomeButton.setNextFocusDownId(playPause.getId());
+                if (browserHomeButton != null) browserHomeButton.setNextFocusDownId(playPause.getId());
+                if (playerSubtitleButton != null) playerSubtitleButton.setNextFocusDownId(playPause.getId());
                 playPause.requestFocus();
             } else {
                 playerView.requestFocus();
@@ -4775,7 +4764,6 @@ public class MainActivity extends Activity {
 
         playerView.setVisibility(View.GONE);
         if (playerSubtitleButton != null) playerSubtitleButton.setVisibility(View.GONE);
-        if (playerSettingsButton != null) playerSettingsButton.setVisibility(View.GONE);
         if (fallbackWebView != null) fallbackWebView.setVisibility(View.GONE);
         welcomeScreen.setVisibility(View.GONE);
         welcomeBackground.setVisibility(View.GONE);
@@ -4883,7 +4871,6 @@ public class MainActivity extends Activity {
         }
         playerView.setVisibility(View.GONE);
         if (playerSubtitleButton != null) playerSubtitleButton.setVisibility(View.GONE);
-        if (playerSettingsButton != null) playerSettingsButton.setVisibility(View.GONE);
         welcomeScreen.setVisibility(View.GONE);
         welcomeBackground.setVisibility(View.VISIBLE);
         connectionCard.setVisibility(View.VISIBLE);
