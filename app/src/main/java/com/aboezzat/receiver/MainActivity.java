@@ -1909,6 +1909,24 @@ public class MainActivity extends Activity {
                     connection.setRequestProperty("Accept",
                             "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8");
                     connection.setRequestProperty("Accept-Language", "en-US,en;q=0.8");
+                    // Reuse the TikTok WebView request context when resolving the original
+                    // watch page; otherwise the Receiver fetches it as an unrelated client.
+                    if (isTikTokSourcePageUrl(pageUrl) && pendingPlaybackHeaders != null) {
+                        for (java.util.Map.Entry<String, String> entry : pendingPlaybackHeaders.entrySet()) {
+                            String key = entry.getKey() == null ? "" : entry.getKey().toLowerCase(Locale.ROOT);
+                            String value = entry.getValue();
+                            if (value == null || value.isEmpty() || value.length() > ("cookie".equals(key) ? 8192 : 2048)
+                                    || value.contains("\\r") || value.contains("\\n")) continue;
+                            if ("user-agent".equals(key) || "cookie".equals(key) || "referer".equals(key)
+                                    || "origin".equals(key) || "accept".equals(key) || "accept-language".equals(key)
+                                    || "sec-fetch-site".equals(key) || "sec-fetch-mode".equals(key)
+                                    || "sec-fetch-dest".equals(key) || "sec-ch-ua".equals(key)
+                                    || "sec-ch-ua-mobile".equals(key) || "sec-ch-ua-platform".equals(key)
+                                    || "priority".equals(key)) {
+                                connection.setRequestProperty(key, value);
+                            }
+                        }
+                    }
                     int status = connection.getResponseCode();
                     if (status >= 200 && status < 400) {
                         String type = connection.getContentType();
@@ -1949,7 +1967,14 @@ public class MainActivity extends Activity {
 
         // Social-platform parsing is independent of the generic HTML request.
         if (useSocial) {
-            FastMediaExtractor.extractDirectMedia(pageUrl, android.webkit.CookieManager.getInstance().getCookie(pageUrl), new FastMediaExtractor.ExtractorCallback() {
+            String socialCookie = null;
+            if (isTikTokSourcePageUrl(pageUrl) && pendingPlaybackHeaders != null) {
+                socialCookie = pendingPlaybackHeaders.get("cookie");
+            }
+            if (socialCookie == null || socialCookie.isEmpty()) {
+                socialCookie = android.webkit.CookieManager.getInstance().getCookie(pageUrl);
+            }
+            FastMediaExtractor.extractDirectMedia(pageUrl, socialCookie, new FastMediaExtractor.ExtractorCallback() {
                 @Override public void onSuccess(String mediaUrl, String platform) {
                     run.candidate(mediaUrl, "Social " + platform, false, false);
                 }
