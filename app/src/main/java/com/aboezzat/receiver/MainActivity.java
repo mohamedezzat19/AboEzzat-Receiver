@@ -1431,14 +1431,18 @@ public class MainActivity extends Activity {
                     JSONObject headers = payload.optJSONObject("headers");
                     if (headers != null) {
                         java.util.Iterator<String> keys = headers.keys();
-                        while (keys.hasNext() && mediaHeaders.size() < 6) {
+                        while (keys.hasNext() && mediaHeaders.size() < 16) {
                             String key = keys.next();
                             String lower = key.toLowerCase(Locale.ROOT);
                             String value = headers.optString(key, "");
                             if (value.length() <= ("cookie".equals(lower) ? 8192 : 2048)
                                     && !value.contains("\r") && !value.contains("\n")
                                     && ("user-agent".equals(lower) || "referer".equals(lower) || "origin".equals(lower)
-                                    || "accept".equals(lower) || "accept-language".equals(lower) || "cookie".equals(lower))) {
+                                    || "accept".equals(lower) || "accept-language".equals(lower) || "cookie".equals(lower)
+                                    || "sec-fetch-site".equals(lower) || "sec-fetch-mode".equals(lower)
+                                    || "sec-fetch-dest".equals(lower) || "sec-ch-ua".equals(lower)
+                                    || "sec-ch-ua-mobile".equals(lower) || "sec-ch-ua-platform".equals(lower)
+                                    || "priority".equals(lower))) {
                                 mediaHeaders.put(key, value);
                             }
                         }
@@ -4760,7 +4764,11 @@ public class MainActivity extends Activity {
             for (java.util.Map.Entry<String, String> entry : requestHeaders.entrySet()) {
                 String key = entry.getKey() == null ? "" : entry.getKey().toLowerCase(Locale.ROOT);
                 if (("user-agent".equals(key) || "referer".equals(key) || "origin".equals(key)
-                        || "accept".equals(key) || "accept-language".equals(key) || "cookie".equals(key))
+                        || "accept".equals(key) || "accept-language".equals(key) || "cookie".equals(key)
+                        || "sec-fetch-site".equals(key) || "sec-fetch-mode".equals(key)
+                        || "sec-fetch-dest".equals(key) || "sec-ch-ua".equals(key)
+                        || "sec-ch-ua-mobile".equals(key) || "sec-ch-ua-platform".equals(key)
+                        || "priority".equals(key))
                         && entry.getValue() != null
                         && entry.getValue().length() <= ("cookie".equals(key) ? 8192 : 2048)
                         && !entry.getValue().contains("\\r") && !entry.getValue().contains("\\n")) {
