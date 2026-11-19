@@ -108,6 +108,8 @@ public class MainActivity extends Activity {
     private TextView receiverStatusText;
 
     private PlayerView playerView;
+    private FrameLayout playerBufferingOverlay;
+    private TextView playerBufferingText;
     private TextView playerSubtitleButton;
     private boolean currentPlaybackHasVideo = false;
     private String currentPlaybackAudioUrl = "";
@@ -1007,6 +1009,35 @@ public class MainActivity extends Activity {
                 FrameLayout.LayoutParams.MATCH_PARENT,
                 FrameLayout.LayoutParams.MATCH_PARENT
         ));
+
+        // Clear on-screen feedback while Media3 fills the startup/rebuffer safety buffer.
+        playerBufferingOverlay = new FrameLayout(this);
+        playerBufferingOverlay.setVisibility(View.GONE);
+        playerBufferingOverlay.setClickable(false);
+        playerBufferingOverlay.setFocusable(false);
+        LinearLayout bufferingCard = new LinearLayout(this);
+        bufferingCard.setOrientation(LinearLayout.VERTICAL);
+        bufferingCard.setGravity(Gravity.CENTER);
+        bufferingCard.setPadding(dp(24), dp(18), dp(24), dp(18));
+        GradientDrawable bufferingBackground = new GradientDrawable();
+        bufferingBackground.setColor(Color.argb(220, 18, 22, 30));
+        bufferingBackground.setCornerRadius(dp(16));
+        bufferingCard.setBackground(bufferingBackground);
+        ProgressBar bufferingSpinner = new ProgressBar(this);
+        LinearLayout.LayoutParams spinnerParams = new LinearLayout.LayoutParams(dp(38), dp(38));
+        spinnerParams.gravity = Gravity.CENTER_HORIZONTAL;
+        bufferingCard.addView(bufferingSpinner, spinnerParams);
+        playerBufferingText = makeText("جاري تحميل الفيديو...", 17, Color.WHITE, true);
+        playerBufferingText.setGravity(Gravity.CENTER);
+        LinearLayout.LayoutParams bufferingTextParams = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        bufferingTextParams.topMargin = dp(12);
+        bufferingCard.addView(playerBufferingText, bufferingTextParams);
+        FrameLayout.LayoutParams bufferingCardParams = new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.CENTER);
+        playerBufferingOverlay.addView(bufferingCard, bufferingCardParams);
+        root.addView(playerBufferingOverlay, new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
 
         // لا نكرر زر الإعدادات داخل المشغل؛ زر الإعدادات العلوي هو الوحيد.
         // زر الترجمة فقط يظهر مؤقتًا مع أدوات التشغيل.
@@ -3925,8 +3956,8 @@ public class MainActivity extends Activity {
                 if (player == null) {
                     player = new ExoPlayer.Builder(this)
                             .setLoadControl(new DefaultLoadControl.Builder()
-                                    // Deeper safety buffer for variable YouTube/googlevideo throughput.
-                                    .setBufferDurationsMs(20000, 60000, 1200, 3500)
+                                    // Start only after 5 seconds are buffered; refill more aggressively after stalls.
+                                    .setBufferDurationsMs(25000, 60000, 5000, 8000)
                                     .build())
                             .build();
                     applySavedPlayerSettings();
@@ -3934,6 +3965,7 @@ public class MainActivity extends Activity {
                         @Override
                         public void onIsPlayingChanged(boolean isPlaying) {
                             if (isPlaying) {
+                                setPlayerBufferingVisible(false);
                                 extractionStatus = "playing";
                                 playbackStatusMessage = "بدأ تشغيل الفيديو على شاشة Receiver.";
                                 persistExtractionState();
@@ -3979,6 +4011,7 @@ public class MainActivity extends Activity {
 
                         @Override
                         public void onPlaybackStateChanged(int playbackState) {
+                            setPlayerBufferingVisible(playbackState == Player.STATE_BUFFERING);
                             if (playbackState != Player.STATE_ENDED
                                     || playbackPrefs == null
                                     || player == null
@@ -4089,7 +4122,20 @@ public class MainActivity extends Activity {
     private MediaItem createPlaybackMediaItem(String url) {
         MediaItem.Builder builder = new MediaItem.Builder().setUri(url);
         applyKnownPlaylistMimeType(builder, url);
+        // Applies only to live media: keep a moderate live-edge target instead of
+        // letting the larger VOD safety buffer add excessive live latency.
+        builder.setLiveConfiguration(new MediaItem.LiveConfiguration.Builder()
+                .setTargetOffsetMs(8000L)
+                .build());
         return builder.build();
+    }
+
+    private void setPlayerBufferingVisible(boolean visible) {
+        runOnUiThread(() -> {
+            if (playerBufferingOverlay == null || playerView == null) return;
+            boolean show = visible && playerView.getVisibility() == View.VISIBLE;
+            playerBufferingOverlay.setVisibility(show ? View.VISIBLE : View.GONE);
+        });
     }
 
     private SharedPreferences getPlayerSettingsPrefs() {
@@ -4710,7 +4756,7 @@ public class MainActivity extends Activity {
                     player = new ExoPlayer.Builder(this)
                             .setLoadControl(new DefaultLoadControl.Builder()
                                     // Deeper safety buffer for variable YouTube/googlevideo throughput.
-                                    .setBufferDurationsMs(20000, 60000, 1200, 3500)
+                                    .setBufferDurationsMs(25000, 60000, 5000, 8000)
                                     .build())
                             .build();
                     player.setVolume(muted ? 0.0f : lastNonZeroVolume);
