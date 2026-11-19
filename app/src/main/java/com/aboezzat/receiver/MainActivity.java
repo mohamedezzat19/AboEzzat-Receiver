@@ -3913,6 +3913,65 @@ public class MainActivity extends Activity {
         queueIncomingMedia(url, null);
     }
 
+    private String getTikTokRequestHeaderDiagnostic() {
+        java.util.Map<String, String> headers = currentPlaybackHeaders;
+        if (headers == null) headers = java.util.Collections.emptyMap();
+        boolean ua = false, referer = false, origin = false, cookie = false;
+        boolean fetchSite = false, fetchMode = false, fetchDest = false;
+        int cookieLength = 0;
+        for (java.util.Map.Entry<String, String> entry : headers.entrySet()) {
+            String key = entry.getKey() == null ? "" : entry.getKey().toLowerCase(Locale.ROOT);
+            String value = entry.getValue() == null ? "" : entry.getValue();
+            ua |= "user-agent".equals(key) && !value.isEmpty();
+            referer |= "referer".equals(key) && !value.isEmpty();
+            origin |= "origin".equals(key) && !value.isEmpty();
+            if ("cookie".equals(key)) { cookie = !value.isEmpty(); cookieLength = value.length(); }
+            fetchSite |= "sec-fetch-site".equals(key) && !value.isEmpty();
+            fetchMode |= "sec-fetch-mode".equals(key) && !value.isEmpty();
+            fetchDest |= "sec-fetch-dest".equals(key) && !value.isEmpty();
+        }
+        return "TikTok request context: UA=" + ua + ", Referer=" + referer
+                + ", Origin=" + origin + ", Cookie=" + cookie + " (" + cookieLength + " chars)"
+                + ", Sec-Fetch=" + fetchSite + "/" + fetchMode + "/" + fetchDest
+                + ", headerCount=" + headers.size();
+    }
+
+    private void appendHttpResponseHeaderDiagnostics(StringBuilder detail, Throwable error) {
+        if (detail == null || error == null) return;
+        Throwable current = error;
+        int depth = 0;
+        while (current != null && depth++ < 6) {
+            Class<?> type = current.getClass();
+            while (type != null) {
+                for (String fieldName : new String[]{"headerFields", "responseHeaders"}) {
+                    try {
+                        java.lang.reflect.Field field = type.getDeclaredField(fieldName);
+                        field.setAccessible(true);
+                        Object raw = field.get(current);
+                        if (!(raw instanceof java.util.Map)) continue;
+                        java.util.Map<?, ?> map = (java.util.Map<?, ?>) raw;
+                        StringBuilder selected = new StringBuilder();
+                        for (java.util.Map.Entry<?, ?> entry : map.entrySet()) {
+                            String key = entry.getKey() == null ? "" : entry.getKey().toString();
+                            String lower = key.toLowerCase(Locale.ROOT);
+                            if (!("server".equals(lower) || "via".equals(lower)
+                                    || "content-type".equals(lower) || "retry-after".equals(lower)
+                                    || "x-cache".equals(lower) || "content-length".equals(lower))) continue;
+                            String value = String.valueOf(entry.getValue());
+                            if (value.length() > 120) value = value.substring(0, 120);
+                            if (selected.length() > 0) selected.append("; ");
+                            selected.append(key).append("=").append(value);
+                        }
+                        if (selected.length() > 0) detail.append(" / Response headers: ").append(selected);
+                        return;
+                    } catch (Exception ignored) {}
+                }
+                type = type.getSuperclass();
+            }
+            current = current.getCause();
+        }
+    }
+
     private String getPlaybackFailureDiagnostic(androidx.media3.common.PlaybackException error) {
         if (error == null) return "UNKNOWN";
         StringBuilder detail = new StringBuilder(error.getErrorCodeName());
@@ -3936,6 +3995,7 @@ public class MainActivity extends Activity {
             }
             cause = cause.getCause();
         }
+        appendHttpResponseHeaderDiagnostics(detail, error.getCause());
         return detail.toString();
     }
 
@@ -4049,6 +4109,9 @@ public class MainActivity extends Activity {
                         @Override
                         public void onPlayerError(androidx.media3.common.PlaybackException error) {
                             String detail = getPlaybackFailureDiagnostic(error);
+                            if (isTikTokCdnVideoUrl(currentPlaybackUrl)) {
+                                detail += "\n" + getTikTokRequestHeaderDiagnostic();
+                            }
                             extractionStatus = "error";
                             playbackStatusMessage = "فشل تشغيل الفيديو: " + detail;
                             persistExtractionState();
