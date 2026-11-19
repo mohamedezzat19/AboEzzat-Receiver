@@ -129,6 +129,12 @@ public class MainActivity extends Activity {
     private WebView activePopupWebView;
     private AlertDialog popupRequestDialog;
     private final Handler popupHandler = new Handler(Looper.getMainLooper());
+    private final Handler playerControlsHandler = new Handler(Looper.getMainLooper());
+    private final Runnable hidePlayerControlsRunnable = () -> {
+        if (playerView != null && playerView.getVisibility() == View.VISIBLE) {
+            playerView.hideController();
+        }
+    };
     private TextView browserShortcut;
     private TextView settingsHomeButton;
     private TextView browserHomeButton;
@@ -1002,11 +1008,7 @@ public class MainActivity extends Activity {
         playerView.setControllerHideOnTouch(true);
         // A tap on the video surface reveals the complete controller again.
         // Media3's 2-second timeout then hides both native controls and mirrored overlays.
-        playerView.setOnClickListener(v -> {
-            if (playerView != null && playerView.getVisibility() == View.VISIBLE) {
-                playerView.showController();
-            }
-        });
+        playerView.setOnClickListener(v -> showPlayerController());
         playerView.setResizeMode(getPlayerSettingsPrefs().getInt("resize_mode",
                                         androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_FIT));
         playerView.setVisibility(View.GONE);
@@ -1089,6 +1091,11 @@ public class MainActivity extends Activity {
             boolean controlsVisible = visibility == View.VISIBLE
                     && playerView != null && playerView.getVisibility() == View.VISIBLE;
             playerControllerVisible = controlsVisible;
+            if (controlsVisible) {
+                schedulePlayerControllerAutoHide();
+            } else {
+                playerControlsHandler.removeCallbacks(hidePlayerControlsRunnable);
+            }
             if (settingsHomeButton != null) {
                 settingsHomeButton.setVisibility(controlsVisible ? View.VISIBLE : View.GONE);
             }
@@ -3673,7 +3680,7 @@ public class MainActivity extends Activity {
                     || key == android.view.KeyEvent.KEYCODE_DPAD_DOWN
                     || key == android.view.KeyEvent.KEYCODE_DPAD_LEFT
                     || key == android.view.KeyEvent.KEYCODE_DPAD_RIGHT) {
-                playerView.showController();
+                showPlayerController();
             }
             if (key == android.view.KeyEvent.KEYCODE_MEDIA_FAST_FORWARD) {
                 seekByConfiguredIncrement(1);
@@ -4267,7 +4274,8 @@ public class MainActivity extends Activity {
                 }
                 player.play();
             }
-            playerView.showController();
+            // Keep the screen clean when a newly received video starts.
+            playerView.hideController();
             focusPlayPauseAsPlayerHome();
 
         } catch (Exception e) {
@@ -4526,6 +4534,8 @@ public class MainActivity extends Activity {
             } else {
                 playerView.requestFocus();
             }
+            // Initial remote focus must not reveal playback controls.
+            playerView.hideController();
         });
     }
 
@@ -4538,7 +4548,20 @@ public class MainActivity extends Activity {
                 player.play();
             }
         }
-        if (playerView != null) playerView.showController();
+        if (playerView != null) showPlayerController();
+    }
+
+    private void showPlayerController() {
+        if (playerView == null || playerView.getVisibility() != View.VISIBLE) return;
+        playerView.showController();
+        schedulePlayerControllerAutoHide();
+    }
+
+    private void schedulePlayerControllerAutoHide() {
+        playerControlsHandler.removeCallbacks(hidePlayerControlsRunnable);
+        if (playerView != null && playerView.getVisibility() == View.VISIBLE) {
+            playerControlsHandler.postDelayed(hidePlayerControlsRunnable, 2000L);
+        }
     }
 
     private void seekByConfiguredIncrement(int direction) {
@@ -4549,7 +4572,7 @@ public class MainActivity extends Activity {
             long target = Math.max(0L, player.getCurrentPosition() + (direction >= 0 ? increment : -increment));
             player.seekTo(duration > 0 ? Math.min(target, duration) : target);
         }
-        if (playerView != null) playerView.showController();
+        if (playerView != null) showPlayerController();
     }
 
     private void restartCurrentVideo() {
