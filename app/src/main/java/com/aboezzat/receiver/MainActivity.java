@@ -1000,6 +1000,13 @@ public class MainActivity extends Activity {
         // Hide the native controls exactly two seconds after playback or the last interaction.
         playerView.setControllerShowTimeoutMs(2000);
         playerView.setControllerHideOnTouch(true);
+        // A tap on the video surface reveals the complete controller again.
+        // Media3's 2-second timeout then hides both native controls and mirrored overlays.
+        playerView.setOnClickListener(v -> {
+            if (playerView != null && playerView.getVisibility() == View.VISIBLE) {
+                playerView.showController();
+            }
+        });
         playerView.setResizeMode(getPlayerSettingsPrefs().getInt("resize_mode",
                                         androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_FIT));
         playerView.setVisibility(View.GONE);
