@@ -1916,7 +1916,7 @@ public class MainActivity extends Activity {
                             String key = entry.getKey() == null ? "" : entry.getKey().toLowerCase(Locale.ROOT);
                             String value = entry.getValue();
                             if (value == null || value.isEmpty() || value.length() > ("cookie".equals(key) ? 8192 : 2048)
-                                    || value.contains("\\r") || value.contains("\\n")) continue;
+                                    || value.contains("\r") || value.contains("\n")) continue;
                             if ("user-agent".equals(key) || "cookie".equals(key) || "referer".equals(key)
                                     || "origin".equals(key) || "accept".equals(key) || "accept-language".equals(key)
                                     || "sec-fetch-site".equals(key) || "sec-fetch-mode".equals(key)
