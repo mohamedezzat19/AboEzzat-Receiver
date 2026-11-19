@@ -3909,6 +3909,32 @@ public class MainActivity extends Activity {
         queueIncomingMedia(url, null);
     }
 
+    private String getPlaybackFailureDiagnostic(androidx.media3.common.PlaybackException error) {
+        if (error == null) return "UNKNOWN";
+        StringBuilder detail = new StringBuilder(error.getErrorCodeName());
+        Throwable cause = error.getCause();
+        int depth = 0;
+        while (cause != null && depth++ < 6) {
+            detail.append(" / ").append(cause.getClass().getSimpleName());
+            // Read HTTP responseCode reflectively for compatibility across Media3 versions.
+            if (cause.getClass().getSimpleName().contains("InvalidResponseCode")) {
+                Class<?> type = cause.getClass();
+                while (type != null) {
+                    try {
+                        java.lang.reflect.Field field = type.getDeclaredField("responseCode");
+                        field.setAccessible(true);
+                        detail.append(" HTTP ").append(field.getInt(cause));
+                        break;
+                    } catch (Exception ignored) {
+                        type = type.getSuperclass();
+                    }
+                }
+            }
+            cause = cause.getCause();
+        }
+        return detail.toString();
+    }
+
     private void playContent(String mediaUrl, String audioUrl) {
         playContent(mediaUrl, audioUrl, java.util.Collections.emptyMap());
     }
@@ -4018,12 +4044,12 @@ public class MainActivity extends Activity {
 
                         @Override
                         public void onPlayerError(androidx.media3.common.PlaybackException error) {
-                            String detail = error == null ? "خطأ غير معروف" : error.getErrorCodeName();
+                            String detail = getPlaybackFailureDiagnostic(error);
                             extractionStatus = "error";
                             playbackStatusMessage = "فشل تشغيل الفيديو: " + detail;
                             persistExtractionState();
-                            Log.e(TAG, "Media3 playback failed: " + detail,
-                                    error == null ? null : error);
+                            // Avoid logging full exceptions: signed CDN URLs may contain temporary tokens.
+                            Log.e(TAG, "Media3 playback failed: " + detail);
                             runOnUiThread(() -> {
                                 String fallbackUrl = currentPlaybackFallbackUrl;
                                 if (!currentPlaybackHasVideo || smartTubeFallbackAttempted
