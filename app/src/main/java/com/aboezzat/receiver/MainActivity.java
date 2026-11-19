@@ -1611,6 +1611,18 @@ public class MainActivity extends Activity {
         }
     }
 
+    private boolean isTikTokSourcePageUrl(String value) {
+        if (value == null || value.trim().isEmpty()) return false;
+        try {
+            Uri uri = Uri.parse(value.trim());
+            String host = uri.getHost() == null ? "" : uri.getHost().toLowerCase(Locale.ROOT);
+            return (host.equals("tiktok.com") || host.endsWith(".tiktok.com"))
+                    && !isTikTokCdnVideoUrl(value);
+        } catch (Exception ignored) {
+            return false;
+        }
+    }
+
     private boolean isDirectStreamUrl(String value) {
         if (value == null || value.trim().isEmpty()) return false;
         if (isPhoneLocalMediaUrl(value)) return true;
@@ -2008,7 +2020,11 @@ public class MainActivity extends Activity {
                     if (receiverStatusText != null) {
                         receiverStatusText.setText("نجح " + bestEngine + "؛ جارٍ تشغيل أفضل رابط متاح");
                     }
-                    playContent(bestUrl, null);
+                    if (isTikTokSourcePageUrl(pageUrl)) {
+                        playContent(bestUrl, null, pendingPlaybackHeaders);
+                    } else {
+                        playContent(bestUrl, null);
+                    }
                 });
             } else {
                 extractionStatus = "web_fallback";
@@ -3394,6 +3410,14 @@ public class MainActivity extends Activity {
 
         boolean hasMedia = mediaUrl != null && !mediaUrl.trim().isEmpty();
         boolean hasAudio = audioUrl != null && !audioUrl.trim().isEmpty();
+        // TikTok CDN URLs are signed, session-sensitive Akamai resources. Prefer
+        // resolving the original watch page on the Receiver before replaying the
+        // sender's CDN URL, which may be denied outside its original request context.
+        if (hasMedia && !hasAudio && isTikTokCdnVideoUrl(mediaUrl)
+                && isTikTokSourcePageUrl(sourceUrl)) {
+            resolveSharedVideoToStream(sourceUrl);
+            return;
+        }
         if (!hasMedia && !hasAudio) {
             if ((originalMediaUrl != null && !originalMediaUrl.trim().isEmpty())
                     || (originalAudioUrl != null && !originalAudioUrl.trim().isEmpty())) {
