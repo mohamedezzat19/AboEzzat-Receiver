@@ -4054,9 +4054,17 @@ public class MainActivity extends Activity {
                                 String fallbackUrl = currentPlaybackFallbackUrl;
                                 if (!currentPlaybackHasVideo || smartTubeFallbackAttempted
                                         || !isYouTubeUrl(fallbackUrl)) {
-                                    Toast.makeText(MainActivity.this,
-                                            "فشل تشغيل الوسائط: " + detail,
-                                            Toast.LENGTH_LONG).show();
+                                    if (isTikTokCdnVideoUrl(currentPlaybackUrl)) {
+                                        new AlertDialog.Builder(MainActivity.this)
+                                                .setTitle("تفاصيل فشل تشغيل TikTok")
+                                                .setMessage(detail)
+                                                .setPositiveButton("موافق", null)
+                                                .show();
+                                    } else {
+                                        Toast.makeText(MainActivity.this,
+                                                "فشل تشغيل الوسائط: " + detail,
+                                                Toast.LENGTH_LONG).show();
+                                    }
                                     return;
                                 }
                                 smartTubeFallbackAttempted = true;
