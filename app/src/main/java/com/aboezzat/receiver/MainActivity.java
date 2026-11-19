@@ -1595,9 +1595,22 @@ public class MainActivity extends Activity {
         }
     }
 
+    private boolean isTikTokCdnVideoUrl(String value) {
+        if (value == null || value.trim().isEmpty()) return false;
+        try {
+            Uri uri = Uri.parse(value.trim());
+            String host = uri.getHost() == null ? "" : uri.getHost().toLowerCase(Locale.ROOT);
+            String path = uri.getPath() == null ? "" : uri.getPath().toLowerCase(Locale.ROOT);
+            return host.endsWith("tiktok.com") && path.contains("/video/tos/");
+        } catch (Exception ignored) {
+            return false;
+        }
+    }
+
     private boolean isDirectStreamUrl(String value) {
         if (value == null || value.trim().isEmpty()) return false;
         if (isPhoneLocalMediaUrl(value)) return true;
+        if (isTikTokCdnVideoUrl(value)) return true;
         try {
             Uri uri = Uri.parse(value.trim());
             String path = uri.getPath();
@@ -1633,6 +1646,7 @@ public class MainActivity extends Activity {
                     || lowerPath.endsWith(".wav") || lowerPath.endsWith(".flac")
                     || lowerPath.endsWith(".mid") || lowerPath.endsWith(".midi")
                     || lower.contains("mime=video") || lower.contains("type=video")
+                    || lower.contains("mime_type=video_mp4")
                     || lower.contains("video_playback") || lower.contains("/videoplayback")
                     || lower.contains("contenttype=video")
                     || lower.contains("mime=audio") || lower.contains("type=audio")
@@ -3931,8 +3945,27 @@ public class MainActivity extends Activity {
         currentPlaybackUrl = playbackUrl;
         currentPlaybackHasVideo = mediaUrl != null && !mediaUrl.trim().isEmpty() && !isImageUrl(mediaUrl);
         currentPlaybackAudioUrl = audioUrl == null ? "" : audioUrl;
-        currentPlaybackHeaders = requestHeaders == null
-                ? java.util.Collections.emptyMap() : new java.util.LinkedHashMap<>(requestHeaders);
+        java.util.Map<String, String> effectiveHeaders = requestHeaders == null
+                ? new java.util.LinkedHashMap<>() : new java.util.LinkedHashMap<>(requestHeaders);
+        // TikTok webapp-prime links are signed MP4 CDN URLs. Request them as a browser
+        // media fetch when the sender did not supply the original browser headers.
+        if (isTikTokCdnVideoUrl(playbackUrl)) {
+            boolean hasUserAgent = false;
+            boolean hasReferer = false;
+            boolean hasAccept = false;
+            for (String key : effectiveHeaders.keySet()) {
+                if (key == null) continue;
+                hasUserAgent |= "user-agent".equalsIgnoreCase(key);
+                hasReferer |= "referer".equalsIgnoreCase(key);
+                hasAccept |= "accept".equalsIgnoreCase(key);
+            }
+            if (!hasUserAgent) effectiveHeaders.put("User-Agent",
+                    "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36");
+            if (!hasReferer) effectiveHeaders.put("Referer", "https://www.tiktok.com/");
+            if (!hasAccept) effectiveHeaders.put("Accept", "*/*");
+        }
+        requestHeaders = effectiveHeaders;
+        currentPlaybackHeaders = effectiveHeaders;
         // Home shortcuts must never sit above or steal DPAD focus from ExoPlayer.
         if (settingsHomeButton != null) settingsHomeButton.setVisibility(View.GONE);
         if (browserHomeButton != null) browserHomeButton.setVisibility(View.GONE);
