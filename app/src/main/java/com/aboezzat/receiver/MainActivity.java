@@ -4117,6 +4117,7 @@ public class MainActivity extends Activity {
                             persistExtractionState();
                             // Avoid logging full exceptions: signed CDN URLs may contain temporary tokens.
                             Log.e(TAG, "Media3 playback failed: " + detail);
+                            final String dialogDetail = detail;
                             runOnUiThread(() -> {
                                 String fallbackUrl = currentPlaybackFallbackUrl;
                                 if (!currentPlaybackHasVideo || smartTubeFallbackAttempted
@@ -4124,12 +4125,12 @@ public class MainActivity extends Activity {
                                     if (isTikTokCdnVideoUrl(currentPlaybackUrl)) {
                                         new AlertDialog.Builder(MainActivity.this)
                                                 .setTitle("تفاصيل فشل تشغيل TikTok")
-                                                .setMessage(detail)
+                                                .setMessage(dialogDetail)
                                                 .setPositiveButton("موافق", null)
                                                 .show();
                                     } else {
                                         Toast.makeText(MainActivity.this,
-                                                "فشل تشغيل الوسائط: " + detail,
+                                                "فشل تشغيل الوسائط: " + dialogDetail,
                                                 Toast.LENGTH_LONG).show();
                                     }
                                     return;
