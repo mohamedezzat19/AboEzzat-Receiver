@@ -337,7 +337,7 @@ public final class DlnaMediaRenderer {
         if (sub == null || !running || sub.expiresAt <= System.currentTimeMillis()) return;
         HttpURLConnection connection = null;
         try {
-            String property = "<e:propertyset xmlns:e=\\"urn:schemas-upnp-org:event-1-0\\">"
+            String property = "<e:propertyset xmlns:e=\"urn:schemas-upnp-org:event-1-0\">"
                     + "<e:property><LastChange></LastChange></e:property>"
                     + "<e:property><TransportState>" + xml(state) + "</TransportState></e:property>"
                     + "<e:property><AVTransportURI>" + xml(currentUri) + "</AVTransportURI></e:property>"
@@ -347,7 +347,7 @@ public final class DlnaMediaRenderer {
             connection.setConnectTimeout(2500);
             connection.setReadTimeout(2500);
             connection.setDoOutput(true);
-            connection.setRequestProperty("Content-Type", "text/xml; charset=\\\"utf-8\\\"");
+            connection.setRequestProperty("Content-Type", "text/xml; charset=\"utf-8\"");
             connection.setRequestProperty("NT", "upnp:event");
             connection.setRequestProperty("NTS", "upnp:propchange");
             connection.setRequestProperty("SID", sub.sid);
