@@ -259,6 +259,8 @@ public class MainActivity extends Activity {
     private String currentPlaybackFallbackUrl = "";
     private boolean smartTubeFallbackAttempted = false;
     private final Handler playbackProgressHandler = new Handler(Looper.getMainLooper());
+    private final Handler startupBufferHandler = new Handler(Looper.getMainLooper());
+    private Runnable pendingStartupPlayback;
     // Persist the position against the URI actually loaded in ExoPlayer. The
     // mutable currentPlaybackUrl can already point at the next request.
     private void savePlaybackPositionLocked() {
@@ -4040,6 +4042,10 @@ public class MainActivity extends Activity {
     private void stopCurrentPlayer() {
         synchronized (playerLock) {
             if (player != null) {
+                if (pendingStartupPlayback != null) {
+                    startupBufferHandler.removeCallbacks(pendingStartupPlayback);
+                    pendingStartupPlayback = null;
+                }
                 savePlaybackPositionLocked();
                 player.stop();
                 player.clearMediaItems();
@@ -4621,8 +4627,9 @@ public class MainActivity extends Activity {
                 if (player == null) {
                     player = new ExoPlayer.Builder(this)
                             .setLoadControl(new DefaultLoadControl.Builder()
-                                    // Start only after 5 seconds are buffered; refill more aggressively after stalls.
-                                    .setBufferDurationsMs(25000, 60000, 5000, 8000)
+                                    // Low startup threshold keeps fast direct links responsive.
+                                    // YouTube is separately held until its adaptive 8-second startup buffer is ready.
+                                    .setBufferDurationsMs(12000, 90000, 1500, 5000)
                                     .build())
                             .build();
                     applySavedPlayerSettings();
@@ -4751,7 +4758,19 @@ public class MainActivity extends Activity {
                     player.seekTo(savedPosition);
                     Toast.makeText(MainActivity.this, "تم استئناف التشغيل من آخر موضع محفوظ", Toast.LENGTH_SHORT).show();
                 }
-                player.play();
+                // Only original YouTube shares receive the deeper startup buffer.
+                // Direct MP4/HLS and other fast streams start as soon as Media3 is ready.
+                boolean youtubeSource = isYouTubeUrl(currentPlaybackFallbackUrl)
+                        || isYouTubeUrl(playbackUrl);
+                if (youtubeSource) {
+                    startAfterAdaptiveBuffer(playbackUrl);
+                } else {
+                    if (pendingStartupPlayback != null) {
+                        startupBufferHandler.removeCallbacks(pendingStartupPlayback);
+                        pendingStartupPlayback = null;
+                    }
+                    player.play();
+                }
                 if (isDashManifestUrl(playbackUrl)) {
                     final String diagnosticUrl = playbackUrl;
                     new Handler(Looper.getMainLooper()).postDelayed(() -> showDashPlaybackDiagnostic(diagnosticUrl), 15000L);
@@ -4810,6 +4829,43 @@ public class MainActivity extends Activity {
                 .setTargetOffsetMs(8000L)
                 .build());
         return builder.build();
+    }
+
+    // YouTube high-bitrate streams get a deeper startup buffer; ordinary fast links start promptly.
+    private void startAfterAdaptiveBuffer(String requestedUrl) {
+        if (pendingStartupPlayback != null) {
+            startupBufferHandler.removeCallbacks(pendingStartupPlayback);
+            pendingStartupPlayback = null;
+        }
+        final long startedAt = System.currentTimeMillis();
+        final long targetBufferMs = 8000L;
+        final long maxWaitMs = 15000L;
+        setPlayerBufferingVisible(true);
+        pendingStartupPlayback = new Runnable() {
+            @Override public void run() {
+                synchronized (playerLock) {
+                    if (player == null || !requestedUrl.equals(currentPlaybackUrl)
+                            || player.getPlaybackState() == Player.STATE_IDLE
+                            || player.getPlaybackState() == Player.STATE_ENDED) {
+                        pendingStartupPlayback = null;
+                        return;
+                    }
+                    long bufferedMs = Math.max(0L,
+                            player.getBufferedPosition() - player.getCurrentPosition());
+                    boolean enoughBuffered = bufferedMs >= targetBufferMs;
+                    boolean timedOut = System.currentTimeMillis() - startedAt >= maxWaitMs;
+                    if (enoughBuffered || timedOut) {
+                        pendingStartupPlayback = null;
+                        Log.i(TAG, "Adaptive startup buffer: " + bufferedMs
+                                + "ms, waited " + (System.currentTimeMillis() - startedAt) + "ms");
+                        player.play();
+                        return;
+                    }
+                }
+                startupBufferHandler.postDelayed(this, 250L);
+            }
+        };
+        startupBufferHandler.post(pendingStartupPlayback);
     }
 
     private void setPlayerBufferingVisible(boolean visible) {
@@ -5765,6 +5821,7 @@ public class MainActivity extends Activity {
     protected void onDestroy() {
         backPressHandler.removeCallbacks(resetBrowserBackPress);
         playbackProgressHandler.removeCallbacks(playbackProgressRunnable);
+        if (pendingStartupPlayback != null) startupBufferHandler.removeCallbacks(pendingStartupPlayback);
         synchronized (playerLock) {
             savePlaybackPositionLocked();
         }
