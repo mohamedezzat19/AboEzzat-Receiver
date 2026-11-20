@@ -2026,17 +2026,8 @@ public class MainActivity extends Activity {
                 Object value = object.opt(key);
                 if (value instanceof String) {
                     String raw = ((String) value).trim();
-                    String candidate = cleanExtractedUrl(raw);
-                    if (candidate == null && !raw.isEmpty()) {
-                        try {
-                            String lower = raw.toLowerCase(Locale.ROOT);
-                            if (lower.contains(".m3u8") || lower.contains(".mpd")
-                                    || lower.contains(".mp4") || lower.contains(".flv")
-                                    || lower.contains(".ts")) {
-                                candidate = cleanExtractedUrl(new URL(new URL(pageUrl), raw).toString());
-                            }
-                        } catch (Exception ignored) { }
-                    }
+                    String candidate = resolveExtractedUrl(raw, pageUrl);
+                    if (candidate != null && !isDirectStreamUrl(candidate)) candidate = null;
                     if (candidate != null && isDirectStreamUrl(candidate)) candidates.add(candidate);
                 } else if (value instanceof JSONObject || value instanceof org.json.JSONArray) {
                     collectJsonMediaCandidates(value, candidates, pageUrl);
@@ -2048,17 +2039,8 @@ public class MainActivity extends Activity {
                 Object value = array.opt(i);
                 if (value instanceof String) {
                     String raw = ((String) value).trim();
-                    String candidate = cleanExtractedUrl(raw);
-                    if (candidate == null && !raw.isEmpty()) {
-                        try {
-                            String lower = raw.toLowerCase(Locale.ROOT);
-                            if (lower.contains(".m3u8") || lower.contains(".mpd")
-                                    || lower.contains(".mp4") || lower.contains(".flv")
-                                    || lower.contains(".ts")) {
-                                candidate = cleanExtractedUrl(new URL(new URL(pageUrl), raw).toString());
-                            }
-                        } catch (Exception ignored) { }
-                    }
+                    String candidate = resolveExtractedUrl(raw, pageUrl);
+                    if (candidate != null && !isDirectStreamUrl(candidate)) candidate = null;
                     if (candidate != null && isDirectStreamUrl(candidate)) candidates.add(candidate);
                 } else if (value instanceof JSONObject || value instanceof org.json.JSONArray) {
                     collectJsonMediaCandidates(value, candidates, pageUrl);
