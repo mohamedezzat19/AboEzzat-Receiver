@@ -1853,6 +1853,8 @@ public class MainActivity extends Activity {
             String path = uri.getPath();
             String lowerPath = path == null ? "" : path.toLowerCase(Locale.ROOT);
             String lower = value.toLowerCase(Locale.ROOT);
+            String scheme = uri.getScheme() == null ? "" : uri.getScheme().toLowerCase(Locale.ROOT);
+            if ("rtsp".equals(scheme) && uri.getHost() != null) return true;
             String host = uri.getHost() == null ? "" : uri.getHost().toLowerCase(Locale.ROOT);
             // Social CDNs frequently return signed, extensionless video URLs. Treat
             // only recognizable video endpoints as direct streams; do not re-run
@@ -1877,6 +1879,8 @@ public class MainActivity extends Activity {
                     || lowerPath.endsWith(".mp4") || lowerPath.endsWith(".m4v")
                     || lowerPath.endsWith(".webm") || lowerPath.endsWith(".mov")
                     || lowerPath.endsWith(".flv") || lowerPath.endsWith(".m3u8") || lowerPath.endsWith(".mpd")
+                    || lowerPath.endsWith(".ism") || lowerPath.endsWith(".ismc")
+                    || lowerPath.endsWith(".m2ts")
                     || lowerPath.endsWith(".mp3") || lowerPath.endsWith(".m4a")
                     || lowerPath.endsWith(".aac") || lowerPath.endsWith(".ogg")
                     || lowerPath.endsWith(".oga") || lowerPath.endsWith(".opus")
@@ -3550,6 +3554,19 @@ public class MainActivity extends Activity {
         }
     }
 
+    // Network media protocols accepted by the native player. Keep ordinary page/API
+    // fetching HTTP(S)-only; RTSP is accepted only as a playback source.
+    private boolean isPlayableNetworkUrl(String value) {
+        if (isHttpUrl(value)) return true;
+        if (value == null || value.trim().isEmpty()) return false;
+        try {
+            Uri uri = Uri.parse(value.trim());
+            return "rtsp".equalsIgnoreCase(uri.getScheme()) && uri.getHost() != null;
+        } catch (Exception ignored) {
+            return false;
+        }
+    }
+
     // Use an explicitly configured Cobalt instance; never hardcode an untrusted public API.
     private String resolveWithConfiguredCobalt(String pageUrl) {
         String configured = getSharedPreferences("receiver_settings", MODE_PRIVATE)
@@ -3716,7 +3733,8 @@ public class MainActivity extends Activity {
         pendingBrowserUrl = "";
         if (browserShortcut != null) browserShortcut.setVisibility(View.GONE);
 
-        if (mediaUrl != null && !mediaUrl.trim().isEmpty() && !isHttpUrl(mediaUrl)) mediaUrl = null;
+        if (mediaUrl != null && !mediaUrl.trim().isEmpty() && !isPlayableNetworkUrl(mediaUrl)) mediaUrl = null;
+        // Separate audio renditions remain HTTP(S); RTSP carries its own session tracks.
         if (audioUrl != null && !audioUrl.trim().isEmpty() && !isHttpUrl(audioUrl)) audioUrl = null;
         if (audioUrl == null && isLikelySeparateAudioTrack(mediaUrl)) {
             audioUrl = mediaUrl;
@@ -4962,6 +4980,8 @@ public class MainActivity extends Activity {
                     || lowerUrl.contains("chunklist");
             boolean dashManifest = lowerUrl.contains("application/dash+xml")
                     || lowerUrl.contains("format=mpd") || lowerPath.endsWith(".mpd");
+            boolean smoothManifest = lowerPath.endsWith(".ism") || lowerPath.endsWith(".ismc")
+                    || lowerUrl.contains(".ism/manifest") || lowerUrl.contains("format=smoothstreaming");
 
             if (hlsManifest || lowerPath.matches("^/[^/]+/[^/]+/index\\.html$")) {
                 builder.setMimeType(MimeTypes.APPLICATION_M3U8);
@@ -4969,6 +4989,9 @@ public class MainActivity extends Activity {
             } else if (dashManifest) {
                 builder.setMimeType(MimeTypes.APPLICATION_MPD);
                 Log.i(TAG, "Treating URL as a DASH manifest");
+            } else if (smoothManifest) {
+                builder.setMimeType(MimeTypes.APPLICATION_SS);
+                Log.i(TAG, "Treating URL as a SmoothStreaming manifest");
             }
         } catch (Exception e) {
             Log.w(TAG, "Could not inspect playback URL for playlist MIME override", e);
