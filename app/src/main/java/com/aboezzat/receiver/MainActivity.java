@@ -848,9 +848,12 @@ public class MainActivity extends Activity {
                 FrameLayout.LayoutParams.MATCH_PARENT,
                 FrameLayout.LayoutParams.MATCH_PARENT));
 
-        FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(dp(64), dp(64),
+        boolean compactPhone = !isTelevisionDevice()
+                && getResources().getConfiguration().smallestScreenWidthDp < 600;
+        int badgeSize = dp(compactPhone ? 44 : 64);
+        FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(badgeSize, badgeSize,
                 Gravity.TOP | Gravity.LEFT);
-        params.setMargins(dp(14), dp(12), 0, 0);
+        params.setMargins(dp(compactPhone ? 8 : 14), dp(compactPhone ? 8 : 12), 0, 0);
         root.addView(badge, params);
         persistentBrandBadge = badge;
         keepPersistentBrandBadgeOnTop();
@@ -874,12 +877,12 @@ public class MainActivity extends Activity {
 
         int side = dp(44);
         FrameLayout.LayoutParams settingsParams = new FrameLayout.LayoutParams(
-                side, side, Gravity.TOP | Gravity.END);
+                side, side, Gravity.TOP | Gravity.RIGHT);
         settingsParams.setMargins(dp(8), dp(10), dp(10), dp(8));
         settingsHomeButton.setLayoutParams(settingsParams);
 
         FrameLayout.LayoutParams browserParams = new FrameLayout.LayoutParams(
-                side, side, Gravity.TOP | Gravity.END);
+                side, side, Gravity.TOP | Gravity.RIGHT);
         browserParams.setMargins(dp(8), dp(10), dp(62), dp(8));
         browserHomeButton.setLayoutParams(browserParams);
 
@@ -1048,18 +1051,21 @@ public class MainActivity extends Activity {
         connectionCard.addView(instructions, instructionParams);
 
         // بطاقة صغيرة في أقصى أسفل اليمين، دون تغيير صورة الخلفية.
+        boolean compactPhoneLayout = !isTelevisionDevice()
+                && getResources().getConfiguration().smallestScreenWidthDp < 600;
         FrameLayout.LayoutParams cardParams =
                 new FrameLayout.LayoutParams(
-                        dp(230),
+                        dp(compactPhoneLayout ? 190 : 230),
                         FrameLayout.LayoutParams.WRAP_CONTENT,
-                        Gravity.BOTTOM | Gravity.END
+                        // Use physical RIGHT: END resolves to the left in RTL Arabic layouts.
+                        Gravity.BOTTOM | Gravity.RIGHT
                 );
 
         cardParams.setMargins(
                 dp(8),
                 dp(8),
-                dp(8),
-                dp(12)
+                dp(compactPhoneLayout ? 12 : 8),
+                dp(compactPhoneLayout ? 16 : 12)
         );
 
         // بطاقة معلومات الاتصال ظاهرة أسفل اليمين للقراءة فقط دون أي تفاعل.
