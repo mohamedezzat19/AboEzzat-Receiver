@@ -10,6 +10,7 @@ import android.os.Handler;
 import android.os.Looper;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
+import android.media.MediaMetadataRetriever;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
@@ -120,10 +121,17 @@ public class MainActivity extends Activity {
         String videoUrl;
         String audioUrl;
         String title;
+        java.util.Map<String, String> headers;
         PlaybackHistoryItem(String videoUrl, String audioUrl, String title) {
+            this(videoUrl, audioUrl, title, java.util.Collections.emptyMap());
+        }
+        PlaybackHistoryItem(String videoUrl, String audioUrl, String title,
+                            java.util.Map<String, String> headers) {
             this.videoUrl = videoUrl;
             this.audioUrl = audioUrl;
             this.title = title;
+            this.headers = headers == null ? new java.util.LinkedHashMap<>()
+                    : new java.util.LinkedHashMap<>(headers);
         }
     }
     private final java.util.ArrayList<PlaybackHistoryItem> playbackHistoryItems = new java.util.ArrayList<>();
@@ -4012,11 +4020,22 @@ public class MainActivity extends Activity {
                 String video = item.optString("video", "");
                 String audio = item.optString("audio", "");
                 String title = item.optString("title", "");
+                java.util.Map<String, String> headers = new java.util.LinkedHashMap<>();
+                org.json.JSONObject storedHeaders = item.optJSONObject("headers");
+                if (storedHeaders != null) {
+                    java.util.Iterator<String> names = storedHeaders.keys();
+                    while (names.hasNext()) {
+                        String key = names.next();
+                        String value = storedHeaders.optString(key, "");
+                        if (!value.isEmpty()) headers.put(key, value);
+                    }
+                }
                 if (isHttpUrl(video) || isHttpUrl(audio)) {
                     if (!isHttpUrl(video)) video = "";
                     if (!isHttpUrl(audio)) audio = "";
                     playbackHistoryItems.add(new PlaybackHistoryItem(video, audio,
-                            title.isEmpty() ? historyTitleForUrl(video.isEmpty() ? audio : video) : title));
+                            title.isEmpty() ? historyTitleForUrl(video.isEmpty() ? audio : video) : title,
+                            headers));
                 }
             }
         } catch (Exception e) {
@@ -4041,13 +4060,39 @@ public class MainActivity extends Activity {
                 object.put("video", item.videoUrl);
                 object.put("audio", item.audioUrl);
                 object.put("title", item.title);
+                org.json.JSONObject storedHeaders = new org.json.JSONObject();
+                if (item.headers != null) {
+                    for (java.util.Map.Entry<String, String> entry : item.headers.entrySet()) {
+                        if (entry.getKey() != null && entry.getValue() != null) {
+                            storedHeaders.put(entry.getKey(), entry.getValue());
+                        }
+                    }
+                }
+                object.put("headers", storedHeaders);
                 array.put(object);
             } catch (Exception ignored) { }
         }
         playbackPrefs.edit().putString("recent_playback_items", array.toString()).apply();
     }
 
-    private void rememberPlaybackItem(String videoUrl, String audioUrl) {
+    private java.util.Map<String, String> historySafeHeaders(java.util.Map<String, String> source) {
+        java.util.Map<String, String> safe = new java.util.LinkedHashMap<>();
+        if (source == null) return safe;
+        for (java.util.Map.Entry<String, String> entry : source.entrySet()) {
+            if (entry.getKey() == null || entry.getValue() == null) continue;
+            String key = entry.getKey().toLowerCase(Locale.ROOT);
+            if (("user-agent".equals(key) || "referer".equals(key) || "origin".equals(key)
+                    || "accept".equals(key) || "accept-language".equals(key))
+                    && entry.getValue().length() <= 2048
+                    && !entry.getValue().contains("\r") && !entry.getValue().contains("\n")) {
+                safe.put(entry.getKey(), entry.getValue());
+            }
+        }
+        return safe;
+    }
+
+    private void rememberPlaybackItem(String videoUrl, String audioUrl,
+                                      java.util.Map<String, String> requestHeaders) {
         String video = isHttpUrl(videoUrl) ? videoUrl : "";
         String audio = isHttpUrl(audioUrl) ? audioUrl : "";
         if (video.isEmpty() && audio.isEmpty()) return;
@@ -4058,9 +4103,63 @@ public class MainActivity extends Activity {
             }
         }
         String title = historyTitleForUrl(video.isEmpty() ? audio : video);
-        playbackHistoryItems.add(new PlaybackHistoryItem(video, audio, title));
+        playbackHistoryItems.add(new PlaybackHistoryItem(video, audio, title,
+                historySafeHeaders(requestHeaders)));
         while (playbackHistoryItems.size() > 100) playbackHistoryItems.remove(0);
         savePlaybackHistoryItems();
+    }
+
+
+    private void loadPlaybackHistoryThumbnailAsync(PlaybackHistoryItem item, ImageView target) {
+        if (item == null || target == null) return;
+        final String sourceUrl = item.videoUrl == null || item.videoUrl.isEmpty()
+                ? item.audioUrl : item.videoUrl;
+        if (sourceUrl == null || sourceUrl.isEmpty()) return;
+        target.setTag(sourceUrl);
+        Thread worker = new Thread(() -> {
+            Bitmap bitmap = null;
+            File directory = new File(getFilesDir(), "playback_history_thumbnails");
+            if (!directory.exists()) directory.mkdirs();
+            File cached = new File(directory, Integer.toHexString(sourceUrl.hashCode()) + ".jpg");
+            try {
+                if (cached.isFile() && cached.length() > 0) {
+                    bitmap = BitmapFactory.decodeFile(cached.getAbsolutePath());
+                }
+                if (bitmap == null) {
+                    MediaMetadataRetriever retriever = new MediaMetadataRetriever();
+                    try {
+                        retriever.setDataSource(sourceUrl, historySafeHeaders(item.headers));
+                        Bitmap frame = retriever.getFrameAtTime(1_000_000L,
+                                MediaMetadataRetriever.OPTION_CLOSEST_SYNC);
+                        if (frame != null) {
+                            int width = Math.min(320, frame.getWidth());
+                            int height = Math.max(1, Math.round(frame.getHeight()
+                                    * (width / (float) Math.max(1, frame.getWidth()))));
+                            bitmap = Bitmap.createScaledBitmap(frame, width, height, true);
+                            if (bitmap != frame) frame.recycle();
+                            try (FileOutputStream output = new FileOutputStream(cached)) {
+                                bitmap.compress(Bitmap.CompressFormat.JPEG, 82, output);
+                                output.flush();
+                            }
+                        }
+                    } finally {
+                        retriever.release();
+                    }
+                }
+            } catch (Exception e) {
+                Log.d(TAG, "History thumbnail unavailable for this stream type");
+            }
+            final Bitmap result = bitmap;
+            if (result != null) runOnUiThread(() -> {
+                if (sourceUrl.equals(target.getTag()) && !isFinishing() && !isDestroyed()) {
+                    target.setColorFilter(null);
+                    target.setScaleType(ImageView.ScaleType.CENTER_CROP);
+                    target.setImageBitmap(result);
+                }
+            });
+        }, "ReceiverHistoryThumbnail");
+        worker.setDaemon(true);
+        worker.start();
     }
 
     private String shortenHistoryUrl(String url) {
@@ -4125,6 +4224,7 @@ public class MainActivity extends Activity {
             thumb.setScaleType(ImageView.ScaleType.CENTER_INSIDE);
             thumb.setColorFilter(0xFFFFFFFF);
             thumb.setBackgroundColor(0xFF263746);
+            loadPlaybackHistoryThumbnailAsync(item, thumb);
             LinearLayout.LayoutParams thumbParams = new LinearLayout.LayoutParams(dp(76), dp(54));
             thumbParams.setMargins(0, 0, dp(12), 0);
             row.addView(thumb, thumbParams);
@@ -4151,7 +4251,8 @@ public class MainActivity extends Activity {
                 String video = item.videoUrl;
                 String audio = item.audioUrl;
                 clearPendingServerMedia();
-                queueIncomingMedia(video.isEmpty() ? null : video, audio.isEmpty() ? null : audio);
+                queueIncomingMedia(video.isEmpty() ? null : video, audio.isEmpty() ? null : audio,
+                        item.headers == null ? java.util.Collections.emptyMap() : item.headers);
                 if (historyDialog != null) historyDialog.dismiss();
             });
             list.addView(row, new LinearLayout.LayoutParams(-1, -2));
@@ -4352,7 +4453,7 @@ public class MainActivity extends Activity {
         if (settingsHomeButton != null) settingsHomeButton.setVisibility(View.GONE);
         if (browserHomeButton != null) browserHomeButton.setVisibility(View.GONE);
         rememberPlaybackUrl(playbackUrl);
-        rememberPlaybackItem(historyVideoUrl, historyAudioUrl);
+        rememberPlaybackItem(historyVideoUrl, historyAudioUrl, effectiveHeaders);
         if (browserShortcut != null) browserShortcut.setVisibility(View.GONE);
         hideImage();
 
