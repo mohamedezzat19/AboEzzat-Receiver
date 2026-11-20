@@ -103,7 +103,7 @@ public class ReceiverServerService extends Service {
                 id = java.util.UUID.randomUUID().toString();
                 prefs.edit().putString("dlna_uuid", id).apply();
             }
-            dlnaRenderer = new DlnaMediaRenderer(id, new DlnaMediaRenderer.Listener() {
+            dlnaRenderer = new DlnaMediaRenderer(getApplicationContext(), id, new DlnaMediaRenderer.Listener() {
                 @Override public void onSetUri(String uri) {
                     dispatchDlnaRequest(uri, null);
                 }
