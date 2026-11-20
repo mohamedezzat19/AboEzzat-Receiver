@@ -227,12 +227,22 @@ public class MainActivity extends Activity {
         }
         out.append("\nمسار فيديو محدد: ").append(videoSelected ? "نعم" : "لا");
         out.append("\nمسار صوت محدد: ").append(audioSelected ? "نعم" : "لا");
+        out.append("\nمساحة التحميل المؤقت: ").append(Math.max(0L, player.getBufferedPosition() - player.getCurrentPosition()) / 1000).append(" ثانية");
+        out.append("\nالمدة: ").append(player.getDuration() == C.TIME_UNSET ? "غير معروفة" : (player.getDuration() / 1000) + " ثانية");
         out.append("\nبيانات DRM ظاهرة: ").append(drmDetected ? "نعم" : "لا");
+        androidx.media3.common.PlaybackException playerError = player.getPlayerError();
+        out.append("\nآخر خطأ للمشغّل: ").append(playerError == null ? "لا يوجد خطأ مسجل" : getPlaybackFailureDiagnostic(playerError));
         return out.toString();
     }
 
     private void showDashPlaybackDiagnostic(String requestedUrl) {
         if (isFinishing() || isDestroyed() || player == null || !requestedUrl.equals(currentPlaybackUrl)) return;
+        // Do not interrupt healthy DASH playback. Show the diagnostic only when
+        // Media3 has failed or the stream is still idle/buffering after startup.
+        int playbackState = player.getPlaybackState();
+        if (player.getPlayerError() == null
+                && playbackState != Player.STATE_IDLE
+                && playbackState != Player.STATE_BUFFERING) return;
         String details = buildDashTrackDiagnostic();
         Log.i(TAG, "DASH playback diagnostic: " + details.replace('\n', ' '));
         new AlertDialog.Builder(this).setTitle("تشخيص بث DASH")
