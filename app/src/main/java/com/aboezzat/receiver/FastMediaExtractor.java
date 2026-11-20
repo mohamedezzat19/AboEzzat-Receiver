@@ -134,7 +134,7 @@ public final class FastMediaExtractor {
             if (!isHttp(value)) continue;
             String lower = value.toLowerCase(Locale.ROOT);
             if (lower.contains("thumbnail") || lower.contains("preview")
-                    || lower.contains("cover") || lower.matches(".*\\\\.(jpg|jpeg|png|webp)([?#].*)?$")) {
+                    || lower.contains("cover") || lower.matches(".*\\.(jpg|jpeg|png|webp)([?#].*)?$")) {
                 continue;
             }
             if (lower.contains(".m3u8") || lower.contains(".mpd")) score += 8;
