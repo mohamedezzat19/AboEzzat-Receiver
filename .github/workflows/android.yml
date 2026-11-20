@@ -82,59 +82,38 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          sudo apt-get update
-          sudo apt-get install -y \
-            autoconf automake libtool pkg-config curl git \
-            build-essential yasm nasm gperf texinfo bison ragel \
-            python3 python3-pip unzip zip wget meson ninja-build \
-            doxygen cmake autogen autopoint groff gtk-doc-tools libtasn1-bin
 
-          SDKMANAGER="$(find "$ANDROID_HOME/cmdline-tools" -type f -name sdkmanager | sort -V | tail -n 1)"
-          test -x "$SDKMANAGER" || { echo "::error::Android sdkmanager was not found."; exit 1; }
-          yes | "$SDKMANAGER" --licenses >/dev/null || true
-          "$SDKMANAGER" --install "ndk;27.2.12479018"
+          # Reuse the ARMv7 FFmpegKit libraries already shipped in the last
+          # signed Receiver release. This avoids rebuilding FFmpegKit from
+          # source on every app update while keeping the exact same 8.1.9 ABI.
+          API="https://api.github.com/repos/${GITHUB_REPOSITORY}/releases/latest"
+          HTTP_STATUS="$(curl -sS -o "$RUNNER_TEMP/latest-release.json" -w '%{http_code}' \
+            -H "Accept: application/vnd.github+json" "$API")"
+          if [[ "$HTTP_STATUS" != "200" ]]; then
+            echo "::error::Could not download the last Receiver release to reuse its verified ARMv7 libraries (HTTP $HTTP_STATUS)."
+            exit 1
+          fi
 
-          export ANDROID_SDK_ROOT="$ANDROID_HOME"
-          export ANDROID_NDK_ROOT="$ANDROID_HOME/ndk/27.2.12479018"
-          test -f "$ANDROID_NDK_ROOT/source.properties" || { echo "::error::Android NDK r27c was not installed."; exit 1; }
+          PREVIOUS_APK_URL="$(jq -r '.assets[]? | select(.name == "app-release.apk") | .browser_download_url' "$RUNNER_TEMP/latest-release.json" | head -n 1)"
+          if [[ -z "$PREVIOUS_APK_URL" || "$PREVIOUS_APK_URL" == "null" ]]; then
+            echo "::error::The latest Receiver release has no app-release.apk."
+            exit 1
+          fi
+          curl -fL --retry 3 "$PREVIOUS_APK_URL" -o "$RUNNER_TEMP/previous-release.apk"
 
-          git clone --depth 1 --branch v8.1.9-lts-android \
-            https://github.com/ffmpegkit-maintained/ffmpeg.git "$RUNNER_TEMP/ffmpeg-src"
-          cd "$RUNNER_TEMP/ffmpeg-src/android-8.1-lts"
-
-          # Build only generic ARMv7 (not the separate NEON variant).
-          # The official 8.1.9 AAR already supplies arm64-v8a and x86_64.
-          ./android.sh --full --enable-android-media-codec --enable-android-zlib \
-            --disable-lib-gnutls --disable-arm-v7a-neon \
-            --disable-arm64-v8a --disable-x86 --disable-x86-64
-
-          # The upstream build selects its prebuilt directory dynamically for LTS builds.
-          # Locate the generated AAR instead of assuming a directory name.
-          ARMV7_AAR="$(find "$RUNNER_TEMP/ffmpeg-src/android-8.1-lts/prebuilt" -type f -name 'ffmpeg-kit.aar' -print -quit)"
-          test -n "$ARMV7_AAR" && test -s "$ARMV7_AAR" || {
-            echo "::error::The ARMv7 FFmpegKit AAR was not created under prebuilt/."
-            find "$RUNNER_TEMP/ffmpeg-src/android-8.1-lts/prebuilt" -maxdepth 4 -type f -print || true
+          mkdir -p "$RUNNER_TEMP/previous-apk-libs" "$RUNNER_TEMP/ffmpeg-base" "$GITHUB_WORKSPACE/app/libs"
+          unzip -q "$RUNNER_TEMP/previous-release.apk" 'lib/armeabi-v7a/*' -d "$RUNNER_TEMP/previous-apk-libs"
+          test -s "$RUNNER_TEMP/previous-apk-libs/lib/armeabi-v7a/libavutil.so" || {
+            echo "::error::The last Receiver APK does not contain the required armeabi-v7a FFmpeg libraries."
             exit 1
           }
 
           curl -fL --retry 3 \
             https://repo.maven.apache.org/maven2/dev/ffmpegkit-maintained/ffmpeg-kit-full/8.1.9/ffmpeg-kit-full-8.1.9.aar \
             -o "$RUNNER_TEMP/ffmpeg-kit-full-8.1.9.aar"
-
-          mkdir -p "$RUNNER_TEMP/ffmpeg-base" "$RUNNER_TEMP/ffmpeg-armv7" "$GITHUB_WORKSPACE/app/libs"
           unzip -q "$RUNNER_TEMP/ffmpeg-kit-full-8.1.9.aar" -d "$RUNNER_TEMP/ffmpeg-base"
-          unzip -q "$ARMV7_AAR" -d "$RUNNER_TEMP/ffmpeg-armv7"
-          test -d "$RUNNER_TEMP/ffmpeg-armv7/jni/armeabi-v7a" || {
-            echo "::error::The source-built AAR does not contain armeabi-v7a native libraries."
-            exit 1
-          }
-
           mkdir -p "$RUNNER_TEMP/ffmpeg-base/jni/armeabi-v7a"
-          cp -a "$RUNNER_TEMP/ffmpeg-armv7/jni/armeabi-v7a/." "$RUNNER_TEMP/ffmpeg-base/jni/armeabi-v7a/"
-          test -s "$RUNNER_TEMP/ffmpeg-base/jni/armeabi-v7a/libavutil.so" || {
-            echo "::error::Merged AAR is missing the ARMv7 FFmpeg runtime."
-            exit 1
-          }
+          cp -a "$RUNNER_TEMP/previous-apk-libs/lib/armeabi-v7a/." "$RUNNER_TEMP/ffmpeg-base/jni/armeabi-v7a/"
 
           (cd "$RUNNER_TEMP/ffmpeg-base" && zip -q -r "$GITHUB_WORKSPACE/app/libs/ffmpeg-kit-full.aar" .)
           unzip -Z1 "$GITHUB_WORKSPACE/app/libs/ffmpeg-kit-full.aar" | grep -q "jni/armeabi-v7a/libavutil.so" || {
@@ -145,8 +124,7 @@ jobs:
             echo "::error::The original ARM64 libraries were not preserved."
             exit 1
           }
-          echo "FFmpegKit AAR now contains armeabi-v7a and preserves arm64-v8a/x86_64."
-
+          echo "Reused verified FFmpegKit armeabi-v7a libraries from the last Receiver release."
       - name: Build signed release APK
         if: ${{ env.HAS_SIGNING == 'true' }}
         env:
@@ -184,7 +162,15 @@ jobs:
             exit 1
           fi
 
-          echo "APK package, versionCode, and Android signature are valid."
+          for ABI in armeabi-v7a arm64-v8a x86_64; do
+            if ! unzip -Z1 "$APK" | grep -q "^lib/$ABI/libavutil.so$"; then
+              echo "::error::Release APK is missing FFmpeg native libraries for $ABI."
+              exit 1
+            fi
+            echo "Verified APK ABI: $ABI"
+          done
+
+          echo "APK package, versionCode, signature, and native ABIs are valid."
           echo "CURRENT_CERT=$CURRENT_CERT" >> "$GITHUB_ENV"
 
       - name: Ensure signing key matches the last published release
