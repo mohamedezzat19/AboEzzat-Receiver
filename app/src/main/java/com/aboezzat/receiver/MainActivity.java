@@ -1208,6 +1208,10 @@ public class MainActivity extends Activity {
                 dp(46), dp(44), Gravity.TOP | Gravity.END);
         playerDownloadParams.setMargins(dp(8), dp(10), dp(compactPlayerChrome ? 166 : 182), dp(8));
         root.addView(playerDownloadButton, playerDownloadParams);
+        playerSubtitleButton.setNextFocusRightId(playerDownloadButton.getId());
+        playerDownloadButton.setNextFocusRightId(playerSettingsButton.getId());
+        playerDownloadButton.setNextFocusLeftId(playerSubtitleButton.getId());
+        playerSettingsButton.setNextFocusLeftId(playerDownloadButton.getId());
 
         // These overlays must sit above the full-screen PlayerView on phones and TVs.
         settingsHomeButton.bringToFront();
