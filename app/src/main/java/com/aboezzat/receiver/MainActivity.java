@@ -1998,7 +1998,7 @@ public class MainActivity extends Activity {
                 jsonConnection.setRequestProperty("Referer", pageUrl);
                 String cookie = CookieManager.getInstance().getCookie(jsonUrl);
                 if (cookie != null && !cookie.isEmpty() && cookie.length() <= 8192
-                        && !cookie.contains("\\r") && !cookie.contains("\\n")) {
+                        && !cookie.contains("\r") && !cookie.contains("\n")) {
                     jsonConnection.setRequestProperty("Cookie", cookie);
                 }
                 int status = jsonConnection.getResponseCode();
