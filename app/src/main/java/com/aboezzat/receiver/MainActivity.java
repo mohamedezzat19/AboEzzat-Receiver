@@ -4695,7 +4695,8 @@ public class MainActivity extends Activity {
 
                         @Override
                         public void onPlaybackStateChanged(int playbackState) {
-                            setPlayerBufferingVisible(playbackState == Player.STATE_BUFFERING);
+                            setPlayerBufferingVisible(playbackState == Player.STATE_BUFFERING
+                                    || pendingStartupPlayback != null);
                             if (playbackState != Player.STATE_ENDED
                                     || playbackPrefs == null
                                     || player == null
