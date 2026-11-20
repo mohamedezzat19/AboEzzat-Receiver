@@ -16,6 +16,12 @@ on:
 permissions:
   contents: write
 
+# Serialize builds and releases so two near-simultaneous pushes cannot race
+# while creating tags or publishing assets.
+concurrency:
+  group: aboezzat-receiver-release-pipeline
+  cancel-in-progress: false
+
 jobs:
   build:
     runs-on: ubuntu-22.04
