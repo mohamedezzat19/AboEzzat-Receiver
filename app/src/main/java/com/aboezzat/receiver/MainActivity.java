@@ -4332,6 +4332,8 @@ public class MainActivity extends Activity {
     }
 
     private void playContent(String mediaUrl, String audioUrl, java.util.Map<String, String> requestHeaders) {
+        final String historyVideoUrl = mediaUrl;
+        final String historyAudioUrl = audioUrl;
 
         if (mediaUrl != null
                 && !mediaUrl.trim().isEmpty()
@@ -4388,7 +4390,7 @@ public class MainActivity extends Activity {
         if (settingsHomeButton != null) settingsHomeButton.setVisibility(View.GONE);
         if (browserHomeButton != null) browserHomeButton.setVisibility(View.GONE);
         rememberPlaybackUrl(playbackUrl);
-        rememberPlaybackItem(mediaUrl, audioUrl);
+        rememberPlaybackItem(historyVideoUrl, historyAudioUrl);
         if (browserShortcut != null) browserShortcut.setVisibility(View.GONE);
         hideImage();
 
