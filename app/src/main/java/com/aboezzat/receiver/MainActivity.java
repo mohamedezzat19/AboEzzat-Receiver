@@ -1157,6 +1157,7 @@ public class MainActivity extends Activity {
         playerSubtitleButton.setId(View.generateViewId());
         playerSubtitleButton.setContentDescription("البحث عن ترجمة عربية");
         playerSubtitleButton.setOnClickListener(v -> searchAndApplyArabicSubtitle());
+        playerSubtitleButton.setNextFocusRightId(playerDownloadButton == null ? View.NO_ID : playerDownloadButton.getId());
         playerSubtitleButton.setOnLongClickListener(v -> {
             promptSubtitleTitleAndSearch();
             return true;
@@ -1177,7 +1178,11 @@ public class MainActivity extends Activity {
         playerSettingsButton.setId(View.generateViewId());
         playerSettingsButton.setContentDescription("إعدادات المشغل");
         playerSettingsButton.setBackground(browserFocusBackground(Color.TRANSPARENT, Color.TRANSPARENT, 12, false));
+        playerSettingsButton.setOnFocusChangeListener((v, focused) -> v.setBackground(browserFocusBackground(
+                focused ? Color.argb(48, 105, 185, 255) : Color.TRANSPARENT,
+                focused ? Color.rgb(105, 185, 255) : Color.TRANSPARENT, 12, focused)));
         playerSettingsButton.setOnClickListener(v -> showPlaybackSettingsDialog());
+        playerSettingsButton.setNextFocusLeftId(playerDownloadButton == null ? View.NO_ID : playerDownloadButton.getId());
         FrameLayout.LayoutParams playerSettingsParams = new FrameLayout.LayoutParams(
                 dp(46), dp(44), Gravity.TOP | Gravity.END);
         playerSettingsParams.setMargins(dp(8), dp(10), dp(62), dp(8));
@@ -1193,7 +1198,12 @@ public class MainActivity extends Activity {
         playerDownloadButton.setId(View.generateViewId());
         playerDownloadButton.setContentDescription("تنزيل الوسائط");
         playerDownloadButton.setBackground(browserFocusBackground(Color.TRANSPARENT, Color.TRANSPARENT, 12, false));
+        playerDownloadButton.setOnFocusChangeListener((v, focused) -> v.setBackground(browserFocusBackground(
+                focused ? Color.argb(48, 105, 185, 255) : Color.TRANSPARENT,
+                focused ? Color.rgb(105, 185, 255) : Color.TRANSPARENT, 12, focused)));
         playerDownloadButton.setOnClickListener(v -> showCurrentPlaybackDownloadOptions());
+        playerDownloadButton.setNextFocusRightId(playerSettingsButton == null ? View.NO_ID : playerSettingsButton.getId());
+        playerDownloadButton.setNextFocusLeftId(playerSubtitleButton == null ? View.NO_ID : playerSubtitleButton.getId());
         FrameLayout.LayoutParams playerDownloadParams = new FrameLayout.LayoutParams(
                 dp(46), dp(44), Gravity.TOP | Gravity.END);
         playerDownloadParams.setMargins(dp(8), dp(10), dp(compactPlayerChrome ? 166 : 182), dp(8));
@@ -3753,10 +3763,15 @@ public class MainActivity extends Activity {
     private boolean handleImageRemoteKey(int keyCode) {
         if (imageView == null || imageView.getVisibility() != View.VISIBLE) return false;
         if (playerSettingsButton != null && playerSettingsButton.hasFocus()) return false;
+        if (keyCode == android.view.KeyEvent.KEYCODE_BACK || keyCode == android.view.KeyEvent.KEYCODE_ESCAPE) {
+            resetImageTransform();
+            hideImage();
+            showWelcome();
+            return true;
+        }
         boolean wasVisible = imageControlsVisible;
         showImageControls();
-        if (!wasVisible && (keyCode == android.view.KeyEvent.KEYCODE_DPAD_CENTER
-                || keyCode == android.view.KeyEvent.KEYCODE_ENTER)) {
+        if (!wasVisible) {
             if (playerSettingsButton != null) playerSettingsButton.requestFocus();
             return true;
         }
