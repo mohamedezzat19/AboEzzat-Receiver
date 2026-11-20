@@ -53,6 +53,8 @@ dependencies {
     implementation 'androidx.media3:media3-ui:1.9.0'
     implementation 'com.squareup.okhttp3:okhttp:4.12.0'
     implementation 'com.github.TeamNewPipe:NewPipeExtractor:v0.27.1'
-    // LGPL FFmpeg: stream remuxing and real MP3 encoding for history downloads.
-    implementation 'dev.ffmpegkit-maintained:ffmpeg-kit-full:8.1.9'
+    // FFmpegKit AAR is assembled in CI from the official 8.1.9 AAR plus
+    // the matching armeabi-v7a native libraries for 32-bit Fire TV devices.
+    implementation files('libs/ffmpeg-kit-full.aar')
+    implementation 'com.arthenica:smart-exception-java:0.2.1'
 }
