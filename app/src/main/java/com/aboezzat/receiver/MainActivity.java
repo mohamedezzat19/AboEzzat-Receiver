@@ -161,6 +161,62 @@ public class MainActivity extends Activity {
     private float lastNonZeroVolume = 1.0f;
     private boolean muted = false;
     private boolean playerControllerVisible = false;
+    private boolean isDashManifestUrl(String url) {
+        if (url == null) return false;
+        String lower = url.toLowerCase(Locale.ROOT);
+        return lower.contains(".mpd") || lower.contains("application/dash+xml") || lower.contains("format=mpd");
+    }
+
+    private String buildDashTrackDiagnostic() {
+        if (player == null) return "المشغّل غير مهيأ.";
+        StringBuilder out = new StringBuilder();
+        int state = player.getPlaybackState();
+        out.append("حالة المشغّل: ").append(state == Player.STATE_READY ? "READY" : state == Player.STATE_BUFFERING ? "BUFFERING" : state == Player.STATE_IDLE ? "IDLE" : state == Player.STATE_ENDED ? "ENDED" : "UNKNOWN");
+        out.append("\\nالتحميل مستمر: ").append(player.isLoading() ? "نعم" : "لا");
+        out.append("\\nالوقت الحالي: ").append(player.getCurrentPosition() / 1000).append(" ثانية");
+        androidx.media3.common.VideoSize size = player.getVideoSize();
+        out.append("\\nمقاس الفيديو: ").append(size.width).append("x").append(size.height);
+        boolean videoSelected = false, audioSelected = false, drmDetected = false;
+        for (Tracks.Group group : player.getCurrentTracks().getGroups()) {
+            int type = group.getType();
+            String kind = type == C.TRACK_TYPE_VIDEO ? "فيديو" : type == C.TRACK_TYPE_AUDIO ? "صوت" : type == C.TRACK_TYPE_TEXT ? "ترجمة" : "مسار آخر";
+            out.append("\\n").append(kind).append(": ");
+            for (int i = 0; i < group.length; i++) {
+                androidx.media3.common.Format f = group.getTrackFormat(i);
+                boolean selected = group.isTrackSelected(i);
+                boolean supported = group.isTrackSupported(i);
+                if (type == C.TRACK_TYPE_VIDEO && selected) videoSelected = true;
+                if (type == C.TRACK_TYPE_AUDIO && selected) audioSelected = true;
+                if (f.drmInitData != null) drmDetected = true;
+                if (i > 0) out.append(" | ");
+                out.append(f.sampleMimeType == null ? "نوع غير معروف" : f.sampleMimeType);
+                if (f.codecs != null) out.append(" (").append(f.codecs).append(")");
+                if (f.width > 0 && f.height > 0) out.append(" ").append(f.width).append("x").append(f.height);
+                out.append(selected ? " [محدد]" : "").append(supported ? "" : " [غير مدعوم]");
+            }
+            if (group.length == 0) out.append("لا توجد صيغ");
+        }
+        out.append("\\nمسار فيديو محدد: ").append(videoSelected ? "نعم" : "لا");
+        out.append("\\nمسار صوت محدد: ").append(audioSelected ? "نعم" : "لا");
+        out.append("\\nبيانات DRM ظاهرة: ").append(drmDetected ? "نعم" : "لا");
+        return out.toString();
+    }
+
+    private void showDashPlaybackDiagnostic(String requestedUrl) {
+        if (isFinishing() || isDestroyed() || player == null || !requestedUrl.equals(currentPlaybackUrl)) return;
+        String details = buildDashTrackDiagnostic();
+        Log.i(TAG, "DASH playback diagnostic: " + details.replace('\\n', ' '));
+        new AlertDialog.Builder(this).setTitle("تشخيص بث DASH")
+                .setMessage(details + "\\n\\nانسخ التشخيص وأرسله لتحديد سبب الشاشة السوداء.")
+                .setPositiveButton("نسخ التشخيص", (dialog, which) -> {
+                    android.content.ClipboardManager clipboard = (android.content.ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
+                    if (clipboard != null) {
+                        clipboard.setPrimaryClip(android.content.ClipData.newPlainText("DASH diagnostic", details));
+                        Toast.makeText(this, "تم نسخ التشخيص", Toast.LENGTH_SHORT).show();
+                    }
+                }).setNegativeButton("إغلاق", null).show();
+    }
+
 
     private volatile boolean running = false;
     private volatile ServerSocket serverSocket;
@@ -4272,9 +4328,7 @@ public class MainActivity extends Activity {
                     player.seekTo(savedPosition);
                     Toast.makeText(MainActivity.this, "تم استئناف التشغيل من آخر موضع محفوظ", Toast.LENGTH_SHORT).show();
                 }
-                player.play();
-            }
-            // Keep the screen clean when a newly received video starts.
+                player.play();\n                if (isDashManifestUrl(playbackUrl)) {\n                    final String diagnosticUrl = playbackUrl;\n                    new Handler(Looper.getMainLooper()).postDelayed(() -> showDashPlaybackDiagnostic(diagnosticUrl), 15000L);\n                }\n            }\n            // Keep the screen clean when a newly received video starts.
             playerView.hideController();
             focusPlayPauseAsPlayerHome();
 
@@ -4303,8 +4357,7 @@ public class MainActivity extends Activity {
                     || lowerUrl.contains("format=m3u8")
                     || lowerUrl.contains("playlist.m3u8")
                     || lowerUrl.contains("chunklist");
-            boolean dashManifest = lowerUrl.contains("application/dash+xml")
-                    || lowerUrl.contains("format=mpd");
+            boolean dashManifest = lowerUrl.contains("application/dash+xml")\n                    || lowerUrl.contains("format=mpd") || lowerPath.endsWith(".mpd");
 
             if (hlsManifest || lowerPath.matches("^/[^/]+/[^/]+/index\\.html$")) {
                 builder.setMimeType(MimeTypes.APPLICATION_M3U8);
