@@ -1966,6 +1966,84 @@ public class MainActivity extends Activity {
                 || candidate.startsWith("rtsp://") ? candidate : null;
     }
 
+    /**
+     * Resolve same-origin JSON indexes referenced by a player HTML page.
+     * This intentionally does not crawl arbitrary hosts or execute page scripts.
+     */
+    private String extractLinkedJsonMedia(String html, String pageUrl) {
+        if (html == null || html.isEmpty() || pageUrl == null) return null;
+        java.util.LinkedHashSet<String> jsonUrls = new java.util.LinkedHashSet<>();
+        java.util.regex.Matcher matcher = java.util.regex.Pattern.compile(
+                "(?is)(?:src|href|data-src|data-config|configUrl|indexUrl|jsonUrl)\\s*[=:]\\s*['\\\"]([^'\\\"]{1,2048}?\\.json(?:[?#][^'\\\"]*)?)['\\\"]")
+                .matcher(html);
+        while (matcher.find() && jsonUrls.size() < 5) {
+            String resolved = resolveExtractedUrl(matcher.group(1), pageUrl);
+            if (resolved != null && isHttpUrl(resolved) && isSameOrigin(pageUrl, resolved)) {
+                jsonUrls.add(resolved);
+            }
+        }
+
+        int checked = 0;
+        for (String jsonUrl : jsonUrls) {
+            if (checked++ >= 3) break;
+            HttpURLConnection jsonConnection = null;
+            try {
+                jsonConnection = (HttpURLConnection) new URL(jsonUrl).openConnection();
+                jsonConnection.setInstanceFollowRedirects(true);
+                jsonConnection.setConnectTimeout(5000);
+                jsonConnection.setReadTimeout(7000);
+                jsonConnection.setRequestProperty("User-Agent",
+                        "Mozilla/5.0 (Linux; Android 12; TV) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36");
+                jsonConnection.setRequestProperty("Accept", "application/json,text/plain,*/*;q=0.8");
+                jsonConnection.setRequestProperty("Referer", pageUrl);
+                String cookie = CookieManager.getInstance().getCookie(jsonUrl);
+                if (cookie != null && !cookie.isEmpty() && cookie.length() <= 8192
+                        && !cookie.contains("\\r") && !cookie.contains("\\n")) {
+                    jsonConnection.setRequestProperty("Cookie", cookie);
+                }
+                int status = jsonConnection.getResponseCode();
+                String type = jsonConnection.getContentType();
+                if (status < 200 || status >= 300
+                        || (type != null && !type.toLowerCase(Locale.ROOT).contains("json")
+                        && !jsonUrl.toLowerCase(Locale.ROOT).contains(".json"))) {
+                    continue;
+                }
+                StringBuilder body = new StringBuilder();
+                try (BufferedReader reader = new BufferedReader(new InputStreamReader(
+                        jsonConnection.getInputStream(), StandardCharsets.UTF_8))) {
+                    char[] buffer = new char[4096];
+                    int count;
+                    while ((count = reader.read(buffer)) != -1 && body.length() < 2 * 1024 * 1024) {
+                        body.append(buffer, 0, count);
+                    }
+                }
+                String media = extractDirectMediaFromHtml(body.toString(), jsonUrl);
+                if (media != null && isDirectStreamUrl(media)) return media;
+            } catch (Exception e) {
+                Log.w(TAG, "Same-origin JSON index lookup failed");
+            } finally {
+                if (jsonConnection != null) jsonConnection.disconnect();
+            }
+        }
+        return null;
+    }
+
+    private boolean isSameOrigin(String firstUrl, String secondUrl) {
+        try {
+            URL first = new URL(firstUrl);
+            URL second = new URL(secondUrl);
+            int firstPort = first.getPort() >= 0 ? first.getPort()
+                    : ("https".equalsIgnoreCase(first.getProtocol()) ? 443 : 80);
+            int secondPort = second.getPort() >= 0 ? second.getPort()
+                    : ("https".equalsIgnoreCase(second.getProtocol()) ? 443 : 80);
+            return first.getProtocol().equalsIgnoreCase(second.getProtocol())
+                    && first.getHost().equalsIgnoreCase(second.getHost())
+                    && firstPort == secondPort;
+        } catch (Exception ignored) {
+            return false;
+        }
+    }
+
     // Extract only publicly exposed media URLs from page metadata or player JSON.
     // No login, DRM, signature bypass, or protected-stream circumvention is attempted.
     private String extractDirectMediaFromHtml(String html, String pageUrl) {
@@ -2276,9 +2354,17 @@ public class MainActivity extends Activity {
                                 html.append(buffer, 0, count);
                             }
                         }
-                        String result = extractDirectMediaFromHtml(html.toString(), pageUrl);
+                        String pageContent = html.toString();
+                        String result = extractDirectMediaFromHtml(pageContent, pageUrl);
+                        // A number of IPTV/player pages expose only a small index.html
+                        // shell and keep the actual stream URLs in a same-origin index.json.
+                        // Follow a few explicitly referenced JSON config files, bounded by
+                        // size/time and without forwarding cookies to another host.
+                        if (result == null) {
+                            result = extractLinkedJsonMedia(pageContent, pageUrl);
+                        }
                         if (result != null && isDirectStreamUrl(result)) {
-                            run.candidate(result, "Page Metadata", false, false);
+                            run.candidate(result, "Page/JSON Metadata", false, false);
                             return;
                         }
                     }
