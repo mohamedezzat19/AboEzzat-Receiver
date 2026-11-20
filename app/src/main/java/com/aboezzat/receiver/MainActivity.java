@@ -3633,7 +3633,7 @@ public class MainActivity extends Activity {
     }
 
     private boolean tryOpenDramaLiveInVlc(String url) {
-        if (!isHttpUrl(url) || url == null
+        if (url == null || !isHttpUrl(url)
                 || !url.toLowerCase(Locale.ROOT).contains(".m3u8")) return false;
         // VLC's exported StartActivity handles external VIEW intents and forwards
         // network streams to its playback service. Use an explicit component first
