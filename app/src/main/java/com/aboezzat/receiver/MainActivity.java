@@ -2119,7 +2119,7 @@ public class MainActivity extends Activity {
         // response. Parse JSON structurally instead of relying only on HTML regexes.
         try {
             Object jsonRoot = new org.json.JSONTokener(html).nextValue();
-            collectJsonMediaCandidates(jsonRoot, candidates, pageUrl);
+            collectJsonMediaCandidates(jsonRoot, candidates, pageUrl, 0, new int[] {0});
         } catch (Exception ignored) { }
 
         for (String candidate : candidates) {
@@ -2128,34 +2128,49 @@ public class MainActivity extends Activity {
         return null;
     }
 
+    // Bound recursive parsing so unusually deep or oversized JSON cannot exhaust
+    // the receiver's stack or keep the extraction worker busy indefinitely.
+    private static final int MAX_JSON_DEPTH = 16;
+    private static final int MAX_JSON_NODES = 5000;
+
     private void collectJsonMediaCandidates(Object node,
-            java.util.Set<String> candidates, String pageUrl) {
+            java.util.Set<String> candidates, String pageUrl,
+            int depth, int[] visitedNodes) {
+        if (node == null || depth > MAX_JSON_DEPTH
+                || visitedNodes[0] >= MAX_JSON_NODES) return;
+        visitedNodes[0]++;
+
         if (node instanceof JSONObject) {
             JSONObject object = (JSONObject) node;
             java.util.Iterator<String> keys = object.keys();
-            while (keys.hasNext()) {
+            while (keys.hasNext() && visitedNodes[0] < MAX_JSON_NODES) {
                 String key = keys.next();
                 Object value = object.opt(key);
                 if (value instanceof String) {
                     String raw = ((String) value).trim();
                     String candidate = resolveExtractedUrl(raw, pageUrl);
-                    if (candidate != null && !isDirectStreamUrl(candidate)) candidate = null;
-                    if (candidate != null && isDirectStreamUrl(candidate)) candidates.add(candidate);
+                    if (candidate != null && isDirectStreamUrl(candidate)) {
+                        candidates.add(candidate);
+                    }
                 } else if (value instanceof JSONObject || value instanceof org.json.JSONArray) {
-                    collectJsonMediaCandidates(value, candidates, pageUrl);
+                    collectJsonMediaCandidates(value, candidates, pageUrl,
+                            depth + 1, visitedNodes);
                 }
             }
         } else if (node instanceof org.json.JSONArray) {
             org.json.JSONArray array = (org.json.JSONArray) node;
-            for (int i = 0; i < array.length(); i++) {
+            int length = Math.min(array.length(), MAX_JSON_NODES - visitedNodes[0]);
+            for (int i = 0; i < length && visitedNodes[0] < MAX_JSON_NODES; i++) {
                 Object value = array.opt(i);
                 if (value instanceof String) {
                     String raw = ((String) value).trim();
                     String candidate = resolveExtractedUrl(raw, pageUrl);
-                    if (candidate != null && !isDirectStreamUrl(candidate)) candidate = null;
-                    if (candidate != null && isDirectStreamUrl(candidate)) candidates.add(candidate);
+                    if (candidate != null && isDirectStreamUrl(candidate)) {
+                        candidates.add(candidate);
+                    }
                 } else if (value instanceof JSONObject || value instanceof org.json.JSONArray) {
-                    collectJsonMediaCandidates(value, candidates, pageUrl);
+                    collectJsonMediaCandidates(value, candidates, pageUrl,
+                            depth + 1, visitedNodes);
                 }
             }
         }
