@@ -58,9 +58,12 @@ public final class HistoryMediaDownloader {
                     + " " + inputArgs(audio, headerBlock)
                     + " -map 0:v:0 -map 1:a:0 -c copy -shortest -movflags +faststart "
                     + quote(output.getAbsolutePath());
+        } else if (video.isEmpty()) {
+            command = "-y " + inputArgs(audio, headerBlock)
+                    + " -map 0:a:0 -vn -c:a aac -b:a 256k -movflags +faststart "
+                    + quote(output.getAbsolutePath());
         } else {
-            String source = video.isEmpty() ? audio : video;
-            command = "-y " + inputArgs(source, headerBlock)
+            command = "-y " + inputArgs(video, headerBlock)
                     + " -map 0:v? -map 0:a? -c copy -movflags +faststart "
                     + quote(output.getAbsolutePath());
         }
