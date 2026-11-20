@@ -4544,7 +4544,9 @@ public class MainActivity extends Activity {
                 if (isDashManifestUrl(playbackUrl)) {
                     final String diagnosticUrl = playbackUrl;
                     new Handler(Looper.getMainLooper()).postDelayed(() -> showDashPlaybackDiagnostic(diagnosticUrl), 15000L);
-                }\n            }\n            // Keep the screen clean when a newly received video starts.
+                }
+            }
+            // Keep the screen clean when a newly received video starts.
             playerView.hideController();
             focusPlayPauseAsPlayerHome();
 
