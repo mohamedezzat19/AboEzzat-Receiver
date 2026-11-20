@@ -1999,7 +1999,7 @@ public class MainActivity extends Activity {
                 .compile("(?is)(?:https?:\\\\?/\\\\?/|rtsp://)[^\\s'\\\"><]+?\\.(?:mp4|m4v|mkv|webm|mov|flv|avi|mpg|mpeg|3gp|ogv|wmv|vob|ts|m2ts|m3u8|mpd|ism|ismc|mp3|m4a|aac|ogg|oga|opus|wav|flac|wma)(?:[?#][^\\s'\\\"><]*)?")
                 .matcher(html);
         while (rawMedia.find()) {
-            String candidate = cleanExtractedUrl(rawMedia.group(1));
+            String candidate = cleanExtractedUrl(rawMedia.group(0));
             if (candidate != null) candidates.add(candidate);
         }
 
