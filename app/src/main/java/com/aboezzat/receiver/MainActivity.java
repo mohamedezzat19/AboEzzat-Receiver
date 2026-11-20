@@ -172,15 +172,15 @@ public class MainActivity extends Activity {
         StringBuilder out = new StringBuilder();
         int state = player.getPlaybackState();
         out.append("حالة المشغّل: ").append(state == Player.STATE_READY ? "READY" : state == Player.STATE_BUFFERING ? "BUFFERING" : state == Player.STATE_IDLE ? "IDLE" : state == Player.STATE_ENDED ? "ENDED" : "UNKNOWN");
-        out.append("\\nالتحميل مستمر: ").append(player.isLoading() ? "نعم" : "لا");
-        out.append("\\nالوقت الحالي: ").append(player.getCurrentPosition() / 1000).append(" ثانية");
+        out.append("\nالتحميل مستمر: ").append(player.isLoading() ? "نعم" : "لا");
+        out.append("\nالوقت الحالي: ").append(player.getCurrentPosition() / 1000).append(" ثانية");
         androidx.media3.common.VideoSize size = player.getVideoSize();
-        out.append("\\nمقاس الفيديو: ").append(size.width).append("x").append(size.height);
+        out.append("\nمقاس الفيديو: ").append(size.width).append("x").append(size.height);
         boolean videoSelected = false, audioSelected = false, drmDetected = false;
         for (Tracks.Group group : player.getCurrentTracks().getGroups()) {
             int type = group.getType();
             String kind = type == C.TRACK_TYPE_VIDEO ? "فيديو" : type == C.TRACK_TYPE_AUDIO ? "صوت" : type == C.TRACK_TYPE_TEXT ? "ترجمة" : "مسار آخر";
-            out.append("\\n").append(kind).append(": ");
+            out.append("\n").append(kind).append(": ");
             for (int i = 0; i < group.length; i++) {
                 androidx.media3.common.Format f = group.getTrackFormat(i);
                 boolean selected = group.isTrackSelected(i);
@@ -196,18 +196,18 @@ public class MainActivity extends Activity {
             }
             if (group.length == 0) out.append("لا توجد صيغ");
         }
-        out.append("\\nمسار فيديو محدد: ").append(videoSelected ? "نعم" : "لا");
-        out.append("\\nمسار صوت محدد: ").append(audioSelected ? "نعم" : "لا");
-        out.append("\\nبيانات DRM ظاهرة: ").append(drmDetected ? "نعم" : "لا");
+        out.append("\nمسار فيديو محدد: ").append(videoSelected ? "نعم" : "لا");
+        out.append("\nمسار صوت محدد: ").append(audioSelected ? "نعم" : "لا");
+        out.append("\nبيانات DRM ظاهرة: ").append(drmDetected ? "نعم" : "لا");
         return out.toString();
     }
 
     private void showDashPlaybackDiagnostic(String requestedUrl) {
         if (isFinishing() || isDestroyed() || player == null || !requestedUrl.equals(currentPlaybackUrl)) return;
         String details = buildDashTrackDiagnostic();
-        Log.i(TAG, "DASH playback diagnostic: " + details.replace('\\n', ' '));
+        Log.i(TAG, "DASH playback diagnostic: " + details.replace('\n', ' '));
         new AlertDialog.Builder(this).setTitle("تشخيص بث DASH")
-                .setMessage(details + "\\n\\nانسخ التشخيص وأرسله لتحديد سبب الشاشة السوداء.")
+                .setMessage(details + "\n\nانسخ التشخيص وأرسله لتحديد سبب الشاشة السوداء.")
                 .setPositiveButton("نسخ التشخيص", (dialog, which) -> {
                     android.content.ClipboardManager clipboard = (android.content.ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
                     if (clipboard != null) {
@@ -477,7 +477,7 @@ public class MainActivity extends Activity {
         field.setInputType(android.text.InputType.TYPE_CLASS_TEXT
                 | android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE
                 | android.text.InputType.TYPE_TEXT_VARIATION_URI);
-        field.setHint("https://cobalt-one.example/\\nhttps://cobalt-two.example/");
+        field.setHint("https://cobalt-one.example/\nhttps://cobalt-two.example/");
         field.setText(settings.getString("cobalt_endpoint", ""));
 
         android.widget.CheckBox cobalt = new android.widget.CheckBox(this);
@@ -521,7 +521,7 @@ public class MainActivity extends Activity {
                         }
                     }
                     settings.edit()
-                            .putString("cobalt_endpoint", String.join("\\n", endpoints))
+                            .putString("cobalt_endpoint", String.join("\n", endpoints))
                             .putBoolean("receiver_engine_cobalt", cobalt.isChecked())
                             .putBoolean("receiver_engine_page", page.isChecked())
                             .putBoolean("receiver_engine_social", social.isChecked())
@@ -4967,7 +4967,7 @@ public class MainActivity extends Activity {
                         || "priority".equals(key))
                         && entry.getValue() != null
                         && entry.getValue().length() <= ("cookie".equals(key) ? 8192 : 2048)
-                        && !entry.getValue().contains("\\r") && !entry.getValue().contains("\\n")) {
+                        && !entry.getValue().contains("\\r") && !entry.getValue().contains("\n")) {
                     safe.put(entry.getKey(), entry.getValue());
                 }
             }
