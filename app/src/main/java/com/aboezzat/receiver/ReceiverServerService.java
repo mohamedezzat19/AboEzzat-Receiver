@@ -56,6 +56,8 @@ public class ReceiverServerService extends Service {
     private volatile ServerSocket serverSocket;
     private Thread serverThread;
     private Thread heartbeatThread;
+    private DlnaMediaRenderer dlnaRenderer;
+    private android.net.wifi.WifiManager.MulticastLock dlnaMulticastLock;
     // Bound concurrent clients so a burst of LAN requests cannot create unbounded threads.
     private final ThreadPoolExecutor requestExecutor = new ThreadPoolExecutor(
             2, 4, 30L, TimeUnit.SECONDS, new ArrayBlockingQueue<>(16));
@@ -81,6 +83,52 @@ public class ReceiverServerService extends Service {
             startDiscoveryHeartbeat();
         }
         return START_STICKY;
+    }
+
+    private void startDlnaRenderer() {
+        if (dlnaRenderer != null) return;
+        try {
+            android.net.wifi.WifiManager wifi =
+                    (android.net.wifi.WifiManager) getApplicationContext().getSystemService(WIFI_SERVICE);
+            if (wifi != null) {
+                dlnaMulticastLock = wifi.createMulticastLock("AboEzzatReceiver:DLNA");
+                dlnaMulticastLock.setReferenceCounted(false);
+                dlnaMulticastLock.acquire();
+            }
+            SharedPreferences prefs = getSharedPreferences("receiver_settings", MODE_PRIVATE);
+            String id = prefs.getString("dlna_uuid", null);
+            if (id == null || id.trim().isEmpty()) {
+                id = UUID.randomUUID().toString();
+                prefs.edit().putString("dlna_uuid", id).apply();
+            }
+            dlnaRenderer = new DlnaMediaRenderer(id, new DlnaMediaRenderer.Listener() {
+                @Override public void onSetUri(String uri) {
+                    dispatchDlnaRequest(uri, null);
+                }
+                @Override public void onCommand(String command) {
+                    dispatchDlnaRequest(null, command);
+                }
+            });
+            dlnaRenderer.start();
+        } catch (Exception e) {
+            Log.e(TAG, "Could not initialize DLNA renderer", e);
+            if (dlnaMulticastLock != null && dlnaMulticastLock.isHeld()) dlnaMulticastLock.release();
+            dlnaMulticastLock = null;
+        }
+    }
+
+    private void dispatchDlnaRequest(String uri, String command) {
+        Intent request = new Intent(this, MainActivity.class);
+        request.setAction(ACTION_SERVER_REQUEST);
+        if (uri != null) request.putExtra(EXTRA_URL, uri);
+        if (command != null) request.putExtra(EXTRA_COMMAND, "dlna_" + command);
+        request.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP
+                | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+        try {
+            startActivity(request);
+        } catch (Exception e) {
+            Log.e(TAG, "OS blocked DLNA playback/control activity launch", e);
+        }
     }
 
     private void createNotificationChannel() {
@@ -431,6 +479,11 @@ public class ReceiverServerService extends Service {
         }
         if (serverThread != null) serverThread.interrupt();
         if (heartbeatThread != null) heartbeatThread.interrupt();
+        if (dlnaRenderer != null) { dlnaRenderer.stop(); dlnaRenderer = null; }
+        if (dlnaMulticastLock != null && dlnaMulticastLock.isHeld()) {
+            try { dlnaMulticastLock.release(); } catch (Exception ignored) { }
+        }
+        dlnaMulticastLock = null;
         requestExecutor.shutdownNow();
         super.onDestroy();
     }
