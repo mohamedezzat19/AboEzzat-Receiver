@@ -121,7 +121,7 @@ jobs:
             https://repo.maven.apache.org/maven2/dev/ffmpegkit-maintained/ffmpeg-kit-full/8.1.9/ffmpeg-kit-full-8.1.9.aar \
             -o "$RUNNER_TEMP/ffmpeg-kit-full-8.1.9.aar"
 
-          mkdir -p "$RUNNER_TEMP/ffmpeg-base" "$RUNNER_TEMP/ffmpeg-armv7" app/libs
+          mkdir -p "$RUNNER_TEMP/ffmpeg-base" "$RUNNER_TEMP/ffmpeg-armv7" "$GITHUB_WORKSPACE/app/libs"
           unzip -q "$RUNNER_TEMP/ffmpeg-kit-full-8.1.9.aar" -d "$RUNNER_TEMP/ffmpeg-base"
           unzip -q "$ARMV7_AAR" -d "$RUNNER_TEMP/ffmpeg-armv7"
           test -d "$RUNNER_TEMP/ffmpeg-armv7/jni/armeabi-v7a" || {
