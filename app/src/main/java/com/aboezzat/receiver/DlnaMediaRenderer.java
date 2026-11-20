@@ -481,7 +481,7 @@ public final class DlnaMediaRenderer {
             boolean inBody = false;
             while (parser.next() != XmlPullParser.END_DOCUMENT) {
                 if (parser.getEventType() == XmlPullParser.START_TAG) {
-                    String name = parser.getName();
+                    String name = localXmlName(parser.getName());
                     if ("Body".equals(name)) inBody = true;
                     else if (inBody) return name;
                 }
@@ -490,6 +490,14 @@ public final class DlnaMediaRenderer {
             Log.w(TAG, "Unable to identify SOAP action from body", e);
         }
         return "";
+    }
+
+    // XmlPullParser may return qualified names (for example "s:Body").
+    // UPnP SOAP argument matching must use the local name regardless of prefix.
+    private String localXmlName(String qualifiedName) {
+        if (qualifiedName == null) return "";
+        int colon = qualifiedName.indexOf(':');
+        return colon >= 0 ? qualifiedName.substring(colon + 1) : qualifiedName;
     }
 
     private Map<String,String> parseArgs(String body) throws Exception {
@@ -502,7 +510,7 @@ public final class DlnaMediaRenderer {
         StringBuilder value = new StringBuilder();
         while (p.next() != XmlPullParser.END_DOCUMENT) {
             if (p.getEventType() == XmlPullParser.START_TAG) {
-                String name = p.getName();
+                String name = localXmlName(p.getName());
                 if (actionDepth < 0 && !"Envelope".equals(name) && !"Body".equals(name)) {
                     actionDepth = p.getDepth();
                 } else if (actionDepth >= 0 && p.getDepth() == actionDepth + 1) {
