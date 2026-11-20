@@ -117,17 +117,34 @@ public final class FastMediaExtractor {
 
     private static String findMeta(String html) {
         Matcher tags = META_TAG.matcher(html);
+        String bestValue = null;
+        int bestScore = Integer.MIN_VALUE;
         while (tags.find()) {
             String tag = tags.group();
             Matcher p = PROP.matcher(tag), c = CONTENT.matcher(tag);
             if (!p.find() || !c.find()) continue;
             String key = p.group(1).toLowerCase(Locale.ROOT);
-            if (key.equals("og:video") || key.equals("og:video:url") || key.equals("og:video:secure_url") || key.equals("twitter:player:stream")) {
-                String value = clean(c.group(1));
-                if (isHttp(value)) return value;
+            int score;
+            if (key.equals("og:video:secure_url")) score = 50;
+            else if (key.equals("og:video:url") || key.equals("og:video")) score = 45;
+            else if (key.equals("twitter:player:stream")) score = 40;
+            else continue;
+
+            String value = clean(c.group(1));
+            if (!isHttp(value)) continue;
+            String lower = value.toLowerCase(Locale.ROOT);
+            if (lower.contains("thumbnail") || lower.contains("preview")
+                    || lower.contains("cover") || lower.matches(".*\\\\.(jpg|jpeg|png|webp)([?#].*)?$")) {
+                continue;
+            }
+            if (lower.contains(".m3u8") || lower.contains(".mpd")) score += 8;
+            else if (lower.contains(".mp4") || lower.contains(".webm")) score += 5;
+            if (score > bestScore) {
+                bestScore = score;
+                bestValue = value;
             }
         }
-        return null;
+        return bestValue;
     }
 
     private static String findJson(String html, String platform) {
