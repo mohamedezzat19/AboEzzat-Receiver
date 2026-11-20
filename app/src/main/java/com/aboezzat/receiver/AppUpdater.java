@@ -83,9 +83,10 @@ public final class AppUpdater {
                         apkUrl = candidateUrl;
                     }
                 }
+                final long latestVersion = latest;
                 long installed = installedVersionCode();
                 final String downloadUrl = apkUrl;
-                if (latest <= installed || downloadUrl == null || downloadUrl.isEmpty()) {
+                if (latestVersion <= installed || downloadUrl == null || downloadUrl.isEmpty()) {
                     if (showResult) MAIN.post(() -> Toast.makeText(activity,
                             "التطبيق محدث بالفعل، أو لم تُنشر نسخة موقّعة بعد.",
                             Toast.LENGTH_LONG).show());
@@ -93,9 +94,9 @@ public final class AppUpdater {
                 }
                 MAIN.post(() -> new AlertDialog.Builder(activity)
                         .setTitle("تحديث جديد متاح")
-                        .setMessage("يوجد إصدار أحدث رقم " + latest + ". هل تريد تنزيله وتثبيته؟")
+                        .setMessage("يوجد إصدار أحدث رقم " + latestVersion + ". هل تريد تنزيله وتثبيته؟")
                         .setNegativeButton("لاحقًا", null)
-                        .setPositiveButton("تحديث", (d, w) -> download(downloadUrl, latest))
+                        .setPositiveButton("تحديث", (d, w) -> download(downloadUrl, latestVersion))
                         .show());
             } catch (Exception e) {
                 if (showResult) MAIN.post(() -> Toast.makeText(activity,
