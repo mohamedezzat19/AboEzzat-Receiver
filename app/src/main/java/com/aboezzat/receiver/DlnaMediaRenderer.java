@@ -218,8 +218,8 @@ public final class DlnaMediaRenderer {
                     String value = line.substring(colon + 1).trim();
                     headers.put(key, value);
                     if ("content-length".equals(key)) {
-                        try { length = Math.min(65536, Math.max(0, Integer.parseInt(value))); }
-                        catch (Exception ignored) { length = 0; }
+                        try { length = Integer.parseInt(value); }
+                        catch (Exception ignored) { length = -1; }
                     }
                 }
             }
@@ -228,6 +228,11 @@ public final class DlnaMediaRenderer {
             if (transferEncoding != null && transferEncoding.toLowerCase(Locale.ROOT).contains("chunked")) {
                 bodyBytes = readChunkedBody(in, 65536);
             } else {
+                if (length < 0) {
+                    diagnostic("REJECT method=" + method + " path=" + path + " reason=invalid-content-length");
+                    respond(client, 400, "text/plain", "Invalid Content-Length");
+                    return;
+                }
                 if (length > 65536) {
                     diagnostic("REJECT method=" + method + " path=" + path + " reason=body-too-large length=" + length);
                     respond(client, 413, "text/plain", "Request body too large");
@@ -295,7 +300,10 @@ public final class DlnaMediaRenderer {
             } else {
                 respond(client, 405, "text/plain", "");
             }
-        } catch (Exception e) { Log.w(TAG, "DLNA HTTP request failed", e); }
+        } catch (Exception e) {
+            diagnostic("HTTP ERROR " + e.getClass().getSimpleName() + ": " + String.valueOf(e.getMessage()));
+            Log.w(TAG, "DLNA HTTP request failed", e);
+        }
     }
 
     private void handleSoap(Socket client, Map<String,String> headers, String body) throws Exception {
