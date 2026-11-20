@@ -108,8 +108,14 @@ jobs:
             --disable-lib-gnutls --disable-arm-v7a-neon \
             --disable-arm64-v8a --disable-x86 --disable-x86-64
 
-          ARMV7_AAR="$RUNNER_TEMP/ffmpeg-src/android-8.1-lts/prebuilt/bundle-android-aar-lts/ffmpeg-kit/ffmpeg-kit.aar"
-          test -s "$ARMV7_AAR" || { echo "::error::The ARMv7 FFmpegKit AAR was not created."; exit 1; }
+          # The upstream build selects its prebuilt directory dynamically for LTS builds.
+          # Locate the generated AAR instead of assuming a directory name.
+          ARMV7_AAR="$(find "$RUNNER_TEMP/ffmpeg-src/android-8.1-lts/prebuilt" -type f -name 'ffmpeg-kit.aar' -print -quit)"
+          test -n "$ARMV7_AAR" && test -s "$ARMV7_AAR" || {
+            echo "::error::The ARMv7 FFmpegKit AAR was not created under prebuilt/."
+            find "$RUNNER_TEMP/ffmpeg-src/android-8.1-lts/prebuilt" -maxdepth 4 -type f -print || true
+            exit 1
+          }
 
           curl -fL --retry 3 \
             https://repo.maven.apache.org/maven2/dev/ffmpegkit-maintained/ffmpeg-kit-full/8.1.9/ffmpeg-kit-full-8.1.9.aar \
