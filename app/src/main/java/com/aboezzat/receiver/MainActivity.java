@@ -136,6 +136,8 @@ public class MainActivity extends Activity {
     }
     private final java.util.ArrayList<PlaybackHistoryItem> playbackHistoryItems = new java.util.ArrayList<>();
     private AlertDialog historyDialog;
+    private int historyScrollPosition = 0;
+    private boolean reopenHistoryAfterPlayback = false;
     private WebView fallbackWebView;
     // Full TV browser chrome, separate from media-fallback playback.
     private FrameLayout browserOverlay;
@@ -281,6 +283,7 @@ public class MainActivity extends Activity {
     private final Handler mediaHandler = new Handler(Looper.getMainLooper());
     private String pendingVisualUrl;
     private String pendingAudioUrl;
+    private String pendingPlaybackSourceUrl;
     private Runnable pendingPlayback;
 
     private int dp(float value) {
@@ -3499,6 +3502,17 @@ public class MainActivity extends Activity {
         queueIncomingMedia(mediaUrl, audioUrl, headers, null);
     }
 
+
+    private boolean isLikelySeparateAudioTrack(String value) {
+        if (value == null || value.trim().isEmpty()) return false;
+        String lower = value.toLowerCase(Locale.ROOT);
+        return lower.contains("mp4a_")
+                || (lower.contains("vencode_tag=") && lower.contains("audio"))
+                || lower.contains("mime=audio")
+                || lower.contains("audio_track")
+                || lower.matches(".*\\.(m4a|aac|mp3|oga|opus)(?:[?#].*)?$");
+    }
+
     private void queueIncomingMedia(String mediaUrl, String audioUrl,
                                     java.util.Map<String, String> headers, String sourceUrl) {
         extractionStatus = "preparing";
@@ -3506,28 +3520,65 @@ public class MainActivity extends Activity {
         persistExtractionState();
         pendingBrowserUrl = "";
         if (browserShortcut != null) browserShortcut.setVisibility(View.GONE);
-        // The receiver is reachable on the local network, so accept only remote HTTP(S)
-        // URLs from incoming requests; never pass file/content/javascript or other schemes
-        // to ExoPlayer or the social-video resolver.
+
+        if (mediaUrl != null && !mediaUrl.trim().isEmpty() && !isHttpUrl(mediaUrl)) mediaUrl = null;
+        if (audioUrl != null && !audioUrl.trim().isEmpty() && !isHttpUrl(audioUrl)) audioUrl = null;
+        if (audioUrl == null && isLikelySeparateAudioTrack(mediaUrl)) {
+            audioUrl = mediaUrl;
+            mediaUrl = null;
+        }
+        if ((mediaUrl == null || mediaUrl.trim().isEmpty())
+                && (audioUrl == null || audioUrl.trim().isEmpty())) return;
+
+        boolean incomingVideo = mediaUrl != null && !mediaUrl.trim().isEmpty();
+        boolean incomingAudio = audioUrl != null && !audioUrl.trim().isEmpty();
+        // A new video (or a duplicate audio rendition) starts a separate capture
+        // rather than merging unrelated items into the current pending item.
+        if (pendingPlayback != null && incomingVideo
+                && pendingVisualUrl != null && !pendingVisualUrl.isEmpty()) {
+            dispatchPendingIncomingMedia();
+        } else if (pendingPlayback != null && incomingAudio
+                && pendingAudioUrl != null && !pendingAudioUrl.isEmpty()) {
+            dispatchPendingIncomingMedia();
+        }
+
+        if (incomingVideo) pendingVisualUrl = mediaUrl;
+        if (incomingAudio) pendingAudioUrl = audioUrl;
+        if (headers != null && !headers.isEmpty()) {
+            pendingPlaybackHeaders = new java.util.LinkedHashMap<>(headers);
+        }
+        if (sourceUrl != null && !sourceUrl.trim().isEmpty()) pendingPlaybackSourceUrl = sourceUrl;
+
+        if (pendingPlayback != null) mediaHandler.removeCallbacks(pendingPlayback);
+        pendingPlayback = this::dispatchPendingIncomingMedia;
+        mediaHandler.postDelayed(pendingPlayback, 700L);
+    }
+
+    private void dispatchPendingIncomingMedia() {
+        String mediaUrl = pendingVisualUrl;
+        String audioUrl = pendingAudioUrl;
+        java.util.Map<String, String> headers = pendingPlaybackHeaders == null
+                ? java.util.Collections.emptyMap()
+                : new java.util.LinkedHashMap<>(pendingPlaybackHeaders);
+        String sourceUrl = pendingPlaybackSourceUrl;
+        if (pendingPlayback != null) mediaHandler.removeCallbacks(pendingPlayback);
+        pendingPlayback = null;
+        pendingVisualUrl = null;
+        pendingAudioUrl = null;
+        pendingPlaybackHeaders = java.util.Collections.emptyMap();
+        pendingPlaybackSourceUrl = null;
+        processIncomingMedia(mediaUrl, audioUrl, headers, sourceUrl);
+    }
+
+    private void processIncomingMedia(String mediaUrl, String audioUrl,
+                                      java.util.Map<String, String> headers, String sourceUrl) {
         String originalMediaUrl = mediaUrl;
         String originalAudioUrl = audioUrl;
         currentPlaybackFallbackUrl = isYouTubeUrl(sourceUrl) ? sourceUrl
                 : (isYouTubeUrl(mediaUrl) ? mediaUrl : "");
-        pendingPlaybackHeaders = headers == null ? java.util.Collections.emptyMap() : new java.util.LinkedHashMap<>(headers);
-        if (mediaUrl != null && !mediaUrl.trim().isEmpty() && !isHttpUrl(mediaUrl)) {
-            mediaUrl = null;
-        }
-        if (audioUrl != null && !audioUrl.trim().isEmpty() && !isHttpUrl(audioUrl)) {
-            audioUrl = null;
-        }
-        // YouTube links now enter the same direct-stream extraction pipeline first.
-        // The original page URL is retained separately for SmartTube fallback.
-
         boolean hasMedia = mediaUrl != null && !mediaUrl.trim().isEmpty();
         boolean hasAudio = audioUrl != null && !audioUrl.trim().isEmpty();
-        // TikTok CDN URLs are signed, session-sensitive Akamai resources. Prefer
-        // resolving the original watch page on the Receiver before replaying the
-        // sender's CDN URL, which may be denied outside its original request context.
+
         if (hasMedia && !hasAudio && isTikTokCdnVideoUrl(mediaUrl)
                 && isTikTokSourcePageUrl(sourceUrl)) {
             resolveSharedVideoToStream(sourceUrl);
@@ -3540,61 +3591,29 @@ public class MainActivity extends Activity {
             }
             return;
         }
-
-        // Only the recognized /<type>/<id>/index.html live playlist is handed to VLC.
-        // If VLC is unavailable, bypass generic page extraction and let Media3 use the
-        // existing HLS MIME override in createPlaybackMediaItem().
         if (hasMedia && !hasAudio && !isImageUrl(mediaUrl)
                 && isSwiftDataDramaLiveUrl(mediaUrl)) {
             if (!tryOpenDramaLiveInVlc(mediaUrl)) {
                 Log.i(TAG, "Using Receiver ExoPlayer fallback for SwiftData Drama Live URL");
-                playContent(mediaUrl, null, pendingPlaybackHeaders);
+                playContent(mediaUrl, null, headers);
             }
             return;
         }
-
-        if (mediaUrl != null && isDirectStreamUrl(mediaUrl)) {
+        if (hasMedia && isDirectStreamUrl(mediaUrl)) {
             extractionInProgress = false;
             extractionAttemptCount = 0;
             extractionStatus = "preparing";
             playbackStatusMessage = "تم تحديد رابط مباشر؛ جاري تحميله في مشغّل الفيديو.";
             persistExtractionState();
         }
-        if (mediaUrl != null && !mediaUrl.trim().isEmpty()
-                && !isImageUrl(mediaUrl) && !isDirectStreamUrl(mediaUrl)
-                && !isPhoneLocalMediaUrl(mediaUrl)
-                // A separate audio URL is an explicit DASH A/V pair; do not resolve
-                // the video URL alone or the companion audio track would be discarded.
-                && (audioUrl == null || audioUrl.trim().isEmpty())
+        if (hasMedia && !isImageUrl(mediaUrl) && !isDirectStreamUrl(mediaUrl)
+                && !isPhoneLocalMediaUrl(mediaUrl) && !hasAudio
                 && (mediaUrl.startsWith("http://") || mediaUrl.startsWith("https://"))) {
-            if (pendingPlayback != null) {
-                mediaHandler.removeCallbacks(pendingPlayback);
-                pendingPlayback = null;
-            }
-            pendingVisualUrl = null;
-            pendingAudioUrl = null;
-            if (isYouTubeUrl(mediaUrl)) {
-                extractYouTubeOnReceiver(mediaUrl);
-            } else {
-                resolveSharedVideoToStream(mediaUrl);
-            }
+            if (isYouTubeUrl(mediaUrl)) extractYouTubeOnReceiver(mediaUrl);
+            else resolveSharedVideoToStream(mediaUrl);
             return;
         }
-
-        if (mediaUrl != null && !mediaUrl.trim().isEmpty()) pendingVisualUrl = mediaUrl;
-        if (audioUrl != null && !audioUrl.trim().isEmpty()) pendingAudioUrl = audioUrl;
-
-        if (pendingPlayback != null) mediaHandler.removeCallbacks(pendingPlayback);
-        pendingPlayback = () -> {
-            String visual = pendingVisualUrl;
-            String audio = pendingAudioUrl;
-            pendingVisualUrl = null;
-            pendingAudioUrl = null;
-            pendingPlayback = null;
-            playContent(visual, audio, pendingPlaybackHeaders);
-            pendingPlaybackHeaders = java.util.Collections.emptyMap();
-        };
-        mediaHandler.postDelayed(pendingPlayback, 150);
+        playContent(mediaUrl, audioUrl, headers);
     }
 
     private void openYouTubeInTvApp(String videoUrl) {
@@ -4248,6 +4267,8 @@ public class MainActivity extends Activity {
             labels.addView(url);
             row.addView(labels, new LinearLayout.LayoutParams(0, -2, 1f));
             row.setOnClickListener(v -> {
+                historyScrollPosition = scroll.getScrollY();
+                reopenHistoryAfterPlayback = true;
                 String video = item.videoUrl;
                 String audio = item.audioUrl;
                 clearPendingServerMedia();
@@ -4261,6 +4282,9 @@ public class MainActivity extends Activity {
             list.addView(divider, new LinearLayout.LayoutParams(-1, dp(1)));
         }
         scroll.addView(list);
+        scroll.setOnScrollChangeListener((View view, int x, int y, int oldX, int oldY) -> {
+            historyScrollPosition = y;
+        });
         root.addView(scroll, new LinearLayout.LayoutParams(-1, 0, 1f));
         AlertDialog dialog = new AlertDialog.Builder(this).setView(root)
                 .setNegativeButton("إغلاق", null).create();
@@ -4272,6 +4296,8 @@ public class MainActivity extends Activity {
                 .setPositiveButton("مسح", (d, w) -> {
                     playbackQueue.clear();
                     playbackQueueIndex = -1;
+                    historyScrollPosition = 0;
+                    reopenHistoryAfterPlayback = false;
                     playbackHistoryItems.clear();
                     savePlaybackHistory();
                     savePlaybackHistoryItems();
@@ -4279,6 +4305,7 @@ public class MainActivity extends Activity {
                     Toast.makeText(this, "تم مسح سجل المشاهدة", Toast.LENGTH_SHORT).show();
                 }).show());
         dialog.show();
+        scroll.post(() -> scroll.scrollTo(0, Math.max(0, historyScrollPosition)));
     }
 
     private void savePlaybackHistory() {
@@ -5529,7 +5556,14 @@ public class MainActivity extends Activity {
         // and stops media or web loading so audio/video cannot continue behind the home UI.
         backPressHandler.removeCallbacks(resetBrowserBackPress);
         backPressedOnceInBrowser = false;
+        boolean restoreHistory = reopenHistoryAfterPlayback;
         showWelcome();
+        if (restoreHistory) {
+            reopenHistoryAfterPlayback = false;
+            new Handler(Looper.getMainLooper()).postDelayed(() -> {
+                if (!isFinishing() && !isDestroyed()) showPlaybackHistory();
+            }, 120L);
+        }
     }
 
     @Override
