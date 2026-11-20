@@ -1083,7 +1083,8 @@ public class MainActivity extends Activity {
         TextView settingsButton = settingsHomeButton;
         settingsButton.setId(View.generateViewId());
         browserHomeButton.setId(View.generateViewId());
-        boolean compactPlayerChrome = !isTelevisionDevice()\n                && getResources().getConfiguration().smallestScreenWidthDp < 600;
+        boolean compactPlayerChrome = !isTelevisionDevice()
+                && getResources().getConfiguration().smallestScreenWidthDp < 600;
         int homeActionSize = dp(compactPlayerChrome ? 44 : 52);
         TextView[] homeButtons = {settingsButton, browserHomeButton};
         for (TextView homeButton : homeButtons) {
