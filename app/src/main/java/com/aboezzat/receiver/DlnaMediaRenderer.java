@@ -411,24 +411,34 @@ public final class DlnaMediaRenderer {
     }
     private String avtScpd() {
         return "<?xml version=\"1.0\"?><scpd xmlns=\"urn:schemas-upnp-org:service-1-0\"><specVersion><major>1</major><minor>0</minor></specVersion><actionList>"
-                + action("SetAVTransportURI","InstanceID CurrentURI CurrentURIMetaData")
-                + action("Play","InstanceID Speed")+action("Pause","InstanceID")+action("Stop","InstanceID")
-                + action("Seek","InstanceID Unit Target")+action("GetTransportInfo","InstanceID")
-                + action("GetPositionInfo","InstanceID")+action("GetMediaInfo","InstanceID")
+                + action("SetAVTransportURI","InstanceID:in:A_ARG_TYPE_InstanceID CurrentURI:in:AVTransportURI CurrentURIMetaData:in:AVTransportURIMetaData")
+                + action("Play","InstanceID:in:A_ARG_TYPE_InstanceID Speed:in:CurrentPlayMode")+action("Pause","InstanceID:in:A_ARG_TYPE_InstanceID")+action("Stop","InstanceID:in:A_ARG_TYPE_InstanceID")
+                + action("Seek","InstanceID:in:A_ARG_TYPE_InstanceID Unit:in:A_ARG_TYPE_SeekMode Target:in:A_ARG_TYPE_SeekTarget")+action("GetTransportInfo","InstanceID:in:A_ARG_TYPE_InstanceID CurrentTransportState:out:TransportState CurrentTransportStatus:out:TransportStatus CurrentSpeed:out:TransportPlaySpeed")
+                + action("GetPositionInfo","InstanceID:in:A_ARG_TYPE_InstanceID Track:out:NumberOfTracks TrackDuration:out:CurrentTrackDuration TrackMetaData:out:CurrentTrackMetaData TrackURI:out:CurrentTrackURI RelTime:out:RelativeTimePosition AbsTime:out:AbsoluteTimePosition RelCount:out:RelativeCounterPosition AbsCount:out:AbsoluteCounterPosition")+action("GetMediaInfo","InstanceID:in:A_ARG_TYPE_InstanceID NrTracks:out:NumberOfTracks MediaDuration:out:CurrentMediaDuration CurrentURI:out:AVTransportURI CurrentURIMetaData:out:AVTransportURIMetaData PlayMedium:out:PlaybackStorageMedium RecordMedium:out:RecordStorageMedium WriteStatus:out:RecordMediumWriteStatus")
                 + "</actionList><serviceStateTable><stateVariable sendEvents=\"yes\"><name>TransportState</name><dataType>string</dataType></stateVariable></serviceStateTable></scpd>";
     }
     private String action(String name, String args) {
-        StringBuilder b = new StringBuilder("<action><name>").append(name).append("</name><argumentList>");
-        for (String a : args.split(" ")) b.append("<argument><name>").append(a)
-                .append("</name><direction>in</direction><relatedStateVariable>A_ARG_TYPE_InstanceID</relatedStateVariable></argument>");
-        return b.append("</argumentList></action>").toString();
+        StringBuilder b = new StringBuilder("<action><name>").append(name).append("</name>");
+        if (args != null && !args.trim().isEmpty()) {
+            b.append("<argumentList>");
+            for (String spec : args.split(" ")) {
+                String[] parts = spec.split(":", 3);
+                if (parts.length != 3) continue;
+                b.append("<argument><name>").append(parts[0])
+                        .append("</name><direction>").append(parts[1])
+                        .append("</direction><relatedStateVariable>").append(parts[2])
+                        .append("</relatedStateVariable></argument>");
+            }
+            b.append("</argumentList>");
+        }
+        return b.append("</action>").toString();
     }
     private String rcsScpd() {
         return "<?xml version=\"1.0\"?><scpd xmlns=\"urn:schemas-upnp-org:service-1-0\"><specVersion><major>1</major><minor>0</minor></specVersion><actionList></actionList><serviceStateTable></serviceStateTable></scpd>";
     }
     private String cmScpd() {
         return "<?xml version=\"1.0\"?><scpd xmlns=\"urn:schemas-upnp-org:service-1-0\"><specVersion><major>1</major><minor>0</minor></specVersion><actionList>"
-                + action("GetProtocolInfo","") + action("GetCurrentConnectionIDs","")
+                + action("GetProtocolInfo","Source:out:SourceProtocolInfo Sink:out:SinkProtocolInfo") + action("GetCurrentConnectionIDs","ConnectionIDs:out:ConnectionIDs")
                 + "</actionList><serviceStateTable></serviceStateTable></scpd>";
     }
     private String soapResponse(String action, String service, String inner) {
