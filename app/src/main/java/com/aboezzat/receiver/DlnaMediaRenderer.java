@@ -38,6 +38,18 @@ public final class DlnaMediaRenderer {
     private Thread httpThread;
     private Thread ssdpThread;
     private final ExecutorService clients = Executors.newFixedThreadPool(3);
+    private final ScheduledExecutorService maintenance = Executors.newSingleThreadScheduledExecutor();
+    private final Map<String, EventSubscription> subscriptions = new ConcurrentHashMap<>();
+    private static final class EventSubscription {
+        final String sid;
+        final String service;
+        final URL callback;
+        volatile long expiresAt;
+        volatile int sequence;
+        EventSubscription(String sid, String service, URL callback, long expiresAt) {
+            this.sid = sid; this.service = service; this.callback = callback; this.expiresAt = expiresAt;
+        }
+    }
 
     public DlnaMediaRenderer(String stableUuid, Listener listener) {
         this.uuid = stableUuid.startsWith("uuid:") ? stableUuid : "uuid:" + stableUuid;
@@ -62,6 +74,15 @@ public final class DlnaMediaRenderer {
             return;
         }
         startSsdp();
+        maintenance.scheduleWithFixedDelay(() -> {
+            if (running) {
+                announce("ssdp:alive");
+                long now = System.currentTimeMillis();
+                for (EventSubscription sub : subscriptions.values()) {
+                    if (sub.expiresAt <= now) subscriptions.remove(sub.sid);
+                }
+            }
+        }, 15, 15, TimeUnit.MINUTES);
     }
 
     private void startSsdp() {
@@ -202,17 +223,37 @@ public final class DlnaMediaRenderer {
                 handleSoap(client, headers, body);
             } else if ("SUBSCRIBE".equals(method) || "UNSUBSCRIBE".equals(method)) {
                 String sid = headers.get("sid");
+                String service = path.contains("AVTransport") ? "AVTransport"
+                        : path.contains("RenderingControl") ? "RenderingControl" : "ConnectionManager";
                 if ("UNSUBSCRIBE".equals(method)) {
+                    if (sid != null) subscriptions.remove(sid);
                     respondExtra(client, 200, "text/plain", "", Collections.emptyMap());
                 } else if (sid != null) {
-                    Map<String,String> renewal = new HashMap<>(); renewal.put("SID", sid); renewal.put("TIMEOUT", "Second-1800");
+                    EventSubscription existing = subscriptions.get(sid);
+                    if (existing == null) { respond(client, 412, "text/plain", ""); return; }
+                    existing.expiresAt = System.currentTimeMillis() + 1800000L;
+                    Map<String,String> renewal = new HashMap<>();
+                    renewal.put("SID", sid); renewal.put("TIMEOUT", "Second-1800");
                     respondExtra(client, 200, "text/plain", "", renewal);
                 } else {
+                    String callbackHeader = headers.get("callback");
+                    String nt = headers.get("nt");
+                    if (callbackHeader == null || !"upnp:event".equalsIgnoreCase(nt)
+                            || !callbackHeader.startsWith("<") || !callbackHeader.endsWith(">")) {
+                        respond(client, 412, "text/plain", ""); return;
+                    }
+                    URL callback = new URL(callbackHeader.substring(1, callbackHeader.length() - 1));
+                    if (!"http".equalsIgnoreCase(callback.getProtocol())) {
+                        respond(client, 412, "text/plain", ""); return;
+                    }
                     String newSid = "uuid:" + UUID.randomUUID();
+                    subscriptions.put(newSid, new EventSubscription(newSid, service, callback,
+                            System.currentTimeMillis() + 1800000L));
                     Map<String,String> subscription = new HashMap<>();
                     subscription.put("SID", newSid);
                     subscription.put("TIMEOUT", "Second-1800");
                     respondExtra(client, 200, "text/plain", "", subscription);
+                    notifySubscription(subscriptions.get(newSid));
                 }
             } else {
                 respond(client, 405, "text/plain", "");
@@ -235,18 +276,22 @@ public final class DlnaMediaRenderer {
                 currentUri = uri;
                 state = "STOPPED";
                 listener.onSetUri(uri);
+                notifyAvTransportChanged();
                 response = soapResponse(action, AVT, "");
                 break;
             case "Play":
                 state = "PLAYING"; listener.onCommand("play");
+                notifyAvTransportChanged();
                 response = soapResponse(action, AVT, "");
                 break;
             case "Pause":
                 state = "PAUSED_PLAYBACK"; listener.onCommand("pause");
+                notifyAvTransportChanged();
                 response = soapResponse(action, AVT, "");
                 break;
             case "Stop":
                 state = "STOPPED"; listener.onCommand("stop");
+                notifyAvTransportChanged();
                 response = soapResponse(action, AVT, "");
                 break;
             case "Seek":
@@ -280,6 +325,43 @@ public final class DlnaMediaRenderer {
                 soapFault(client, 401, "Invalid Action"); return;
         }
         respond(client, 200, "text/xml; charset=utf-8", response);
+    }
+
+    private void notifyAvTransportChanged() {
+        for (EventSubscription sub : subscriptions.values()) {
+            if ("AVTransport".equals(sub.service)) clients.execute(() -> notifySubscription(sub));
+        }
+    }
+
+    private void notifySubscription(EventSubscription sub) {
+        if (sub == null || !running || sub.expiresAt <= System.currentTimeMillis()) return;
+        HttpURLConnection connection = null;
+        try {
+            String property = "<e:propertyset xmlns:e=\\"urn:schemas-upnp-org:event-1-0\\">"
+                    + "<e:property><LastChange></LastChange></e:property>"
+                    + "<e:property><TransportState>" + xml(state) + "</TransportState></e:property>"
+                    + "<e:property><AVTransportURI>" + xml(currentUri) + "</AVTransportURI></e:property>"
+                    + "</e:propertyset>";
+            connection = (HttpURLConnection) sub.callback.openConnection();
+            connection.setRequestMethod("NOTIFY");
+            connection.setConnectTimeout(2500);
+            connection.setReadTimeout(2500);
+            connection.setDoOutput(true);
+            connection.setRequestProperty("Content-Type", "text/xml; charset=\\\"utf-8\\\"");
+            connection.setRequestProperty("NT", "upnp:event");
+            connection.setRequestProperty("NTS", "upnp:propchange");
+            connection.setRequestProperty("SID", sub.sid);
+            connection.setRequestProperty("SEQ", String.valueOf(sub.sequence++));
+            byte[] data = property.getBytes(StandardCharsets.UTF_8);
+            connection.setFixedLengthStreamingMode(data.length);
+            try (OutputStream out = connection.getOutputStream()) { out.write(data); }
+            int code = connection.getResponseCode();
+            if (code < 200 || code >= 300) Log.w(TAG, "GENA callback returned HTTP " + code);
+        } catch (Exception e) {
+            Log.w(TAG, "GENA notification failed", e);
+        } finally {
+            if (connection != null) connection.disconnect();
+        }
     }
 
     private Map<String,String> parseArgs(String body) throws Exception {
@@ -441,6 +523,8 @@ public final class DlnaMediaRenderer {
         try { if (httpServer != null) httpServer.close(); } catch (Exception ignored) {}
         if (ssdpThread != null) ssdpThread.interrupt();
         if (httpThread != null) httpThread.interrupt();
+        subscriptions.clear();
+        maintenance.shutdownNow();
         clients.shutdownNow();
     }
 }
