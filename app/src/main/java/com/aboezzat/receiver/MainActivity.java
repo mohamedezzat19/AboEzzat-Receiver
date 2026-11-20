@@ -161,6 +161,12 @@ public class MainActivity extends Activity {
     private TextView browserShortcut;
     private TextView settingsHomeButton;
     private TextView browserHomeButton;
+    private TextView playerSettingsButton;
+    private TextView playerDownloadButton;
+    private final Handler imageControlsHandler = new Handler(Looper.getMainLooper());
+    private final Runnable hideImageControlsRunnable = () -> setImageControlsVisible(false);
+    private boolean imageControlsVisible = false;
+    private String currentImageUrl = "";
     private String pendingBrowserUrl = "";
     private volatile boolean fallbackStreamCaptured = false;
     private volatile String fallbackPageUrl = "";
@@ -1128,8 +1134,7 @@ public class MainActivity extends Activity {
         root.addView(playerBufferingOverlay, new FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
 
-        // لا نكرر زر الإعدادات داخل المشغل؛ زر الإعدادات العلوي هو الوحيد.
-        // زر الترجمة فقط يظهر مؤقتًا مع أدوات التشغيل.
+        // أدوات المشغل مستقلة عن أزرار التطبيق الرئيسية، وتظهر مع شريط التحكم فقط.
         playerSubtitleButton = makeText("CC", 15, Color.WHITE, true);
         playerSubtitleButton.setGravity(Gravity.CENTER);
         playerSubtitleButton.setFocusable(true);
@@ -1162,11 +1167,53 @@ public class MainActivity extends Activity {
         playerSubtitleParams.setMargins(dp(8), dp(10), subtitleEndMargin, dp(8));
         root.addView(playerSubtitleButton, playerSubtitleParams);
 
+        playerSettingsButton = makeText("⚙", 24, Color.WHITE, true);
+        playerSettingsButton.setGravity(Gravity.CENTER);
+        playerSettingsButton.setFocusable(true);
+        playerSettingsButton.setFocusableInTouchMode(true);
+        playerSettingsButton.setClickable(true);
+        playerSettingsButton.setMinWidth(dp(46));
+        playerSettingsButton.setMinHeight(dp(44));
+        playerSettingsButton.setId(View.generateViewId());
+        playerSettingsButton.setContentDescription("إعدادات المشغل");
+        playerSettingsButton.setBackground(browserFocusBackground(Color.TRANSPARENT, Color.TRANSPARENT, 12, false));
+        playerSettingsButton.setOnClickListener(v -> showPlaybackSettingsDialog());
+        FrameLayout.LayoutParams playerSettingsParams = new FrameLayout.LayoutParams(
+                dp(46), dp(44), Gravity.TOP | Gravity.END);
+        playerSettingsParams.setMargins(dp(8), dp(10), dp(62), dp(8));
+        root.addView(playerSettingsButton, playerSettingsParams);
+
+        playerDownloadButton = makeText("⬇", 24, Color.WHITE, true);
+        playerDownloadButton.setGravity(Gravity.CENTER);
+        playerDownloadButton.setFocusable(true);
+        playerDownloadButton.setFocusableInTouchMode(true);
+        playerDownloadButton.setClickable(true);
+        playerDownloadButton.setMinWidth(dp(46));
+        playerDownloadButton.setMinHeight(dp(44));
+        playerDownloadButton.setId(View.generateViewId());
+        playerDownloadButton.setContentDescription("تنزيل الوسائط");
+        playerDownloadButton.setBackground(browserFocusBackground(Color.TRANSPARENT, Color.TRANSPARENT, 12, false));
+        playerDownloadButton.setOnClickListener(v -> showCurrentPlaybackDownloadOptions());
+        FrameLayout.LayoutParams playerDownloadParams = new FrameLayout.LayoutParams(
+                dp(46), dp(44), Gravity.TOP | Gravity.END);
+        playerDownloadParams.setMargins(dp(8), dp(10), dp(114), dp(8));
+        root.addView(playerDownloadButton, playerDownloadParams);
+
         // These overlays must sit above the full-screen PlayerView on phones and TVs.
         settingsHomeButton.bringToFront();
         browserHomeButton.bringToFront();
         playerSubtitleButton.bringToFront();
+        playerSettingsButton.bringToFront();
+        playerDownloadButton.bringToFront();
 
+        playerView.post(() -> {
+            View nativeSettings = playerView.findViewById(androidx.media3.ui.R.id.exo_settings);
+            if (nativeSettings != null) {
+                nativeSettings.setVisibility(View.GONE);
+                nativeSettings.setFocusable(false);
+                nativeSettings.setClickable(false);
+            }
+        });
         playerView.setControllerVisibilityListener((PlayerView.ControllerVisibilityListener) visibility -> {
             boolean controlsVisible = visibility == View.VISIBLE
                     && playerView != null && playerView.getVisibility() == View.VISIBLE;
@@ -1176,16 +1223,15 @@ public class MainActivity extends Activity {
             } else {
                 playerControlsHandler.removeCallbacks(hidePlayerControlsRunnable);
             }
-            if (settingsHomeButton != null) {
-                settingsHomeButton.setVisibility(controlsVisible ? View.VISIBLE : View.GONE);
-            }
-            if (browserHomeButton != null) {
-                browserHomeButton.setVisibility(controlsVisible ? View.VISIBLE : View.GONE);
-            }
+            // أزرار التطبيق الرئيسية لا تظهر مطلقًا فوق المشغل.
+            if (settingsHomeButton != null) settingsHomeButton.setVisibility(View.GONE);
+            if (browserHomeButton != null) browserHomeButton.setVisibility(View.GONE);
             if (playerSubtitleButton != null) {
                 playerSubtitleButton.setVisibility(controlsVisible && currentPlaybackHasVideo
                         ? View.VISIBLE : View.GONE);
             }
+            if (playerSettingsButton != null) playerSettingsButton.setVisibility(controlsVisible ? View.VISIBLE : View.GONE);
+            if (playerDownloadButton != null) playerDownloadButton.setVisibility(controlsVisible ? View.VISIBLE : View.GONE);
         });
         // Give every native controller button the same remote-focus treatment.
         playerView.post(this::stylePlayerControllerFocus);
@@ -1200,6 +1246,7 @@ public class MainActivity extends Activity {
         imageView.setOnTouchListener((view, event) -> {
             switch (event.getActionMasked()) {
                 case android.view.MotionEvent.ACTION_DOWN:
+                    showImageControls();
                     imageDownX = event.getX();
                     imageDownY = event.getY();
                     imageGestureStartX = imagePanX;
@@ -4494,6 +4541,7 @@ public class MainActivity extends Activity {
         currentPlaybackUrl = playbackUrl;
         currentPlaybackHasVideo = mediaUrl != null && !mediaUrl.trim().isEmpty() && !isImageUrl(mediaUrl);
         currentPlaybackAudioUrl = audioUrl == null ? "" : audioUrl;
+        if (!currentPlaybackHasVideo && currentPlaybackAudioUrl.isEmpty()) currentPlaybackAudioUrl = playbackUrl;
         java.util.Map<String, String> effectiveHeaders = requestHeaders == null
                 ? new java.util.LinkedHashMap<>() : new java.util.LinkedHashMap<>(requestHeaders);
         // TikTok webapp-prime links are signed MP4 CDN URLs. Request them as a browser
@@ -4530,6 +4578,10 @@ public class MainActivity extends Activity {
         connectionCard.setVisibility(View.GONE);
         playerView.setVisibility(View.VISIBLE);
         if (playerSubtitleButton != null) playerSubtitleButton.setVisibility(View.GONE);
+        if (playerSettingsButton != null) playerSettingsButton.setVisibility(View.GONE);
+        if (playerDownloadButton != null) playerDownloadButton.setVisibility(View.GONE);
+        if (settingsHomeButton != null) settingsHomeButton.setVisibility(View.GONE);
+        if (browserHomeButton != null) browserHomeButton.setVisibility(View.GONE);
         playerView.setFocusable(true);
         playerView.setFocusableInTouchMode(true);
         playerView.requestFocus();
@@ -4764,6 +4816,10 @@ public class MainActivity extends Activity {
     }
 
     private void showPlaybackSettingsDialog() {
+        if (imageView != null && imageView.getVisibility() == View.VISIBLE) {
+            showImageSettingsDialog();
+            return;
+        }
         if (player == null || currentPlaybackUrl == null || currentPlaybackUrl.isEmpty()) {
             Toast.makeText(this, "لا يوجد محتوى يعمل حاليًا", Toast.LENGTH_SHORT).show();
             return;
@@ -4805,6 +4861,58 @@ public class MainActivity extends Activity {
                 })
                 .setNegativeButton("إغلاق", null)
                 .show();
+    }
+
+    private void showCurrentPlaybackDownloadOptions() {
+        boolean hasVideo = currentPlaybackHasVideo && currentPlaybackUrl != null && !currentPlaybackUrl.isEmpty();
+        String audio = currentPlaybackAudioUrl == null ? "" : currentPlaybackAudioUrl;
+        if (audio.isEmpty() && currentPlaybackUrl != null) audio = currentPlaybackUrl;
+        boolean hasAudio = !audio.isEmpty();
+        if (!hasVideo && !hasAudio) {
+            Toast.makeText(this, "لا توجد وسائط قابلة للتنزيل حاليًا", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        java.util.ArrayList<String> options = new java.util.ArrayList<>();
+        if (hasVideo) options.add("تنزيل فيديو MP4 بأعلى جودة");
+        if (hasAudio) options.add("تنزيل صوت MP3 بأعلى جودة");
+        new AlertDialog.Builder(this).setTitle("تنزيل الوسائط الحالية")
+                .setItems(options.toArray(new String[0]), (dialog, which) -> {
+                    boolean asMp3 = hasVideo ? which == 1 : true;
+                    String video = hasVideo ? currentPlaybackUrl : "";
+                    String audioUrl = hasAudio ? audio : "";
+                    PlaybackHistoryItem item = new PlaybackHistoryItem(video, audioUrl,
+                            "وسائط AboEzzat", currentPlaybackHeaders);
+                    startHistoryDownload(item, asMp3);
+                }).setNegativeButton("إلغاء", null).show();
+    }
+
+    private void showImageSettingsDialog() {
+        String[] options = {"ملاءمة الصورة للشاشة", "ملء الشاشة مع قص الأطراف", "تكبير الصورة", "إعادة ضبط التكبير والتحريك"};
+        new AlertDialog.Builder(this).setTitle("إعدادات عرض الصورة")
+                .setItems(options, (dialog, which) -> {
+                    if (imageView == null || imageView.getVisibility() != View.VISIBLE) return;
+                    switch (which) {
+                        case 0: imageView.setScaleType(ImageView.ScaleType.FIT_CENTER); resetImageTransform(); break;
+                        case 1: imageView.setScaleType(ImageView.ScaleType.CENTER_CROP); resetImageTransform(); break;
+                        case 2: imageZoomScale = Math.min(4.0f, Math.max(1.5f, imageZoomScale * 1.5f)); applyImageTransform(); break;
+                        case 3: imageView.setScaleType(ImageView.ScaleType.FIT_CENTER); resetImageTransform(); break;
+                    }
+                    showImageControls();
+                }).setNegativeButton("إغلاق", null).show();
+    }
+
+    private void showImageControls() {
+        if (imageView == null || imageView.getVisibility() != View.VISIBLE) return;
+        setImageControlsVisible(true);
+        imageControlsHandler.removeCallbacks(hideImageControlsRunnable);
+        imageControlsHandler.postDelayed(hideImageControlsRunnable, 2000L);
+    }
+
+    private void setImageControlsVisible(boolean visible) {
+        imageControlsVisible = visible;
+        boolean imageActive = imageView != null && imageView.getVisibility() == View.VISIBLE;
+        if (playerSettingsButton != null) playerSettingsButton.setVisibility(imageActive && visible ? View.VISIBLE : View.GONE);
+        if (playerDownloadButton != null) playerDownloadButton.setVisibility(View.GONE);
     }
 
     private String qualityLabel(int height) {
@@ -5430,11 +5538,17 @@ public class MainActivity extends Activity {
     private void showImage(String imageUrl) {
         if (settingsHomeButton != null) settingsHomeButton.setVisibility(View.GONE);
         if (browserHomeButton != null) browserHomeButton.setVisibility(View.GONE);
+        if (playerSettingsButton != null) playerSettingsButton.setVisibility(View.GONE);
+        if (playerDownloadButton != null) playerDownloadButton.setVisibility(View.GONE);
         stopCurrentPlayer();
         resetImageTransform();
 
         playerView.setVisibility(View.GONE);
         if (playerSubtitleButton != null) playerSubtitleButton.setVisibility(View.GONE);
+        if (playerSettingsButton != null) playerSettingsButton.setVisibility(View.VISIBLE);
+        if (playerDownloadButton != null) playerDownloadButton.setVisibility(View.GONE);
+        currentImageUrl = imageUrl;
+        setImageControlsVisible(false);
         if (fallbackWebView != null) fallbackWebView.setVisibility(View.GONE);
         welcomeScreen.setVisibility(View.GONE);
         welcomeBackground.setVisibility(View.GONE);
@@ -5548,6 +5662,11 @@ public class MainActivity extends Activity {
         if (browserShortcut != null) browserShortcut.setVisibility(View.GONE);
         if (settingsHomeButton != null) settingsHomeButton.setVisibility(View.VISIBLE);
         if (browserHomeButton != null) browserHomeButton.setVisibility(View.VISIBLE);
+        if (playerSettingsButton != null) playerSettingsButton.setVisibility(View.GONE);
+        if (playerDownloadButton != null) playerDownloadButton.setVisibility(View.GONE);
+        if (playerSubtitleButton != null) playerSubtitleButton.setVisibility(View.GONE);
+        imageControlsHandler.removeCallbacks(hideImageControlsRunnable);
+        imageControlsVisible = false;
 
         updateConnectionInfo();
         if (settingsHomeButton != null) {
