@@ -97,6 +97,7 @@ public class MainActivity extends Activity {
     private volatile int extractionAttemptCount = 0;
     private volatile String extractionStatus = "idle";
     private volatile String playbackStatusMessage = "";
+    private volatile String originalIncomingMediaUrl = "";
     private volatile java.util.Map<String, String> pendingPlaybackHeaders = java.util.Collections.emptyMap();
 
     private FrameLayout root;
@@ -313,6 +314,155 @@ public class MainActivity extends Activity {
         );
     }
 
+
+    private static final String FAILED_MEDIA_LOG_PREF = "failed_media_log_v1";
+    private static final int MAX_FAILED_MEDIA_LOG_ENTRIES = 40;
+
+    private String redactSensitiveUrl(String value) {
+        if (value == null || value.trim().isEmpty()) return "";
+        try {
+            Uri uri = Uri.parse(value.trim());
+            Uri.Builder builder = uri.buildUpon().clearQuery();
+            java.util.Set<String> sensitive = new java.util.HashSet<>(java.util.Arrays.asList(
+                    "token", "access_token", "auth", "authorization", "key", "api_key",
+                    "apikey", "signature", "sig", "session", "sessionid", "password",
+                    "passwd", "secret", "jwt", "expiresig"));
+            for (String name : uri.getQueryParameterNames()) {
+                String lower = name.toLowerCase(Locale.ROOT);
+                if (sensitive.contains(lower) || lower.endsWith("_token")
+                        || lower.endsWith("_secret") || lower.endsWith("_signature")) {
+                    builder.appendQueryParameter(name, "[REDACTED]");
+                } else {
+                    for (String parameterValue : uri.getQueryParameters(name)) {
+                        builder.appendQueryParameter(name, parameterValue);
+                    }
+                }
+            }
+            return builder.build().toString();
+        } catch (Exception ignored) {
+            return value.replaceAll("(?i)(token|key|auth|signature|sig|session|password)=([^&\\s]+)",
+                    "$1=[REDACTED]");
+        }
+    }
+
+    private void recordReceiverFailure(String phase, String requestedUrl,
+                                       String resolvedUrl, String reason) {
+        if (requestedUrl == null || requestedUrl.trim().isEmpty()) return;
+        try {
+            SharedPreferences prefs = getSharedPreferences("receiver_settings", MODE_PRIVATE);
+            org.json.JSONArray old = new org.json.JSONArray(prefs.getString(FAILED_MEDIA_LOG_PREF, "[]"));
+            org.json.JSONArray next = new org.json.JSONArray();
+            org.json.JSONObject entry = new org.json.JSONObject();
+            entry.put("time", System.currentTimeMillis());
+            entry.put("phase", phase == null ? "غير معروف" : phase);
+            entry.put("requested_url", requestedUrl);
+            entry.put("resolved_url", resolvedUrl == null ? "" : resolvedUrl);
+            entry.put("reason", reason == null ? "" : reason);
+            entry.put("version", getPackageManager().getPackageInfo(getPackageName(), 0).versionName);
+            next.put(entry);
+            for (int i = 0; i < old.length() && next.length() < MAX_FAILED_MEDIA_LOG_ENTRIES; i++) {
+                Object item = old.opt(i);
+                if (item instanceof org.json.JSONObject) next.put(item);
+            }
+            prefs.edit().putString(FAILED_MEDIA_LOG_PREF, next.toString()).apply();
+        } catch (Exception e) {
+            Log.w(TAG, "Could not save failed-media diagnostic entry");
+        }
+    }
+
+    private org.json.JSONArray readFailedMediaLog() {
+        try {
+            return new org.json.JSONArray(getSharedPreferences("receiver_settings", MODE_PRIVATE)
+                    .getString(FAILED_MEDIA_LOG_PREF, "[]"));
+        } catch (Exception ignored) {
+            return new org.json.JSONArray();
+        }
+    }
+
+    private String buildFailedMediaReport(org.json.JSONObject entry, boolean includeFullUrls) {
+        String requested = entry.optString("requested_url", "");
+        String resolved = entry.optString("resolved_url", "");
+        java.text.SimpleDateFormat format = new java.text.SimpleDateFormat(
+                "yyyy-MM-dd HH:mm:ss", Locale.getDefault());
+        StringBuilder report = new StringBuilder();
+        report.append("AboEzzat Receiver - Failed Media Diagnostic\n")
+                .append("Time: ").append(format.format(new java.util.Date(entry.optLong("time")))).append("\n")
+                .append("Phase: ").append(entry.optString("phase", "unknown")).append("\n")
+                .append("Reason: ").append(entry.optString("reason", "not available")).append("\n")
+                .append("App version: ").append(entry.optString("version", "unknown")).append("\n")
+                .append("Requested URL: ").append(includeFullUrls ? requested : redactSensitiveUrl(requested)).append("\n");
+        if (!resolved.isEmpty()) {
+            report.append("Resolved URL: ").append(includeFullUrls ? resolved : redactSensitiveUrl(resolved)).append("\n");
+        }
+        report.append("Device: ").append(android.os.Build.MANUFACTURER).append(" ")
+                .append(android.os.Build.MODEL).append(" / Android ")
+                .append(android.os.Build.VERSION.RELEASE);
+        return report.toString();
+    }
+
+    private void shareFailedMediaReport(String report) {
+        android.content.Intent intent = new android.content.Intent(android.content.Intent.ACTION_SEND);
+        intent.setType("text/plain");
+        intent.putExtra(android.content.Intent.EXTRA_SUBJECT, "AboEzzat Receiver failure diagnostic");
+        intent.putExtra(android.content.Intent.EXTRA_TEXT, report);
+        startActivity(android.content.Intent.createChooser(intent, "إرسال تقرير الفشل"));
+    }
+
+    private void showFailedMediaLog() {
+        org.json.JSONArray entries = readFailedMediaLog();
+        if (entries.length() == 0) {
+            new AlertDialog.Builder(this).setTitle("سجل الروابط الفاشلة")
+                    .setMessage("لسه مفيش محاولات فاشلة مسجلة. أي رابط يفشل استخراجه أو تشغيله هيتسجل هنا تلقائيًا.")
+                    .setPositiveButton("حسنًا", null).show();
+            return;
+        }
+        String[] labels = new String[entries.length()];
+        for (int i = 0; i < entries.length(); i++) {
+            org.json.JSONObject item = entries.optJSONObject(i);
+            if (item == null) item = new org.json.JSONObject();
+            java.text.SimpleDateFormat format = new java.text.SimpleDateFormat(
+                    "MM-dd HH:mm", Locale.getDefault());
+            labels[i] = format.format(new java.util.Date(item.optLong("time"))) + " — "
+                    + item.optString("phase", "فشل") + " — "
+                    + redactSensitiveUrl(item.optString("requested_url", ""));
+        }
+        new AlertDialog.Builder(this).setTitle("سجل الروابط الفاشلة (" + entries.length() + ")")
+                .setItems(labels, (dialog, which) -> showFailedMediaEntry(entries.optJSONObject(which)))
+                .setNeutralButton("مسح السجل", (dialog, which) ->
+                        new AlertDialog.Builder(this).setTitle("مسح سجل الفشل؟")
+                                .setMessage("سيتم حذف السجلات المحفوظة على هذا الجهاز.")
+                                .setPositiveButton("مسح", (d, w) -> {
+                                    getSharedPreferences("receiver_settings", MODE_PRIVATE).edit()
+                                            .remove(FAILED_MEDIA_LOG_PREF).apply();
+                                    Toast.makeText(this, "تم مسح سجل الفشل", Toast.LENGTH_SHORT).show();
+                                }).setNegativeButton("إلغاء", null).show())
+                .setNegativeButton("إغلاق", null).show();
+    }
+
+    private void showFailedMediaEntry(org.json.JSONObject entry) {
+        if (entry == null) return;
+        String safeReport = buildFailedMediaReport(entry, false);
+        String fullReport = buildFailedMediaReport(entry, true);
+        new AlertDialog.Builder(this).setTitle("تفاصيل محاولة الفشل")
+                .setMessage(safeReport + "\n\nالرابط الكامل محفوظ محليًا. التقرير العادي يخفي القيم الحساسة مثل token.")
+                .setPositiveButton("مشاركة تقرير آمن", (dialog, which) -> shareFailedMediaReport(safeReport))
+                .setNeutralButton("خيارات الرابط", (dialog, which) ->
+                        new AlertDialog.Builder(this).setTitle("الرابط الكامل")
+                                .setMessage("الرابط قد يحتوي على token أو بيانات وصول مؤقتة. لا تشاركه إلا مع جهة تثق بها.")
+                                .setPositiveButton("مشاركة بالرابط الكامل", (d, w) -> shareFailedMediaReport(fullReport))
+                                .setNeutralButton("نسخ الرابط الكامل", (d, w) -> {
+                                    android.content.ClipboardManager clipboard =
+                                            (android.content.ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
+                                    if (clipboard != null) {
+                                        clipboard.setPrimaryClip(android.content.ClipData.newPlainText(
+                                                "Original failed URL", entry.optString("requested_url", "")));
+                                        Toast.makeText(this, "تم نسخ الرابط الكامل", Toast.LENGTH_SHORT).show();
+                                    }
+                                })
+                                .setNegativeButton("إلغاء", null).show())
+                .setNegativeButton("إغلاق", null).show();
+    }
+
     private void persistExtractionState() {
         getSharedPreferences("AboEzzatReceiverState", MODE_PRIVATE).edit()
                 .putBoolean("extracting", extractionInProgress)
@@ -408,6 +558,7 @@ public class MainActivity extends Activity {
                 "♻  إعادة تشغيل خدمة الاستقبال",
                 "🧪  تشخيص الاتصال",
                 "🕘  سجل المشاهدة",
+                "🧾  سجل الروابط الفاشلة والتشخيص",
                 "ℹ  معلومات الإصدار",
                 "🚀  فتح الفيديو تلقائيًا: " + ((android.os.Build.VERSION.SDK_INT < 23 || android.provider.Settings.canDrawOverlays(this)) ? "مسموح" : "يحتاج إذن")
         };
@@ -425,7 +576,8 @@ public class MainActivity extends Activity {
                             break;
                         case 4: showConnectionDiagnostics(); break;
                         case 5: showPlaybackHistory(); break;
-                        case 6:
+                        case 6: showFailedMediaLog(); break;
+                        case 7:
                             try {
                                 android.content.pm.PackageInfo info = getPackageManager().getPackageInfo(getPackageName(), 0);
                                 String version = info.versionName == null ? "غير معروف" : info.versionName;
@@ -435,7 +587,7 @@ public class MainActivity extends Activity {
                                         .setPositiveButton("حسنًا", null).show();
                             } catch (Exception e) { Toast.makeText(this, "تعذّر قراءة معلومات الإصدار", Toast.LENGTH_SHORT).show(); }
                             break;
-                        case 7: configureAutoForegroundPlayback(); break;
+                        case 8: configureAutoForegroundPlayback(); break;
                     }
                 }).setNegativeButton("إغلاق", null).show();
     }
@@ -2548,6 +2700,7 @@ public class MainActivity extends Activity {
             playbackStatusMessage = "تعذر الاستخراج المباشر وSmartTube غير متاح؛ لم يتم فتح منتقي التطبيقات.";
             persistExtractionState();
         }
+        recordReceiverFailure("استخراج الرابط", pageUrl, "", playbackStatusMessage);
         pendingBrowserUrl = pageUrl;
         showWelcome();
         if (browserShortcut != null) browserShortcut.setVisibility(View.VISIBLE);
@@ -3954,6 +4107,8 @@ public class MainActivity extends Activity {
                                       java.util.Map<String, String> headers, String sourceUrl) {
         String originalMediaUrl = mediaUrl;
         String originalAudioUrl = audioUrl;
+        originalIncomingMediaUrl = sourceUrl != null && !sourceUrl.trim().isEmpty()
+                ? sourceUrl : (mediaUrl == null ? (audioUrl == null ? "" : audioUrl) : mediaUrl);
         currentPlaybackFallbackUrl = isYouTubeUrl(sourceUrl) ? sourceUrl
                 : (isYouTubeUrl(mediaUrl) ? mediaUrl : "");
         boolean hasMedia = mediaUrl != null && !mediaUrl.trim().isEmpty();
@@ -5002,6 +5157,10 @@ public class MainActivity extends Activity {
                             }
                             extractionStatus = "error";
                             playbackStatusMessage = "فشل تشغيل الفيديو: " + detail;
+                            recordReceiverFailure("تشغيل الوسائط",
+                                    originalIncomingMediaUrl == null || originalIncomingMediaUrl.isEmpty()
+                                            ? currentPlaybackUrl : originalIncomingMediaUrl,
+                                    currentPlaybackUrl, detail);
                             persistExtractionState();
                             // Avoid logging full exceptions: signed CDN URLs may contain temporary tokens.
                             Log.e(TAG, "Media3 playback failed: " + detail);
