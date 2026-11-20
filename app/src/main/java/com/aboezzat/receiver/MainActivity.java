@@ -2030,6 +2030,21 @@ public class MainActivity extends Activity {
         }
     }
 
+    // Known live-provider index.html endpoints are HLS manifests, not ordinary web pages.
+    // Route them straight to Media3 so the HLS MIME override below can take effect;
+    // sending them through generic page extraction can incorrectly report extraction failure.
+    private boolean isKnownHtmlHlsPlaylistUrl(String value) {
+        if (!isHttpUrl(value)) return false;
+        try {
+            Uri uri = Uri.parse(value.trim());
+            String path = uri.getPath();
+            return path != null && path.toLowerCase(Locale.ROOT)
+                    .matches("^/[^/]+/[^/]+/index\\.html$");
+        } catch (Exception ignored) {
+            return false;
+        }
+    }
+
     private boolean isDirectStreamUrl(String value) {
         if (value == null || value.trim().isEmpty()) return false;
         if (isPhoneLocalMediaUrl(value)) return true;
@@ -4132,7 +4147,7 @@ public class MainActivity extends Activity {
         }
         // index.html is a web page, not an HLS playlist. Resolve its public player
         // metadata first; only hand a real .m3u8 stream to VLC after extraction.
-        if (hasMedia && isDirectStreamUrl(mediaUrl)) {
+        if (hasMedia && (isDirectStreamUrl(mediaUrl) || isKnownHtmlHlsPlaylistUrl(mediaUrl))) {
             extractionInProgress = false;
             extractionAttemptCount = 0;
             extractionStatus = "preparing";
@@ -4140,6 +4155,7 @@ public class MainActivity extends Activity {
             persistExtractionState();
         }
         if (hasMedia && !isImageUrl(mediaUrl) && !isDirectStreamUrl(mediaUrl)
+                && !isKnownHtmlHlsPlaylistUrl(mediaUrl)
                 && !isPhoneLocalMediaUrl(mediaUrl) && !hasAudio
                 && (mediaUrl.startsWith("http://") || mediaUrl.startsWith("https://"))) {
             if (isYouTubeUrl(mediaUrl)) extractYouTubeOnReceiver(mediaUrl);
