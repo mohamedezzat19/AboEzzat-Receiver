@@ -37,6 +37,7 @@ public class ReceiverServerService extends Service {
     private static final String TAG = "AboEzzatReceiverService";
     public static final String ACTION_SERVER_REQUEST = "com.aboezzat.receiver.SERVER_REQUEST";
     public static final String EXTRA_URL = "server_url";
+    public static final String EXTRA_METADATA = "server_metadata";
     public static final String EXTRA_AUDIO = "server_audio";
     public static final String EXTRA_COMMAND = "server_command";
 
@@ -104,11 +105,11 @@ public class ReceiverServerService extends Service {
                 prefs.edit().putString("dlna_uuid", id).apply();
             }
             dlnaRenderer = new DlnaMediaRenderer(getApplicationContext(), id, new DlnaMediaRenderer.Listener() {
-                @Override public void onSetUri(String uri) {
-                    dispatchDlnaRequest(uri, null);
+                @Override public void onSetUri(String uri, String metadata) {
+                    dispatchDlnaRequest(uri, metadata, null);
                 }
                 @Override public void onCommand(String command) {
-                    dispatchDlnaRequest(null, command);
+                    dispatchDlnaRequest(null, null, command);
                 }
             });
             dlnaRenderer.start();
@@ -119,10 +120,11 @@ public class ReceiverServerService extends Service {
         }
     }
 
-    private void dispatchDlnaRequest(String uri, String command) {
+    private void dispatchDlnaRequest(String uri, String metadata, String command) {
         Intent request = new Intent(this, MainActivity.class);
         request.setAction(ACTION_SERVER_REQUEST);
         if (uri != null) request.putExtra(EXTRA_URL, uri);
+        if (metadata != null) request.putExtra(EXTRA_METADATA, metadata);
         if (command != null) request.putExtra(EXTRA_COMMAND, "dlna_" + command);
         request.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP
                 | Intent.FLAG_ACTIVITY_SINGLE_TOP);
