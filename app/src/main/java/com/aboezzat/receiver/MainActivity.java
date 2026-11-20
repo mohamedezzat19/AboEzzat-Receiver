@@ -3775,7 +3775,7 @@ public class MainActivity extends Activity {
         }
         boolean wasVisible = imageControlsVisible;
         showImageControls();
-        if (!wasVisible) {
+        if (!wasVisible || (playerSettingsButton != null && !playerSettingsButton.hasFocus())) {
             if (playerSettingsButton != null) playerSettingsButton.requestFocus();
             return true;
         }
