@@ -25,7 +25,7 @@ public final class DlnaMediaRenderer {
     private static final String CM = "urn:schemas-upnp-org:service:ConnectionManager:1";
 
     public interface Listener {
-        void onSetUri(String uri);
+        void onSetUri(String uri, String metadata);
         void onCommand(String command);
     }
 
@@ -334,7 +334,7 @@ public final class DlnaMediaRenderer {
                 }
                 currentUri = uri;
                 state = "STOPPED";
-                listener.onSetUri(uri);
+                listener.onSetUri(uri, args.get("CurrentURIMetaData"));
                 notifyAvTransportChanged();
                 response = soapResponse(action, AVT, "");
                 break;
