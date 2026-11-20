@@ -1989,7 +1989,7 @@ public class MainActivity extends Activity {
             HttpURLConnection jsonConnection = null;
             try {
                 jsonConnection = (HttpURLConnection) new URL(jsonUrl).openConnection();
-                jsonConnection.setInstanceFollowRedirects(true);
+                jsonConnection.setInstanceFollowRedirects(false);
                 jsonConnection.setConnectTimeout(5000);
                 jsonConnection.setReadTimeout(7000);
                 jsonConnection.setRequestProperty("User-Agent",
