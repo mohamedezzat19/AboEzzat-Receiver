@@ -4187,44 +4187,6 @@ public class MainActivity extends Activity {
         playbackPrefs.edit().putString("recent_playback_urls", array.toString()).apply();
     }
 
-    private void showPlaybackHistory() {
-        if (playbackQueue.isEmpty()) {
-            new AlertDialog.Builder(this).setTitle("سجل المشاهدة")
-                    .setMessage("لسه مفيش روابط محفوظة. الروابط اللي تشغّلها هتظهر هنا.")
-                    .setPositiveButton("حسنًا", null).show();
-            return;
-        }
-        java.util.ArrayList<String> recent = new java.util.ArrayList<>();
-        for (int i = playbackQueue.size() - 1; i >= 0; i--) recent.add(playbackQueue.get(i));
-        String[] labels = new String[recent.size()];
-        for (int i = 0; i < recent.size(); i++) {
-            String url = recent.get(i);
-            try {
-                Uri uri = Uri.parse(url);
-                String host = uri.getHost() == null ? url : uri.getHost();
-                String path = uri.getPath() == null ? "" : uri.getPath();
-                labels[i] = host + path + "\n" + url;
-            } catch (Exception e) { labels[i] = url; }
-        }
-        new AlertDialog.Builder(this).setTitle("سجل المشاهدة — الأحدث أولًا")
-                .setItems(labels, (dialog, which) -> {
-                    String selected = recent.get(which);
-                    clearPendingServerMedia();
-                    queueIncomingMedia(selected, null);
-                })
-                .setNeutralButton("مسح السجل", (dialog, which) -> new AlertDialog.Builder(this)
-                        .setTitle("مسح سجل المشاهدة؟")
-                        .setMessage("سيتم حذف الروابط المحفوظة من هذا الجهاز.")
-                        .setNegativeButton("إلغاء", null)
-                        .setPositiveButton("مسح", (d, w) -> {
-                            playbackQueue.clear();
-                            playbackQueueIndex = -1;
-                            savePlaybackHistory();
-                            Toast.makeText(this, "تم مسح سجل المشاهدة", Toast.LENGTH_SHORT).show();
-                        }).show())
-                .setNegativeButton("إغلاق", null).show();
-    }
-
     private void playQueueRelative(int delta) {
         if (playbackQueue.isEmpty()) {
             Toast.makeText(this, "مفيش فيديو سابق أو تالي في سجل التشغيل", Toast.LENGTH_SHORT).show();
