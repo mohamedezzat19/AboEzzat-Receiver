@@ -2726,9 +2726,12 @@ public class MainActivity extends Activity {
             playbackStatusMessage = "تعذر الاستخراج المباشر وSmartTube غير متاح؛ لم يتم فتح منتقي التطبيقات.";
             persistExtractionState();
         }
-        recordReceiverFailure("استخراج الرابط", pageUrl, "",
-                playbackStatusMessage == null || playbackStatusMessage.trim().isEmpty()
-                        ? "لم يتم العثور على رابط بث مباشر بعد تجربة محركات الاستخراج." : playbackStatusMessage);
+        // Do not report the initial "Receiver received the link" status as the
+        // failure reason. At this point every enabled resolver has finished without
+        // producing a direct playable stream.
+        playbackStatusMessage = "انتهت محركات استخراج الرابط دون العثور على رابط بث مباشر قابل للتشغيل من الصفحة.";
+        persistExtractionState();
+        recordReceiverFailure("استخراج الرابط", pageUrl, "", playbackStatusMessage);
         pendingBrowserUrl = pageUrl;
         showWelcome();
         if (browserShortcut != null) browserShortcut.setVisibility(View.VISIBLE);
@@ -4053,6 +4056,25 @@ public class MainActivity extends Activity {
         }
     }
 
+    // Encode literal whitespace in incoming URLs before java.net.URL/HttpURLConnection
+    // sees them. Keep the character as %20 rather than deleting it, since it may be
+    // part of a provider path or query value.
+    private String normalizeIncomingHttpUrl(String value) {
+        if (value == null) return null;
+        String trimmed = value.trim();
+        if (trimmed.isEmpty()) return trimmed;
+        StringBuilder normalized = new StringBuilder(trimmed.length() + 8);
+        for (int i = 0; i < trimmed.length(); i++) {
+            char ch = trimmed.charAt(i);
+            if (ch == ' ' || ch == '\\t' || ch == '\\r' || ch == '\\n') {
+                normalized.append("%20");
+            } else {
+                normalized.append(ch);
+            }
+        }
+        return normalized.toString();
+    }
+
     // natively play media URLs; resolve page URLs to a direct stream instead of opening another app.
     private void queueIncomingMedia(String mediaUrl, String audioUrl) {
         queueIncomingMedia(mediaUrl, audioUrl, java.util.Collections.emptyMap());
@@ -4075,6 +4097,9 @@ public class MainActivity extends Activity {
 
     private void queueIncomingMedia(String mediaUrl, String audioUrl,
                                     java.util.Map<String, String> headers, String sourceUrl) {
+        mediaUrl = normalizeIncomingHttpUrl(mediaUrl);
+        audioUrl = normalizeIncomingHttpUrl(audioUrl);
+        sourceUrl = normalizeIncomingHttpUrl(sourceUrl);
         extractionStatus = "preparing";
         playbackStatusMessage = "Receiver استلم الرابط؛ جاري تجهيز مشغّل الفيديو.";
         persistExtractionState();
