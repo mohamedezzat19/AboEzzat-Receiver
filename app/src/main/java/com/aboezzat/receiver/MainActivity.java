@@ -116,6 +116,17 @@ public class MainActivity extends Activity {
     private java.util.Map<String, String> currentPlaybackHeaders = java.util.Collections.emptyMap();
     private final java.util.ArrayList<String> playbackQueue = new java.util.ArrayList<>();
     private int playbackQueueIndex = -1;
+    private static final class PlaybackHistoryItem {
+        String videoUrl;
+        String audioUrl;
+        String title;
+        PlaybackHistoryItem(String videoUrl, String audioUrl, String title) {
+            this.videoUrl = videoUrl;
+            this.audioUrl = audioUrl;
+            this.title = title;
+        }
+    }
+    private final java.util.ArrayList<PlaybackHistoryItem> playbackHistoryItems = new java.util.ArrayList<>();\n    private AlertDialog historyDialog;
     private WebView fallbackWebView;
     // Full TV browser chrome, separate from media-fallback playback.
     private FrameLayout browserOverlay;
@@ -3964,11 +3975,208 @@ public class MainActivity extends Activity {
                 if (isHttpUrl(url) && !playbackQueue.contains(url)) playbackQueue.add(url);
             }
             playbackQueueIndex = playbackQueue.size() - 1;
+            loadPlaybackHistoryItems();
+
         } catch (Exception e) {
             Log.w(TAG, "Unable to load playback history", e);
             playbackQueue.clear();
             playbackQueueIndex = -1;
         }
+    }
+
+
+    private String historyTitleForUrl(String url) {
+        try {
+            Uri uri = Uri.parse(url);
+            String path = uri.getLastPathSegment();
+            if (path != null && !path.trim().isEmpty()) {
+                path = path.replaceAll("[._-]+", " ").trim();
+                if (path.length() > 52) path = path.substring(0, 49) + "...";
+                return path;
+            }
+            return uri.getHost() == null ? "فيديو محفوظ" : uri.getHost();
+        } catch (Exception e) {
+            return "فيديو محفوظ";
+        }
+    }
+
+    private void loadPlaybackHistoryItems() {
+        playbackHistoryItems.clear();
+        try {
+            org.json.JSONArray array = new org.json.JSONArray(
+                    playbackPrefs.getString("recent_playback_items", "[]"));
+            for (int i = 0; i < array.length() && playbackHistoryItems.size() < 100; i++) {
+                org.json.JSONObject item = array.optJSONObject(i);
+                if (item == null) continue;
+                String video = item.optString("video", "");
+                String audio = item.optString("audio", "");
+                String title = item.optString("title", "");
+                if (isHttpUrl(video) || isHttpUrl(audio)) {
+                    if (!isHttpUrl(video)) video = "";
+                    if (!isHttpUrl(audio)) audio = "";
+                    playbackHistoryItems.add(new PlaybackHistoryItem(video, audio,
+                            title.isEmpty() ? historyTitleForUrl(video.isEmpty() ? audio : video) : title));
+                }
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "Unable to load paired playback history", e);
+        }
+        // Migrate older single-URL history entries without losing them.
+        if (playbackHistoryItems.isEmpty()) {
+            for (int i = playbackQueue.size() - 1; i >= 0 && playbackHistoryItems.size() < 100; i--) {
+                String url = playbackQueue.get(i);
+                playbackHistoryItems.add(new PlaybackHistoryItem(url, "", historyTitleForUrl(url)));
+            }
+            savePlaybackHistoryItems();
+        }
+    }
+
+    private void savePlaybackHistoryItems() {
+        if (playbackPrefs == null) return;
+        org.json.JSONArray array = new org.json.JSONArray();
+        for (PlaybackHistoryItem item : playbackHistoryItems) {
+            org.json.JSONObject object = new org.json.JSONObject();
+            try {
+                object.put("video", item.videoUrl);
+                object.put("audio", item.audioUrl);
+                object.put("title", item.title);
+                array.put(object);
+            } catch (Exception ignored) { }
+        }
+        playbackPrefs.edit().putString("recent_playback_items", array.toString()).apply();
+    }
+
+    private void rememberPlaybackItem(String videoUrl, String audioUrl) {
+        String video = isHttpUrl(videoUrl) ? videoUrl : "";
+        String audio = isHttpUrl(audioUrl) ? audioUrl : "";
+        if (video.isEmpty() && audio.isEmpty()) return;
+        for (int i = playbackHistoryItems.size() - 1; i >= 0; i--) {
+            PlaybackHistoryItem old = playbackHistoryItems.get(i);
+            if (video.equals(old.videoUrl) && audio.equals(old.audioUrl)) {
+                playbackHistoryItems.remove(i);
+            }
+        }
+        String title = historyTitleForUrl(video.isEmpty() ? audio : video);
+        playbackHistoryItems.add(new PlaybackHistoryItem(video, audio, title));
+        while (playbackHistoryItems.size() > 100) playbackHistoryItems.remove(0);
+        savePlaybackHistoryItems();
+    }
+
+    private String shortenHistoryUrl(String url) {
+        if (url == null || url.isEmpty()) return "";
+        try {
+            Uri uri = Uri.parse(url);
+            String host = uri.getHost() == null ? "" : uri.getHost();
+            String path = uri.getPath() == null ? "" : uri.getPath();
+            String shortPath = path.length() > 26 ? "…" + path.substring(path.length() - 25) : path;
+            return host + shortPath;
+        } catch (Exception e) {
+            return url.length() > 48 ? url.substring(0, 45) + "…" : url;
+        }
+    }
+
+    private void showPlaybackHistory() {
+        if (playbackHistoryItems.isEmpty()) {
+            new AlertDialog.Builder(this).setTitle("سجل المشاهدة")
+                    .setMessage("لسه مفيش فيديوهات محفوظة. الفيديوهات اللي تشغّلها هتظهر هنا.")
+                    .setPositiveButton("حسنًا", null).show();
+            return;
+        }
+        LinearLayout root = new LinearLayout(this);
+        root.setOrientation(LinearLayout.VERTICAL);
+        root.setPadding(dp(16), dp(12), dp(16), dp(8));
+        LinearLayout header = new LinearLayout(this);
+        header.setOrientation(LinearLayout.HORIZONTAL);
+        header.setGravity(Gravity.CENTER_VERTICAL);
+        TextView heading = new TextView(this);
+        heading.setText("آخر الفيديوهات");
+        heading.setTextSize(18);
+        heading.setTypeface(null, android.graphics.Typeface.BOLD);
+        heading.setTextColor(0xFFFFFFFF);
+        header.addView(heading, new LinearLayout.LayoutParams(0, dp(48), 1f));
+        TextView clear = new TextView(this);
+        clear.setText("مسح السجل");
+        clear.setTextSize(13);
+        clear.setTextColor(0xFFFF8A80);
+        clear.setGravity(Gravity.CENTER);
+        clear.setPadding(dp(12), dp(8), dp(12), dp(8));
+        clear.setBackgroundResource(android.R.drawable.list_selector_background);
+        header.addView(clear, new LinearLayout.LayoutParams(-2, dp(44)));
+        root.addView(header);
+        View separator = new View(this);
+        separator.setBackgroundColor(0x33FFFFFF);
+        root.addView(separator, new LinearLayout.LayoutParams(-1, dp(1)));
+
+        android.widget.ScrollView scroll = new android.widget.ScrollView(this);
+        LinearLayout list = new LinearLayout(this);
+        list.setOrientation(LinearLayout.VERTICAL);
+        java.util.ArrayList<PlaybackHistoryItem> recent = new java.util.ArrayList<>();
+        for (int i = playbackHistoryItems.size() - 1; i >= 0; i--) recent.add(playbackHistoryItems.get(i));
+        for (int i = 0; i < recent.size(); i++) {
+            PlaybackHistoryItem item = recent.get(i);
+            LinearLayout row = new LinearLayout(this);
+            row.setOrientation(LinearLayout.HORIZONTAL);
+            row.setGravity(Gravity.CENTER_VERTICAL);
+            row.setPadding(dp(8), dp(8), dp(8), dp(8));
+            row.setBackgroundResource(android.R.drawable.list_selector_background);
+            ImageView thumb = new ImageView(this);
+            thumb.setImageResource(android.R.drawable.ic_media_play);
+            thumb.setScaleType(ImageView.ScaleType.CENTER_INSIDE);
+            thumb.setColorFilter(0xFFFFFFFF);
+            thumb.setBackgroundColor(0xFF263746);
+            LinearLayout.LayoutParams thumbParams = new LinearLayout.LayoutParams(dp(76), dp(54));
+            thumbParams.setMargins(0, 0, dp(12), 0);
+            row.addView(thumb, thumbParams);
+            LinearLayout labels = new LinearLayout(this);
+            labels.setOrientation(LinearLayout.VERTICAL);
+            TextView title = new TextView(this);
+            title.setText(item.title);
+            title.setTextColor(0xFFFFFFFF);
+            title.setTextSize(15);
+            title.setMaxLines(1);
+            title.setEllipsize(android.text.TextUtils.TruncateAt.END);
+            TextView url = new TextView(this);
+            String displayUrl = shortenHistoryUrl(item.videoUrl.isEmpty() ? item.audioUrl : item.videoUrl);
+            if (!item.audioUrl.isEmpty()) displayUrl += "  •  صوت + صورة";
+            url.setText(displayUrl);
+            url.setTextColor(0xFFB0BEC5);
+            url.setTextSize(11);
+            url.setMaxLines(1);
+            url.setEllipsize(android.text.TextUtils.TruncateAt.MIDDLE);
+            labels.addView(title);
+            labels.addView(url);
+            row.addView(labels, new LinearLayout.LayoutParams(0, -2, 1f));
+            row.setOnClickListener(v -> {
+                String video = item.videoUrl;
+                String audio = item.audioUrl;
+                clearPendingServerMedia();
+                queueIncomingMedia(video.isEmpty() ? null : video, audio.isEmpty() ? null : audio);
+                if (historyDialog != null) historyDialog.dismiss();
+            });
+            list.addView(row, new LinearLayout.LayoutParams(-1, -2));
+            View divider = new View(this);
+            divider.setBackgroundColor(0x22FFFFFF);
+            list.addView(divider, new LinearLayout.LayoutParams(-1, dp(1)));
+        }
+        scroll.addView(list);
+        root.addView(scroll, new LinearLayout.LayoutParams(-1, 0, 1f));
+        AlertDialog dialog = new AlertDialog.Builder(this).setView(root)
+                .setNegativeButton("إغلاق", null).create();
+        historyDialog = dialog;
+        clear.setOnClickListener(v -> new AlertDialog.Builder(this)
+                .setTitle("مسح سجل المشاهدة؟")
+                .setMessage("سيتم حذف الفيديوهات المحفوظة من هذا الجهاز.")
+                .setNegativeButton("إلغاء", null)
+                .setPositiveButton("مسح", (d, w) -> {
+                    playbackQueue.clear();
+                    playbackQueueIndex = -1;
+                    playbackHistoryItems.clear();
+                    savePlaybackHistory();
+                    savePlaybackHistoryItems();
+                    dialog.dismiss();
+                    Toast.makeText(this, "تم مسح سجل المشاهدة", Toast.LENGTH_SHORT).show();
+                }).show());
+        dialog.show();
     }
 
     private void savePlaybackHistory() {
@@ -4178,7 +4386,7 @@ public class MainActivity extends Activity {
         // Home shortcuts must never sit above or steal DPAD focus from ExoPlayer.
         if (settingsHomeButton != null) settingsHomeButton.setVisibility(View.GONE);
         if (browserHomeButton != null) browserHomeButton.setVisibility(View.GONE);
-        rememberPlaybackUrl(playbackUrl);
+        rememberPlaybackUrl(playbackUrl);\n        rememberPlaybackItem(mediaUrl, audioUrl);
         if (browserShortcut != null) browserShortcut.setVisibility(View.GONE);
         hideImage();
 
