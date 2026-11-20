@@ -126,7 +126,8 @@ public class MainActivity extends Activity {
             this.title = title;
         }
     }
-    private final java.util.ArrayList<PlaybackHistoryItem> playbackHistoryItems = new java.util.ArrayList<>();\n    private AlertDialog historyDialog;
+    private final java.util.ArrayList<PlaybackHistoryItem> playbackHistoryItems = new java.util.ArrayList<>();
+    private AlertDialog historyDialog;
     private WebView fallbackWebView;
     // Full TV browser chrome, separate from media-fallback playback.
     private FrameLayout browserOverlay;
@@ -4386,7 +4387,8 @@ public class MainActivity extends Activity {
         // Home shortcuts must never sit above or steal DPAD focus from ExoPlayer.
         if (settingsHomeButton != null) settingsHomeButton.setVisibility(View.GONE);
         if (browserHomeButton != null) browserHomeButton.setVisibility(View.GONE);
-        rememberPlaybackUrl(playbackUrl);\n        rememberPlaybackItem(mediaUrl, audioUrl);
+        rememberPlaybackUrl(playbackUrl);
+        rememberPlaybackItem(mediaUrl, audioUrl);
         if (browserShortcut != null) browserShortcut.setVisibility(View.GONE);
         hideImage();
 
