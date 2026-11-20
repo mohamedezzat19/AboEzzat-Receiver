@@ -227,6 +227,40 @@ public final class AppUpdater {
         });
     }
 
+    private long getApkVersion(File apk) throws Exception {
+        PackageInfo info = activity.getPackageManager().getPackageArchiveInfo(
+                apk.getAbsolutePath(), 0);
+        if (info == null) throw new IllegalStateException("Could not read APK version");
+        return Build.VERSION.SDK_INT >= 28 ? info.getLongVersionCode() : info.versionCode;
+    }
+
+    public void verifyPendingInstallAfterResume() {
+        MAIN.postDelayed(() -> {
+            if (activity.isFinishing() || activity.isDestroyed()) return;
+            android.content.SharedPreferences prefs = activity.getSharedPreferences(
+                    "receiver_update_state", Activity.MODE_PRIVATE);
+            long expected = prefs.getLong("pending_expected_version", 0L);
+            if (expected <= 0L) return;
+
+            long installed = installedVersionCode();
+            prefs.edit().remove("pending_expected_version").apply();
+            if (installed >= expected) {
+                Toast.makeText(activity,
+                        "تم تثبيت تحديث Receiver بنجاح — الإصدار " + installed,
+                        Toast.LENGTH_LONG).show();
+            } else {
+                Toast.makeText(activity,
+                        "التثبيت لم يحدّث التطبيق. الإصدار الحالي " + installed
+                                + " والمطلوب " + expected
+                                + ". جرّب التثبيت مرة أخرى وتأكد من قبول رسالة التثبيت.",
+                        Toast.LENGTH_LONG).show();
+                android.util.Log.e("AboEzzatUpdater",
+                        "Installer returned without updating package. Expected "
+                                + expected + ", installed " + installed);
+            }
+        }, 1500L);
+    }
+
     private void install(File apk) {
         try {
             if (Build.VERSION.SDK_INT >= 26 && !activity.getPackageManager().canRequestPackageInstalls()) {
@@ -240,12 +274,18 @@ public final class AppUpdater {
                         .show();
                 return;
             }
+            // Persist the expected build before handing the APK to Android's installer.
+            // MainActivity verifies the actually installed package when it resumes.
+            activity.getSharedPreferences("receiver_update_state", Activity.MODE_PRIVATE)
+                    .edit().putLong("pending_expected_version", getApkVersion(apk)).apply();
+
             Uri uri = FileProvider.getUriForFile(activity,
                     activity.getPackageName() + ".fileprovider", apk);
-            Intent i = new Intent(Intent.ACTION_VIEW);
-            i.setDataAndType(uri, "application/vnd.android.package-archive");
-            i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_ACTIVITY_NEW_TASK);
-            activity.startActivity(i);
+            Intent i = new Intent(Intent.ACTION_INSTALL_PACKAGE);
+            i.setData(uri);
+            i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+            i.putExtra(Intent.EXTRA_RETURN_RESULT, true);
+            activity.startActivityForResult(i, 9318);
         } catch (Exception e) {
             android.util.Log.e("AboEzzatUpdater", "Could not launch Receiver package installer", e);
             Toast.makeText(activity, "تعذر فتح مثبت التحديث.", Toast.LENGTH_LONG).show();
