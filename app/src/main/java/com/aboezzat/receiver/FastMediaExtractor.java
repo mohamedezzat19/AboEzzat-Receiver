@@ -83,8 +83,7 @@ public final class FastMediaExtractor {
                         return;
                     }
                     String html = closeable.body().string();
-                    String media = findMeta(html);
-                    if (media == null) media = findJson(html, platform);
+                    String media = findBestMedia(html, platform);
                     // Do not accept the first arbitrary .mp4 in the page: social pages can
                     // contain unrelated previews/ads, which caused the wrong short clip to play.
                     media = clean(media);
@@ -113,6 +112,76 @@ public final class FastMediaExtractor {
             if (host.equals("x.com") || host.endsWith(".x.com") || host.equals("twitter.com") || host.endsWith(".twitter.com")) return "X";
         } catch (Exception ignored) {}
         return null;
+    }
+
+    /**
+     * Compare social-page metadata and embedded JSON together. Previously any
+     * metadata URL won immediately, even when the page also exposed a better
+     * quality-specific playback URL in its JSON payload.
+     */
+    private static String findBestMedia(String html, String platform) {
+        String bestValue = null;
+        int bestScore = Integer.MIN_VALUE;
+
+        Matcher tags = META_TAG.matcher(html);
+        while (tags.find()) {
+            String tag = tags.group();
+            Matcher p = PROP.matcher(tag), c = CONTENT.matcher(tag);
+            if (!p.find() || !c.find()) continue;
+            String key = p.group(1).toLowerCase(Locale.ROOT);
+            int score;
+            if (key.equals("og:video:secure_url")) score = 50;
+            else if (key.equals("og:video:url") || key.equals("og:video")) score = 45;
+            else if (key.equals("twitter:player:stream")) score = 40;
+            else continue;
+
+            String value = clean(c.group(1));
+            if (!isHttp(value) || isPreviewUrl(value)) continue;
+            score += mediaFormatBonus(value);
+            if (score > bestScore) {
+                bestScore = score;
+                bestValue = value;
+            }
+        }
+
+        Matcher json = JSON_VIDEO.matcher(html);
+        while (json.find()) {
+            String key = json.group(1).toLowerCase(Locale.ROOT);
+            if ("TikTok".equals(platform) && !(key.equals("playaddr")
+                    || key.equals("play_addr") || key.equals("downloadaddr"))) continue;
+            String value = clean(json.group(2));
+            if (!isHttp(value) || isPreviewUrl(value)) continue;
+
+            int score;
+            if (key.contains("quality_hd") || key.contains("native_hd")) score = 60;
+            else if (key.equals("playaddr") || key.equals("play_addr")) score = 50;
+            else if (key.equals("playbackurl") || key.equals("hlsurl")
+                    || key.equals("manifesturl")) score = 45;
+            else if (key.equals("playable_url")) score = 40;
+            else if (key.equals("video_url") || key.equals("video_url_https")) score = 30;
+            else if (key.equals("downloadaddr")) score = 20;
+            else continue;
+            score += mediaFormatBonus(value);
+            if (score > bestScore) {
+                bestScore = score;
+                bestValue = value;
+            }
+        }
+        return bestValue;
+    }
+
+    private static int mediaFormatBonus(String value) {
+        String lower = value.toLowerCase(Locale.ROOT);
+        if (lower.contains(".m3u8") || lower.contains(".mpd")) return 8;
+        if (lower.contains(".mp4") || lower.contains(".webm")) return 5;
+        return 0;
+    }
+
+    private static boolean isPreviewUrl(String value) {
+        String lower = value.toLowerCase(Locale.ROOT);
+        return lower.contains("thumbnail") || lower.contains("preview")
+                || lower.contains("cover")
+                || lower.matches(".*\\\\.(jpg|jpeg|png|webp)([?#].*)?$");
     }
 
     private static String findMeta(String html) {
