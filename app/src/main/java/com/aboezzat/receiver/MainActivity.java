@@ -3985,6 +3985,14 @@ public class MainActivity extends Activity {
                 return;
             }
 
+            if ("dlna_seek".equals(command.substring(0, Math.min(command.length(), 9)))) {
+                try {
+                    long seekMs = Long.parseLong(command.substring("dlna_seek:".length()));
+                    if (player != null) player.seekTo(Math.max(0L, seekMs));
+                } catch (Exception ignored) { }
+                return;
+            }
+
             if (player == null) {
                 // If playback is happening in another TV app (for example SmartTube),
                 // route media keys through Android's active media-session system.
