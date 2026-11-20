@@ -5,6 +5,7 @@ import android.app.Activity;
 import android.content.SharedPreferences;
 import android.content.ActivityNotFoundException;
 import android.app.AlertDialog;
+import android.app.ProgressDialog;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
@@ -4265,7 +4266,29 @@ public class MainActivity extends Activity {
             url.setEllipsize(android.text.TextUtils.TruncateAt.MIDDLE);
             labels.addView(title);
             labels.addView(url);
+            LinearLayout downloadActions = new LinearLayout(this);
+            downloadActions.setOrientation(LinearLayout.HORIZONTAL);
+            downloadActions.setGravity(Gravity.CENTER_VERTICAL);
+            TextView mp4Button = new TextView(this);
+            mp4Button.setText("تحميل MP4");
+            mp4Button.setTextSize(12);
+            mp4Button.setTextColor(0xFF80CBC4);
+            mp4Button.setGravity(Gravity.CENTER);
+            mp4Button.setPadding(dp(10), dp(7), dp(10), dp(7));
+            mp4Button.setBackgroundResource(android.R.drawable.list_selector_background);
+            TextView mp3Button = new TextView(this);
+            mp3Button.setText("تحميل MP3");
+            mp3Button.setTextSize(12);
+            mp3Button.setTextColor(0xFF90CAF9);
+            mp3Button.setGravity(Gravity.CENTER);
+            mp3Button.setPadding(dp(10), dp(7), dp(10), dp(7));
+            mp3Button.setBackgroundResource(android.R.drawable.list_selector_background);
+            downloadActions.addView(mp4Button);
+            downloadActions.addView(mp3Button);
+            labels.addView(downloadActions);
             row.addView(labels, new LinearLayout.LayoutParams(0, -2, 1f));
+            mp4Button.setOnClickListener(v -> startHistoryDownload(item, false));
+            mp3Button.setOnClickListener(v -> startHistoryDownload(item, true));
             row.setOnClickListener(v -> {
                 historyScrollPosition = scroll.getScrollY();
                 reopenHistoryAfterPlayback = true;
@@ -4306,6 +4329,22 @@ public class MainActivity extends Activity {
                 }).show());
         dialog.show();
         scroll.post(() -> scroll.scrollTo(0, Math.max(0, historyScrollPosition)));
+    }
+
+    private void startHistoryDownload(PlaybackHistoryItem item, boolean asMp3) {
+        if (item == null) return;
+        ProgressDialog progress = new ProgressDialog(this);
+        progress.setTitle(asMp3 ? "تحميل MP3" : "تحميل MP4");
+        progress.setMessage("جاري تجهيز الملف بأعلى جودة متاحة...");
+        progress.setIndeterminate(true);
+        progress.setCancelable(false);
+        progress.show();
+        HistoryMediaDownloader.download(this, item.videoUrl, item.audioUrl, item.title,
+                item.headers, asMp3, (success, message) -> runOnUiThread(() -> {
+                    if (isFinishing() || isDestroyed()) return;
+                    if (progress.isShowing()) progress.dismiss();
+                    Toast.makeText(this, message, Toast.LENGTH_LONG).show();
+                }));
     }
 
     private void savePlaybackHistory() {
