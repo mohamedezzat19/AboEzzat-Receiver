@@ -2133,6 +2133,22 @@ public class MainActivity extends Activity {
     private static final int MAX_JSON_DEPTH = 16;
     private static final int MAX_JSON_NODES = 5000;
 
+    private boolean isExcludedJsonMediaKey(String normalizedKey) {
+        if (normalizedKey == null || normalizedKey.isEmpty()) return false;
+        String[] excluded = {
+                "thumbnail", "thumbnailurl", "thumb", "poster", "cover",
+                "preview", "previewurl", "avatar", "image", "imageurl",
+                "logo", "icon", "subtitle", "subtitles", "caption",
+                "description", "watermark", "ad", "ads", "advertisement",
+                "banner", "sprite", "storyboard"
+        };
+        for (String token : excluded) {
+            if (normalizedKey.equals(token) || normalizedKey.startsWith(token)
+                    || normalizedKey.endsWith(token)) return true;
+        }
+        return false;
+    }
+
     private void collectJsonMediaCandidates(Object node,
             java.util.Set<String> candidates, String pageUrl,
             int depth, int[] visitedNodes) {
@@ -2145,6 +2161,11 @@ public class MainActivity extends Activity {
             java.util.Iterator<String> keys = object.keys();
             while (keys.hasNext() && visitedNodes[0] < MAX_JSON_NODES) {
                 String key = keys.next();
+                String normalizedKey = key == null ? "" : key.toLowerCase(Locale.ROOT)
+                        .replace("-", "").replace("_", "");
+                // Do not treat poster/thumbnail/artwork or ad metadata as a playable
+                // stream, even when its URL happens to use a social CDN host.
+                if (isExcludedJsonMediaKey(normalizedKey)) continue;
                 Object value = object.opt(key);
                 if (value instanceof String) {
                     String raw = ((String) value).trim();
