@@ -25,7 +25,9 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-22.04
-    timeout-minutes: 25
+    # Building the missing 32-bit FFmpeg ABI from source is intentionally
+    # part of CI; allow enough time for a reproducible native build.
+    timeout-minutes: 120
 
     steps:
       - name: Download project
@@ -75,6 +77,261 @@ jobs:
           echo "KEY_ALIAS=$ALIAS" >> "$GITHUB_ENV"
           echo "HAS_SIGNING=true" >> "$GITHUB_ENV"
           echo "Receiver signing configuration detected; secret values are not printed."
+
+      - name: Build and merge FFmpegKit armeabi-v7a libraries
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y \
+            autoconf automake libtool pkg-config curl git \
+            build-essential yasm nasm gperf texinfo bison ragel \
+            python3 python3-pip unzip zip wget meson ninja-build \
+            doxygen cmake autogen autopoint groff gtk-doc-tools libtasn1-bin
+
+          SDKMANAGER="$(find "$ANDROID_HOME/cmdline-tools" -type f -name sdkmanager | sort -V | tail -n 1)"
+          test -x "$SDKMANAGER" || { echo "::error::Android sdkmanager was not found."; exit 1; }
+          yes | "$SDKMANAGER" --licenses >/dev/null || true
+          "$SDKMANAGER" --install "ndk;27.2.12479018"
+
+          export ANDROID_SDK_ROOT="$ANDROID_HOME"
+          export ANDROID_NDK_ROOT="$ANDROID_HOME/ndk/27.2.12479018"
+          test -f "$ANDROID_NDK_ROOT/source.properties" || { echo "::error::Android NDK r27c was not installed."; exit 1; }
+
+          git clone --depth 1 --branch v8.1.9-lts-android \
+            https://github.com/ffmpegkit-maintained/ffmpeg.git "$RUNNER_TEMP/ffmpeg-src"
+          cd "$RUNNER_TEMP/ffmpeg-src/android-8.1-lts"
+
+          # Build only generic ARMv7 (not the separate NEON variant).
+          # The official 8.1.9 AAR already supplies arm64-v8a and x86_64.
+          ./android.sh --full --enable-android-media-codec --enable-android-zlib \
+            --disable-lib-gnutls --disable-arm-v7a-neon \
+            --disable-arm64-v8a --disable-x86 --disable-x86-64
+
+          ARMV7_AAR="$RUNNER_TEMP/ffmpeg-src/android-8.1-lts/prebuilt/bundle-android-aar-lts/ffmpeg-kit/ffmpeg-kit.aar"
+          test -s "$ARMV7_AAR" || { echo "::error::The ARMv7 FFmpegKit AAR was not created."; exit 1; }
+
+          curl -fL --retry 3 \
+            https://repo.maven.apache.org/maven2/dev/ffmpegkit-maintained/ffmpeg-kit-full/8.1.9/ffmpeg-kit-full-8.1.9.aar \
+            -o "$RUNNER_TEMP/ffmpeg-kit-full-8.1.9.aar"
+
+          mkdir -p "$RUNNER_TEMP/ffmpeg-base" "$RUNNER_TEMP/ffmpeg-armv7" app/libs
+          unzip -q "$RUNNER_TEMP/ffmpeg-kit-full-8.1.9.aar" -d "$RUNNER_TEMP/ffmpeg-base"
+          unzip -q "$ARMV7_AAR" -d "$RUNNER_TEMP/ffmpeg-armv7"
+          test -d "$RUNNER_TEMP/ffmpeg-armv7/jni/armeabi-v7a" || {
+            echo "::error::The source-built AAR does not contain armeabi-v7a native libraries."
+            exit 1
+          }
+
+          mkdir -p "$RUNNER_TEMP/ffmpeg-base/jni/armeabi-v7a"
+          cp -a "$RUNNER_TEMP/ffmpeg-armv7/jni/armeabi-v7a/." "$RUNNER_TEMP/ffmpeg-base/jni/armeabi-v7a/"
+          test -s "$RUNNER_TEMP/ffmpeg-base/jni/armeabi-v7a/libavutil.so" || {
+            echo "::error::Merged AAR is missing the ARMv7 FFmpeg runtime."
+            exit 1
+          }
+
+          (cd "$RUNNER_TEMP/ffmpeg-base" && zip -q -r "$GITHUB_WORKSPACE/app/libs/ffmpeg-kit-full.aar" .)
+          unzip -Z1 app/libs/ffmpeg-kit-full.aar | grep -q '^jni/armeabi-v7a/libavutil.so        if: ${{ env.HAS_SIGNING == 'true' }}
+        env:
+          KEYSTORE_FILE: ${{ runner.temp }}/release-keystore.jks
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ env.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: gradle assembleRelease --stacktrace
+
+      - name: Verify APK package, version, and signature
+        if: ${{ env.HAS_SIGNING == 'true' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK="app/build/outputs/apk/release/app-release.apk"
+          BUILD_TOOLS="$ANDROID_HOME/build-tools/$(ls -1 "$ANDROID_HOME/build-tools" | sort -V | tail -n 1)"
+          APKSIGNER="$BUILD_TOOLS/apksigner"
+          AAPT="$BUILD_TOOLS/aapt"
+
+          test -s "$APK" || { echo "::error::Release APK is missing or empty."; exit 1; }
+          "$APKSIGNER" verify --verbose --print-certs "$APK" > "$RUNNER_TEMP/current-apk-signature.txt"
+          CURRENT_CERT="$(sed -n 's/.*certificate SHA-256 digest: *//p' "$RUNNER_TEMP/current-apk-signature.txt" | head -n 1 | tr -d ':' | tr '[:upper:]' '[:lower:]')"
+          test -n "$CURRENT_CERT" || { echo "::error::Could not read the APK signing certificate."; exit 1; }
+
+          BADGING="$("$AAPT" dump badging "$APK")"
+          PACKAGE_NAME="$(printf '%s\n' "$BADGING" | sed -n "s/^package: name='\([^']*\)'.*/\1/p" | head -n 1)"
+          APK_VERSION_CODE="$(printf '%s\n' "$BADGING" | sed -n "s/^package:.*versionCode='\([^']*\)'.*/\1/p" | head -n 1)"
+
+          if [[ "$PACKAGE_NAME" != "com.aboezzat.receiver" ]]; then
+            echo "::error::Wrong APK package: $PACKAGE_NAME"
+            exit 1
+          fi
+          if [[ "$APK_VERSION_CODE" != "$GITHUB_RUN_NUMBER" ]]; then
+            echo "::error::APK versionCode ($APK_VERSION_CODE) does not match workflow run number ($GITHUB_RUN_NUMBER)."
+            exit 1
+          fi
+
+          echo "APK package, versionCode, and Android signature are valid."
+          echo "CURRENT_CERT=$CURRENT_CERT" >> "$GITHUB_ENV"
+
+      - name: Ensure signing key matches the last published release
+        if: ${{ env.HAS_SIGNING == 'true' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master') }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          API="https://api.github.com/repos/${GITHUB_REPOSITORY}/releases/latest"
+          HTTP_STATUS="$(curl -sS -o "$RUNNER_TEMP/latest-release.json" -w '%{http_code}' \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" "$API")"
+
+          if [[ "$HTTP_STATUS" == "404" ]]; then
+            echo "No previous release exists; signer continuity check will start with this release."
+            exit 0
+          fi
+          if [[ "$HTTP_STATUS" != "200" ]]; then
+            echo "::error::Could not inspect the latest release (HTTP $HTTP_STATUS). Refusing to publish an unchecked APK."
+            exit 1
+          fi
+
+          PREVIOUS_APK_URL="$(jq -r '.assets[]? | select(.name == "app-release.apk") | .browser_download_url' "$RUNNER_TEMP/latest-release.json" | head -n 1)"
+          if [[ -z "$PREVIOUS_APK_URL" || "$PREVIOUS_APK_URL" == "null" ]]; then
+            echo "::error::The latest release has no app-release.apk to verify against. Refusing to publish."
+            exit 1
+          fi
+
+          curl -fL --retry 3 "$PREVIOUS_APK_URL" -o "$RUNNER_TEMP/previous-release.apk"
+          BUILD_TOOLS="$ANDROID_HOME/build-tools/$(ls -1 "$ANDROID_HOME/build-tools" | sort -V | tail -n 1)"
+          "$BUILD_TOOLS/apksigner" verify --verbose --print-certs "$RUNNER_TEMP/previous-release.apk" > "$RUNNER_TEMP/previous-apk-signature.txt"
+          PREVIOUS_CERT="$(sed -n 's/.*certificate SHA-256 digest: *//p' "$RUNNER_TEMP/previous-apk-signature.txt" | head -n 1 | tr -d ':' | tr '[:upper:]' '[:lower:]')"
+
+          if [[ -z "$PREVIOUS_CERT" || "$CURRENT_CERT" != "$PREVIOUS_CERT" ]]; then
+            echo "::error::Signing certificate differs from the latest published Receiver APK. Update blocked to prevent Android signature-install failures."
+            exit 1
+          fi
+
+          echo "Signing certificate matches the latest published Receiver release."
+
+      - name: Upload signed release APK
+        if: ${{ env.HAS_SIGNING == 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: AboEzzat-Receiver-release-${{ github.run_number }}
+          path: app/build/outputs/apk/release/app-release.apk
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Publish signed APK to GitHub Release
+        if: ${{ (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master') && env.HAS_SIGNING == 'true' }}
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: receiver-build-${{ github.run_number }}
+          name: Receiver Build ${{ github.run_number }}
+          body: "versionCode: ${{ github.run_number }}\nAutomated signed APK build. APK package/version/signature verified; signing certificate matches the previous release."
+          files: app/build/outputs/apk/release/app-release.apk
+          generate_release_notes: true
+ || {
+            echo "::error::ARMv7 libraries were not merged into the app dependency."
+            exit 1
+          }
+          unzip -Z1 app/libs/ffmpeg-kit-full.aar | grep -q '^jni/arm64-v8a/libavutil.so        if: ${{ env.HAS_SIGNING == 'true' }}
+        env:
+          KEYSTORE_FILE: ${{ runner.temp }}/release-keystore.jks
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ env.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: gradle assembleRelease --stacktrace
+
+      - name: Verify APK package, version, and signature
+        if: ${{ env.HAS_SIGNING == 'true' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK="app/build/outputs/apk/release/app-release.apk"
+          BUILD_TOOLS="$ANDROID_HOME/build-tools/$(ls -1 "$ANDROID_HOME/build-tools" | sort -V | tail -n 1)"
+          APKSIGNER="$BUILD_TOOLS/apksigner"
+          AAPT="$BUILD_TOOLS/aapt"
+
+          test -s "$APK" || { echo "::error::Release APK is missing or empty."; exit 1; }
+          "$APKSIGNER" verify --verbose --print-certs "$APK" > "$RUNNER_TEMP/current-apk-signature.txt"
+          CURRENT_CERT="$(sed -n 's/.*certificate SHA-256 digest: *//p' "$RUNNER_TEMP/current-apk-signature.txt" | head -n 1 | tr -d ':' | tr '[:upper:]' '[:lower:]')"
+          test -n "$CURRENT_CERT" || { echo "::error::Could not read the APK signing certificate."; exit 1; }
+
+          BADGING="$("$AAPT" dump badging "$APK")"
+          PACKAGE_NAME="$(printf '%s\n' "$BADGING" | sed -n "s/^package: name='\([^']*\)'.*/\1/p" | head -n 1)"
+          APK_VERSION_CODE="$(printf '%s\n' "$BADGING" | sed -n "s/^package:.*versionCode='\([^']*\)'.*/\1/p" | head -n 1)"
+
+          if [[ "$PACKAGE_NAME" != "com.aboezzat.receiver" ]]; then
+            echo "::error::Wrong APK package: $PACKAGE_NAME"
+            exit 1
+          fi
+          if [[ "$APK_VERSION_CODE" != "$GITHUB_RUN_NUMBER" ]]; then
+            echo "::error::APK versionCode ($APK_VERSION_CODE) does not match workflow run number ($GITHUB_RUN_NUMBER)."
+            exit 1
+          fi
+
+          echo "APK package, versionCode, and Android signature are valid."
+          echo "CURRENT_CERT=$CURRENT_CERT" >> "$GITHUB_ENV"
+
+      - name: Ensure signing key matches the last published release
+        if: ${{ env.HAS_SIGNING == 'true' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master') }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          API="https://api.github.com/repos/${GITHUB_REPOSITORY}/releases/latest"
+          HTTP_STATUS="$(curl -sS -o "$RUNNER_TEMP/latest-release.json" -w '%{http_code}' \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" "$API")"
+
+          if [[ "$HTTP_STATUS" == "404" ]]; then
+            echo "No previous release exists; signer continuity check will start with this release."
+            exit 0
+          fi
+          if [[ "$HTTP_STATUS" != "200" ]]; then
+            echo "::error::Could not inspect the latest release (HTTP $HTTP_STATUS). Refusing to publish an unchecked APK."
+            exit 1
+          fi
+
+          PREVIOUS_APK_URL="$(jq -r '.assets[]? | select(.name == "app-release.apk") | .browser_download_url' "$RUNNER_TEMP/latest-release.json" | head -n 1)"
+          if [[ -z "$PREVIOUS_APK_URL" || "$PREVIOUS_APK_URL" == "null" ]]; then
+            echo "::error::The latest release has no app-release.apk to verify against. Refusing to publish."
+            exit 1
+          fi
+
+          curl -fL --retry 3 "$PREVIOUS_APK_URL" -o "$RUNNER_TEMP/previous-release.apk"
+          BUILD_TOOLS="$ANDROID_HOME/build-tools/$(ls -1 "$ANDROID_HOME/build-tools" | sort -V | tail -n 1)"
+          "$BUILD_TOOLS/apksigner" verify --verbose --print-certs "$RUNNER_TEMP/previous-release.apk" > "$RUNNER_TEMP/previous-apk-signature.txt"
+          PREVIOUS_CERT="$(sed -n 's/.*certificate SHA-256 digest: *//p' "$RUNNER_TEMP/previous-apk-signature.txt" | head -n 1 | tr -d ':' | tr '[:upper:]' '[:lower:]')"
+
+          if [[ -z "$PREVIOUS_CERT" || "$CURRENT_CERT" != "$PREVIOUS_CERT" ]]; then
+            echo "::error::Signing certificate differs from the latest published Receiver APK. Update blocked to prevent Android signature-install failures."
+            exit 1
+          fi
+
+          echo "Signing certificate matches the latest published Receiver release."
+
+      - name: Upload signed release APK
+        if: ${{ env.HAS_SIGNING == 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: AboEzzat-Receiver-release-${{ github.run_number }}
+          path: app/build/outputs/apk/release/app-release.apk
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Publish signed APK to GitHub Release
+        if: ${{ (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master') && env.HAS_SIGNING == 'true' }}
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: receiver-build-${{ github.run_number }}
+          name: Receiver Build ${{ github.run_number }}
+          body: "versionCode: ${{ github.run_number }}\nAutomated signed APK build. APK package/version/signature verified; signing certificate matches the previous release."
+          files: app/build/outputs/apk/release/app-release.apk
+          generate_release_notes: true
+ || {
+            echo "::error::The original ARM64 libraries were not preserved."
+            exit 1
+          }
+          echo "FFmpegKit AAR now contains armeabi-v7a and preserves arm64-v8a/x86_64."
 
       - name: Build signed release APK
         if: ${{ env.HAS_SIGNING == 'true' }}
