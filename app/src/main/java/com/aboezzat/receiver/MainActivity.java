@@ -863,54 +863,35 @@ public class MainActivity extends Activity {
         }
     }
 
-    // Phone-only home layout: keep the brand portrait at the top and place
-    // the two home actions in their own bottom-left dock, separate from the
-    // connection card at bottom-right. TV geometry remains unchanged.
-    private void applyMobileHomeLayout(int availableWidth) {
-        if (root == null || getResources().getConfiguration().smallestScreenWidthDp >= 600
-                || settingsHomeButton == null || browserHomeButton == null
-                || connectionCard == null) {
+    // Phone home actions stay at the upper-right, opposite the brand portrait.
+    // Android TV / Fire TV keeps its original home-button geometry.
+    private void applyMobileHomeLayout() {
+        if (root == null || isTelevisionDevice()
+                || getResources().getConfiguration().smallestScreenWidthDp >= 600
+                || settingsHomeButton == null || browserHomeButton == null) {
             return;
         }
 
         int side = dp(44);
-        int left = dp(12);
-        int bottom = dp(12);
-        int gap = dp(8);
-        int cardWidth = Math.max(dp(150), Math.min(dp(230), availableWidth - dp(76)));
-
         FrameLayout.LayoutParams settingsParams = new FrameLayout.LayoutParams(
-                side, side, Gravity.BOTTOM | Gravity.LEFT);
-        settingsParams.setMargins(left, dp(8), dp(8), bottom);
+                side, side, Gravity.TOP | Gravity.END);
+        settingsParams.setMargins(dp(8), dp(10), dp(10), dp(8));
         settingsHomeButton.setLayoutParams(settingsParams);
 
         FrameLayout.LayoutParams browserParams = new FrameLayout.LayoutParams(
-                side, side, Gravity.BOTTOM | Gravity.LEFT);
-        browserParams.setMargins(left, dp(8), dp(8), bottom + side + gap);
+                side, side, Gravity.TOP | Gravity.END);
+        browserParams.setMargins(dp(8), dp(10), dp(62), dp(8));
         browserHomeButton.setLayoutParams(browserParams);
 
-        FrameLayout.LayoutParams cardParams = new FrameLayout.LayoutParams(
-                cardWidth, FrameLayout.LayoutParams.WRAP_CONTENT,
-                Gravity.BOTTOM | Gravity.RIGHT);
-        cardParams.setMargins(dp(8), dp(8), dp(8), bottom);
-        connectionCard.setLayoutParams(cardParams);
+        settingsHomeButton.setNextFocusLeftId(browserHomeButton.getId());
+        browserHomeButton.setNextFocusRightId(settingsHomeButton.getId());
+    }
 
-        settingsHomeButton.setNextFocusUpId(View.NO_ID);
-        settingsHomeButton.setNextFocusDownId(browserHomeButton.getId());
-        browserHomeButton.setNextFocusUpId(settingsHomeButton.getId());
-        browserHomeButton.setNextFocusDownId(View.NO_ID);
-
-        if (persistentBrandBadge != null) {
-            ViewGroup.LayoutParams badgeParams = persistentBrandBadge.getLayoutParams();
-            if (badgeParams instanceof FrameLayout.LayoutParams) {
-                FrameLayout.LayoutParams updated = (FrameLayout.LayoutParams) badgeParams;
-                updated.width = dp(56);
-                updated.height = dp(56);
-                updated.gravity = Gravity.TOP | Gravity.LEFT;
-                updated.setMargins(dp(10), dp(10), 0, 0);
-                persistentBrandBadge.setLayoutParams(updated);
-            }
-        }
+    private boolean isTelevisionDevice() {
+        int uiMode = getResources().getConfiguration().uiMode
+                & android.content.res.Configuration.UI_MODE_TYPE_MASK;
+        return uiMode == android.content.res.Configuration.UI_MODE_TYPE_TELEVISION
+                || getPackageManager().hasSystemFeature("android.software.leanback");
     }
 
     private void buildScreen() {
@@ -1102,7 +1083,7 @@ public class MainActivity extends Activity {
         TextView settingsButton = settingsHomeButton;
         settingsButton.setId(View.generateViewId());
         browserHomeButton.setId(View.generateViewId());
-        boolean compactPlayerChrome = getResources().getConfiguration().smallestScreenWidthDp < 600;
+        boolean compactPlayerChrome = !isTelevisionDevice()\n                && getResources().getConfiguration().smallestScreenWidthDp < 600;
         int homeActionSize = dp(compactPlayerChrome ? 44 : 52);
         TextView[] homeButtons = {settingsButton, browserHomeButton};
         for (TextView homeButton : homeButtons) {
@@ -1240,6 +1221,8 @@ public class MainActivity extends Activity {
                 dp(46), dp(44), Gravity.TOP | Gravity.END);
         playerSettingsParams.setMargins(dp(8), dp(10), dp(62), dp(8));
         root.addView(playerSettingsButton, playerSettingsParams);
+        // Player settings are hidden on the home screen; playback/image flows reveal them.
+        playerSettingsButton.setVisibility(View.GONE);
 
         playerDownloadButton = makeText("⬇", 24, Color.WHITE, true);
         playerDownloadButton.setGravity(Gravity.CENTER);
@@ -1383,9 +1366,9 @@ public class MainActivity extends Activity {
         setContentView(root);
         if (compactPlayerChrome) {
             root.addOnLayoutChangeListener((view, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom) -> {
-                applyMobileHomeLayout(right - left);
+                applyMobileHomeLayout();
             });
-            root.post(() -> applyMobileHomeLayout(root.getWidth()));
+            root.post(this::applyMobileHomeLayout);
         }
         settingsButton.requestFocus();
     }
