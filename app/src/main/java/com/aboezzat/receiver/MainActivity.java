@@ -1161,7 +1161,7 @@ public class MainActivity extends Activity {
             promptSubtitleTitleAndSearch();
             return true;
         });
-        int subtitleEndMargin = compactPlayerChrome ? dp(114) : dp(130);
+        int subtitleEndMargin = compactPlayerChrome ? dp(166) : dp(182);
         FrameLayout.LayoutParams playerSubtitleParams = new FrameLayout.LayoutParams(
                 dp(46), dp(44), Gravity.TOP | Gravity.END);
         playerSubtitleParams.setMargins(dp(8), dp(10), subtitleEndMargin, dp(8));
@@ -3749,6 +3749,14 @@ public class MainActivity extends Activity {
 
     private boolean handleImageRemoteKey(int keyCode) {
         if (imageView == null || imageView.getVisibility() != View.VISIBLE) return false;
+        if (playerSettingsButton != null && playerSettingsButton.hasFocus()) return false;
+        boolean wasVisible = imageControlsVisible;
+        showImageControls();
+        if (!wasVisible && (keyCode == android.view.KeyEvent.KEYCODE_DPAD_CENTER
+                || keyCode == android.view.KeyEvent.KEYCODE_ENTER)) {
+            if (playerSettingsButton != null) playerSettingsButton.requestFocus();
+            return true;
+        }
         switch (keyCode) {
             case android.view.KeyEvent.KEYCODE_DPAD_CENTER:
             case android.view.KeyEvent.KEYCODE_ENTER:
@@ -5624,6 +5632,10 @@ public class MainActivity extends Activity {
                     imageView.setScaleType(ImageView.ScaleType.FIT_CENTER);
                     imageView.setImageBitmap(result);
                     imageView.setVisibility(View.VISIBLE);
+                    if (playerSettingsButton != null) playerSettingsButton.bringToFront();
+                    if (playerDownloadButton != null) playerDownloadButton.bringToFront();
+                    if (playerSubtitleButton != null) playerSubtitleButton.bringToFront();
+                    showImageControls();
                 } else {
                     showWelcome();
                     Toast.makeText(MainActivity.this,
@@ -5656,6 +5668,9 @@ public class MainActivity extends Activity {
         }
         playerView.setVisibility(View.GONE);
         if (playerSubtitleButton != null) playerSubtitleButton.setVisibility(View.GONE);
+        if (playerSettingsButton != null) playerSettingsButton.setVisibility(View.GONE);
+        if (playerDownloadButton != null) playerDownloadButton.setVisibility(View.GONE);
+        imageControlsHandler.removeCallbacks(hideImageControlsRunnable);
         welcomeScreen.setVisibility(View.GONE);
         welcomeBackground.setVisibility(View.VISIBLE);
         connectionCard.setVisibility(View.VISIBLE);
