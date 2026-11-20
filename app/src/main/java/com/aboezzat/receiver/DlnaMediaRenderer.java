@@ -1,6 +1,7 @@
 package com.aboezzat.receiver;
 
 import android.util.Log;
+import android.content.Context;
 import org.xmlpull.v1.XmlPullParser;
 import org.xmlpull.v1.XmlPullParserFactory;
 import java.io.*;
@@ -30,6 +31,7 @@ public final class DlnaMediaRenderer {
 
     private final String uuid;
     private final Listener listener;
+    private final File diagnosticsFile;
     private volatile boolean running;
     private volatile String currentUri = "";
     private volatile String state = "STOPPED";
@@ -51,9 +53,26 @@ public final class DlnaMediaRenderer {
         }
     }
 
-    public DlnaMediaRenderer(String stableUuid, Listener listener) {
+    public DlnaMediaRenderer(Context context, String stableUuid, Listener listener) {
         this.uuid = stableUuid.startsWith("uuid:") ? stableUuid : "uuid:" + stableUuid;
         this.listener = listener;
+        this.diagnosticsFile = new File(context.getCacheDir(), "dlna-diagnostics.txt");
+        diagnostic("Renderer initialized; HTTP port=" + HTTP_PORT);
+    }
+
+    private synchronized void diagnostic(String message) {
+        try {
+            if (diagnosticsFile.exists() && diagnosticsFile.length() > 128 * 1024L) {
+                try (FileOutputStream clear = new FileOutputStream(diagnosticsFile, false)) {
+                    clear.write("--- diagnostics rotated ---\n".getBytes(StandardCharsets.UTF_8));
+                }
+            }
+            String line = new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS", Locale.US)
+                    .format(new Date()) + " " + message + "\n";
+            try (FileOutputStream out = new FileOutputStream(diagnosticsFile, true)) {
+                out.write(line.getBytes(StandardCharsets.UTF_8));
+            }
+        } catch (Exception e) { Log.w(TAG, "Could not write diagnostics", e); }
     }
 
     public synchronized void start() {
@@ -204,15 +223,33 @@ public final class DlnaMediaRenderer {
                     }
                 }
             }
-            byte[] bodyBytes = new byte[length];
-            int read = 0;
-            while (read < length) {
-                int n = in.read(bodyBytes, read, length - read);
-                if (n < 0) break;
-                read += n;
+            String transferEncoding = headers.get("transfer-encoding");
+            byte[] bodyBytes;
+            if (transferEncoding != null && transferEncoding.toLowerCase(Locale.ROOT).contains("chunked")) {
+                bodyBytes = readChunkedBody(in, 65536);
+            } else {
+                if (length > 65536) {
+                    diagnostic("REJECT method=" + method + " path=" + path + " reason=body-too-large length=" + length);
+                    respond(client, 413, "text/plain", "Request body too large");
+                    return;
+                }
+                bodyBytes = new byte[length];
+                int read = 0;
+                while (read < length) {
+                    int n = in.read(bodyBytes, read, length - read);
+                    if (n < 0) throw new EOFException("Incomplete HTTP request body");
+                    read += n;
+                }
             }
-            String body = new String(bodyBytes, 0, read, StandardCharsets.UTF_8);
+            String body = new String(bodyBytes, StandardCharsets.UTF_8);
+            diagnostic("HTTP " + method + " " + path + " SOAPAction=" + safeSoapAction(headers.get("soapaction"))
+                    + " contentLength=" + length + " transferEncoding=" + (transferEncoding == null ? "none" : transferEncoding)
+                    + " bodyBytes=" + bodyBytes.length);
             if ("GET".equals(method) || "HEAD".equals(method)) {
+                if ("/diagnostics.txt".equals(path)) {
+                    respond(client, 200, "text/plain; charset=utf-8", "HEAD".equals(method) ? "" : readDiagnostics());
+                    return;
+                }
                 String xml = "/desc.xml".equals(path) || "/".equals(path) ? description()
                         : "/avt.xml".equals(path) ? avtScpd()
                         : "/rcs.xml".equals(path) ? rcsScpd()
@@ -269,6 +306,7 @@ public final class DlnaMediaRenderer {
             action = findSoapAction(body);
         }
         Log.i(TAG, "SOAP request action=" + action + " args=" + args.keySet());
+        diagnostic("SOAP action=" + action + " argumentNames=" + args.keySet());
         String response;
         switch (action) {
             case "SetAVTransportURI":
@@ -377,6 +415,57 @@ public final class DlnaMediaRenderer {
         }
     }
 
+    private String safeSoapAction(String value) {
+        if (value == null) return "none";
+        int hash = value.lastIndexOf('#');
+        String action = hash >= 0 ? value.substring(hash + 1) : value;
+        action = action.replace("\"", "").trim();
+        return action.length() > 100 ? action.substring(0, 100) : action;
+    }
+
+    private String readDiagnostics() {
+        try {
+            if (!diagnosticsFile.exists()) return "No DLNA diagnostics yet\n";
+            ByteArrayOutputStream out = new ByteArrayOutputStream();
+            try (InputStream in = new FileInputStream(diagnosticsFile)) {
+                byte[] buffer = new byte[4096];
+                int n;
+                while ((n = in.read(buffer)) != -1) out.write(buffer, 0, n);
+            }
+            return out.toString("UTF-8");
+        } catch (Exception e) { return "Unable to read diagnostics: " + e.getClass().getSimpleName(); }
+    }
+
+    private byte[] readChunkedBody(InputStream in, int maxBytes) throws IOException {
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        while (true) {
+            String sizeLine = readLine(in);
+            if (sizeLine == null) throw new EOFException("Missing chunk size");
+            int extension = sizeLine.indexOf(';');
+            String sizeText = (extension >= 0 ? sizeLine.substring(0, extension) : sizeLine).trim();
+            long size;
+            try { size = Long.parseLong(sizeText, 16); }
+            catch (Exception e) { throw new IOException("Invalid chunk size"); }
+            if (size < 0 || size > maxBytes - out.size()) throw new IOException("Chunked body exceeds limit");
+            if (size == 0) {
+                String trailer;
+                while ((trailer = readLine(in)) != null && !trailer.isEmpty()) { }
+                break;
+            }
+            byte[] chunk = new byte[(int) size];
+            int offset = 0;
+            while (offset < chunk.length) {
+                int n = in.read(chunk, offset, chunk.length - offset);
+                if (n < 0) throw new EOFException("Incomplete chunk");
+                offset += n;
+            }
+            out.write(chunk);
+            String terminator = readLine(in);
+            if (terminator == null || !terminator.isEmpty()) throw new IOException("Invalid chunk terminator");
+        }
+        return out.toByteArray();
+    }
+
     private String findSoapAction(String body) {
         try {
             XmlPullParser parser = XmlPullParserFactory.newInstance().newPullParser();
@@ -482,6 +571,7 @@ public final class DlnaMediaRenderer {
     }
     private void soapFault(Socket c, int code, String desc) throws Exception {
         Log.w(TAG, "Returning UPnP SOAP fault " + code + ": " + desc);
+        diagnostic("SOAP FAULT code=" + code + " description=" + desc);
         String b = "<?xml version=\"1.0\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\"><s:Body><s:Fault><faultcode>s:Client</faultcode><faultstring>UPnPError</faultstring><detail><UPnPError xmlns=\"urn:schemas-upnp-org:control-1-0\"><errorCode>"
                 + code + "</errorCode><errorDescription>" + desc + "</errorDescription></UPnPError></detail></s:Fault></s:Body></s:Envelope>";
         respond(c, 500, "text/xml; charset=utf-8", b);
