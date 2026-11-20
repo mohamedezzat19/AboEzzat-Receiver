@@ -614,6 +614,29 @@ public class MainActivity extends Activity {
         }
     }
 
+    // Log only DLNA metadata structure; never log values that may contain credentials.
+    private String summarizeDlnaMetadataShape(String metadata) {
+        if (metadata == null || metadata.trim().isEmpty()) return "empty";
+        java.util.LinkedHashSet<String> tags = new java.util.LinkedHashSet<>();
+        java.util.LinkedHashSet<String> attributes = new java.util.LinkedHashSet<>();
+        java.util.regex.Matcher tagMatcher = java.util.regex.Pattern
+                .compile("<\\s*/?\\s*([A-Za-z_][A-Za-z0-9_.:-]*)").matcher(metadata);
+        while (tagMatcher.find() && tags.size() < 24) {
+            tags.add(tagMatcher.group(1).toLowerCase(Locale.ROOT));
+        }
+        java.util.regex.Matcher attributeMatcher = java.util.regex.Pattern
+                .compile("\\s([A-Za-z_][A-Za-z0-9_.:-]*)\\s*=").matcher(metadata);
+        while (attributeMatcher.find() && attributes.size() < 24) {
+            attributes.add(attributeMatcher.group(1).toLowerCase(Locale.ROOT));
+        }
+        String trimmed = metadata.trim();
+        boolean jsonLike = trimmed.startsWith("{") || trimmed.startsWith("[");
+        return "tags=" + tags + ", attributes=" + attributes
+                + ", cdata=" + metadata.contains("<![CDATA[")
+                + ", escapedXml=" + metadata.contains("&lt;")
+                + ", jsonLike=" + jsonLike;
+    }
+
     // Support web links shared directly to Receiver in addition to links sent over port 8081.
     private void handleExternalIntent(android.content.Intent intent) {
         if (intent == null) return;
@@ -630,7 +653,8 @@ public class MainActivity extends Activity {
                         + ", httpHeaderTag=" + lowerMetadata.contains("http-header")
                         + ", cookieMarker=" + lowerMetadata.contains("cookie")
                         + ", refererMarker=" + lowerMetadata.contains("referer")
-                        + ", originMarker=" + lowerMetadata.contains("origin"));
+                        + ", originMarker=" + lowerMetadata.contains("origin")
+                        + ", shape={" + summarizeDlnaMetadataShape(dlnaMetadata) + "}");
             } else {
                 Log.i(TAG, "DLNA metadata received: empty");
             }
