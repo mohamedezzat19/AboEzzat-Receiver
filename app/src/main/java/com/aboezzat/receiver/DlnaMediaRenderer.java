@@ -209,7 +209,10 @@ public final class DlnaMediaRenderer {
                     respondExtra(client, 200, "text/plain", "", renewal);
                 } else {
                     String newSid = "uuid:" + UUID.randomUUID();
-                    respondExtra(client, 200, "text/plain", "", Map.of("SID", newSid, "TIMEOUT", "Second-1800"));
+                    Map<String,String> subscription = new HashMap<>();
+                    subscription.put("SID", newSid);
+                    subscription.put("TIMEOUT", "Second-1800");
+                    respondExtra(client, 200, "text/plain", "", subscription);
                 }
             } else {
                 respond(client, 405, "text/plain", "");
