@@ -98,7 +98,7 @@ public class ReceiverServerService extends Service {
             SharedPreferences prefs = getSharedPreferences("receiver_settings", MODE_PRIVATE);
             String id = prefs.getString("dlna_uuid", null);
             if (id == null || id.trim().isEmpty()) {
-                id = UUID.randomUUID().toString();
+                id = java.util.UUID.randomUUID().toString();
                 prefs.edit().putString("dlna_uuid", id).apply();
             }
             dlnaRenderer = new DlnaMediaRenderer(id, new DlnaMediaRenderer.Listener() {
