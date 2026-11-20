@@ -1958,10 +1958,68 @@ public class MainActivity extends Activity {
             if (candidate != null) candidates.add(candidate);
         }
 
+        // Some live-TV providers expose the actual stream only inside an index.json
+        // response. Parse JSON structurally instead of relying only on HTML regexes.
+        try {
+            Object jsonRoot = new org.json.JSONTokener(html).nextValue();
+            collectJsonMediaCandidates(jsonRoot, candidates, pageUrl);
+        } catch (Exception ignored) { }
+
         for (String candidate : candidates) {
             if (isDirectStreamUrl(candidate) && !candidate.equals(pageUrl)) return candidate;
         }
         return null;
+    }
+
+    private void collectJsonMediaCandidates(Object node,
+            java.util.Set<String> candidates, String pageUrl) {
+        if (node instanceof JSONObject) {
+            JSONObject object = (JSONObject) node;
+            java.util.Iterator<String> keys = object.keys();
+            while (keys.hasNext()) {
+                String key = keys.next();
+                Object value = object.opt(key);
+                if (value instanceof String) {
+                    String raw = ((String) value).trim();
+                    String candidate = cleanExtractedUrl(raw);
+                    if (candidate == null && !raw.isEmpty()) {
+                        try {
+                            String lower = raw.toLowerCase(Locale.ROOT);
+                            if (lower.contains(".m3u8") || lower.contains(".mpd")
+                                    || lower.contains(".mp4") || lower.contains(".flv")
+                                    || lower.contains(".ts")) {
+                                candidate = cleanExtractedUrl(new URL(new URL(pageUrl), raw).toString());
+                            }
+                        } catch (Exception ignored) { }
+                    }
+                    if (candidate != null && isDirectStreamUrl(candidate)) candidates.add(candidate);
+                } else if (value instanceof JSONObject || value instanceof org.json.JSONArray) {
+                    collectJsonMediaCandidates(value, candidates, pageUrl);
+                }
+            }
+        } else if (node instanceof org.json.JSONArray) {
+            org.json.JSONArray array = (org.json.JSONArray) node;
+            for (int i = 0; i < array.length(); i++) {
+                Object value = array.opt(i);
+                if (value instanceof String) {
+                    String raw = ((String) value).trim();
+                    String candidate = cleanExtractedUrl(raw);
+                    if (candidate == null && !raw.isEmpty()) {
+                        try {
+                            String lower = raw.toLowerCase(Locale.ROOT);
+                            if (lower.contains(".m3u8") || lower.contains(".mpd")
+                                    || lower.contains(".mp4") || lower.contains(".flv")
+                                    || lower.contains(".ts")) {
+                                candidate = cleanExtractedUrl(new URL(new URL(pageUrl), raw).toString());
+                            }
+                        } catch (Exception ignored) { }
+                    }
+                    if (candidate != null && isDirectStreamUrl(candidate)) candidates.add(candidate);
+                } else if (value instanceof JSONObject || value instanceof org.json.JSONArray) {
+                    collectJsonMediaCandidates(value, candidates, pageUrl);
+                }
+            }
+        }
     }
 
     private volatile int extractionGeneration = 0;
@@ -2253,6 +2311,11 @@ public class MainActivity extends Activity {
                     if (generation != extractionGeneration || isFinishing()) return;
                     if (receiverStatusText != null) {
                         receiverStatusText.setText("نجح " + bestEngine + "؛ جارٍ تشغيل أفضل رابط متاح");
+                    }
+                    if (isSwiftDataDramaLiveUrl(pageUrl)
+                            && bestUrl.toLowerCase(Locale.ROOT).contains(".m3u8")
+                            && tryOpenDramaLiveInVlc(bestUrl)) {
+                        return;
                     }
                     if (isTikTokSourcePageUrl(pageUrl)) {
                         playContent(bestUrl, null, pendingPlaybackHeaders);
@@ -3570,47 +3633,47 @@ public class MainActivity extends Activity {
     }
 
     private boolean tryOpenDramaLiveInVlc(String url) {
-        if (!isSwiftDataDramaLiveUrl(url)) return false;
+        if (!isHttpUrl(url) || url == null
+                || !url.toLowerCase(Locale.ROOT).contains(".m3u8")) return false;
+        // VLC's exported StartActivity handles external VIEW intents and forwards
+        // network streams to its playback service. Use an explicit component first
+        // because some TV launchers do not resolve package-scoped MIME intents.
         try {
-            android.content.Intent vlcIntent = new android.content.Intent(
-                    android.content.Intent.ACTION_VIEW);
-            vlcIntent.setDataAndType(Uri.parse(url), "application/vnd.apple.mpegurl");
-            vlcIntent.setPackage("org.videolan.vlc");
-            startActivity(vlcIntent);
-            extractionInProgress = false;
-            extractionAttemptCount = 0;
-            extractionStatus = "opened_in_vlc";
-            playbackStatusMessage = "تم إرسال قناة Drama Live إلى VLC على التلفزيون.";
-            persistExtractionState();
-            Toast.makeText(this, "جاري فتح قناة Drama Live في VLC…", Toast.LENGTH_LONG).show();
-            Log.i(TAG, "Opened SwiftData Drama Live playlist in VLC");
-            return true;
-        } catch (ActivityNotFoundException e) {
-            Log.i(TAG, "VLC is not installed or did not accept the HLS MIME type; trying URI intent", e);
-        } catch (Exception e) {
-            Log.w(TAG, "Could not open Drama Live in VLC with HLS MIME type", e);
-        }
-
-        // Some VLC builds register the HTTP(S) URL filter without an HLS MIME filter.
-        try {
-            android.content.Intent vlcIntent = new android.content.Intent(
+            android.content.Intent intent = new android.content.Intent(
                     android.content.Intent.ACTION_VIEW, Uri.parse(url));
-            vlcIntent.setPackage("org.videolan.vlc");
-            startActivity(vlcIntent);
+            intent.setClassName("org.videolan.vlc", "org.videolan.vlc.StartActivity");
+            intent.setType("application/vnd.apple.mpegurl");
+            intent.putExtra("title", "Drama Live");
+            startActivity(intent);
             extractionInProgress = false;
             extractionAttemptCount = 0;
-            extractionStatus = "opened_in_vlc";
-            playbackStatusMessage = "تم إرسال قناة Drama Live إلى VLC على التلفزيون.";
+            extractionStatus = "vlc_launch_requested";
+            playbackStatusMessage = "تم إرسال رابط البث المباشر إلى VLC.";
             persistExtractionState();
-            Toast.makeText(this, "جاري فتح قناة Drama Live في VLC…", Toast.LENGTH_LONG).show();
-            Log.i(TAG, "Opened SwiftData Drama Live URL in VLC using URI intent");
+            Toast.makeText(this, "جاري إرسال البث المباشر إلى VLC…", Toast.LENGTH_LONG).show();
+            Log.i(TAG, "Requested VLC playback for extracted HLS playlist");
             return true;
-        } catch (ActivityNotFoundException e) {
-            Log.i(TAG, "VLC is not installed; falling back to Receiver's ExoPlayer", e);
         } catch (Exception e) {
-            Log.w(TAG, "VLC URI intent failed; falling back to Receiver's ExoPlayer", e);
+            Log.w(TAG, "Explicit VLC HLS launch failed; trying package VIEW intent", e);
         }
-        return false;
+        try {
+            android.content.Intent intent = new android.content.Intent(
+                    android.content.Intent.ACTION_VIEW);
+            intent.setDataAndType(Uri.parse(url), "application/vnd.apple.mpegurl");
+            intent.setPackage("org.videolan.vlc");
+            intent.putExtra("title", "Drama Live");
+            startActivity(intent);
+            extractionInProgress = false;
+            extractionAttemptCount = 0;
+            extractionStatus = "vlc_launch_requested";
+            playbackStatusMessage = "تم إرسال رابط البث المباشر إلى VLC.";
+            persistExtractionState();
+            Toast.makeText(this, "جاري إرسال البث المباشر إلى VLC…", Toast.LENGTH_LONG).show();
+            return true;
+        } catch (Exception e) {
+            Log.w(TAG, "VLC is unavailable or rejected the extracted HLS playlist", e);
+            return false;
+        }
     }
 
     // natively play media URLs; resolve page URLs to a direct stream instead of opening another app.
@@ -3711,14 +3774,8 @@ public class MainActivity extends Activity {
             }
             return;
         }
-        if (hasMedia && !hasAudio && !isImageUrl(mediaUrl)
-                && isSwiftDataDramaLiveUrl(mediaUrl)) {
-            if (!tryOpenDramaLiveInVlc(mediaUrl)) {
-                Log.i(TAG, "Using Receiver ExoPlayer fallback for SwiftData Drama Live URL");
-                playContent(mediaUrl, null, headers);
-            }
-            return;
-        }
+        // index.html is a web page, not an HLS playlist. Resolve its public player
+        // metadata first; only hand a real .m3u8 stream to VLC after extraction.
         if (hasMedia && isDirectStreamUrl(mediaUrl)) {
             extractionInProgress = false;
             extractionAttemptCount = 0;
