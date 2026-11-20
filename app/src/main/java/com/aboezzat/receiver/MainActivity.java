@@ -4056,21 +4056,15 @@ public class MainActivity extends Activity {
         }
     }
 
-    // Encode literal whitespace in incoming URLs before java.net.URL/HttpURLConnection
-    // sees them. Keep the character as %20 rather than deleting it, since it may be
-    // part of a provider path or query value.
+    // Raw whitespace is not valid inside an HTTP URL and some Drama Live
+    // endpoints accidentally arrive with spaces inserted by the source app.
+    // Remove literal ASCII whitespace only; preserve encoded values such as %20.
     private String normalizeIncomingHttpUrl(String value) {
         if (value == null) return null;
-        String trimmed = value.trim();
-        if (trimmed.isEmpty()) return trimmed;
-        StringBuilder normalized = new StringBuilder(trimmed.length() + 8);
-        for (int i = 0; i < trimmed.length(); i++) {
-            char ch = trimmed.charAt(i);
-            if (ch == ' ' || ch == '\\t' || ch == '\\r' || ch == '\\n') {
-                normalized.append("%20");
-            } else {
-                normalized.append(ch);
-            }
+        StringBuilder normalized = new StringBuilder(value.length());
+        for (int i = 0; i < value.length(); i++) {
+            char ch = value.charAt(i);
+            if (ch > 0x20 && ch != 0x7F) normalized.append(ch);
         }
         return normalized.toString();
     }
