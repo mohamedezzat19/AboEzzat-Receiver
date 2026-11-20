@@ -137,11 +137,11 @@ jobs:
           }
 
           (cd "$RUNNER_TEMP/ffmpeg-base" && zip -q -r "$GITHUB_WORKSPACE/app/libs/ffmpeg-kit-full.aar" .)
-          unzip -Z1 app/libs/ffmpeg-kit-full.aar | grep -q "jni/armeabi-v7a/libavutil.so" || {
+          unzip -Z1 "$GITHUB_WORKSPACE/app/libs/ffmpeg-kit-full.aar" | grep -q "jni/armeabi-v7a/libavutil.so" || {
             echo "::error::ARMv7 libraries were not merged into the app dependency."
             exit 1
           }
-          unzip -Z1 app/libs/ffmpeg-kit-full.aar | grep -q "jni/arm64-v8a/libavutil.so" || {
+          unzip -Z1 "$GITHUB_WORKSPACE/app/libs/ffmpeg-kit-full.aar" | grep -q "jni/arm64-v8a/libavutil.so" || {
             echo "::error::The original ARM64 libraries were not preserved."
             exit 1
           }
