@@ -4019,6 +4019,15 @@ public class MainActivity extends Activity {
                 }
                 int keyCode;
                 switch (command) {
+                    case "dlna_play":
+                        keyCode = android.view.KeyEvent.KEYCODE_MEDIA_PLAY;
+                        break;
+                    case "dlna_pause":
+                        keyCode = android.view.KeyEvent.KEYCODE_MEDIA_PAUSE;
+                        break;
+                    case "dlna_stop":
+                        keyCode = android.view.KeyEvent.KEYCODE_MEDIA_STOP;
+                        break;
                     case "play_pause":
                         keyCode = android.view.KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE;
                         break;
@@ -4056,6 +4065,21 @@ public class MainActivity extends Activity {
                 return;
             }
             switch (command) {
+                case "dlna_play":
+                    if (player.getPlaybackState() == Player.STATE_ENDED) player.seekToDefaultPosition();
+                    player.play();
+                    break;
+                case "dlna_pause":
+                    player.pause();
+                    break;
+                case "dlna_stop":
+                    savePlaybackPositionLocked();
+                    player.stop();
+                    player.clearMediaItems();
+                    currentPlaybackUrl = "";
+                    hideImage();
+                    showWelcome();
+                    break;
                 case "play_pause":
                     if (player.isPlaying()) {
                         player.pause();
