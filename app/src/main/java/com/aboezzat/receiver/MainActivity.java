@@ -863,6 +863,56 @@ public class MainActivity extends Activity {
         }
     }
 
+    // Phone-only home layout: keep the brand portrait at the top and place
+    // the two home actions in their own bottom-left dock, separate from the
+    // connection card at bottom-right. TV geometry remains unchanged.
+    private void applyMobileHomeLayout(int availableWidth) {
+        if (root == null || getResources().getConfiguration().smallestScreenWidthDp >= 600
+                || settingsHomeButton == null || browserHomeButton == null
+                || connectionCard == null) {
+            return;
+        }
+
+        int side = dp(44);
+        int left = dp(12);
+        int bottom = dp(12);
+        int gap = dp(8);
+        int cardWidth = Math.max(dp(150), Math.min(dp(230), availableWidth - dp(76)));
+
+        FrameLayout.LayoutParams settingsParams = new FrameLayout.LayoutParams(
+                side, side, Gravity.BOTTOM | Gravity.LEFT);
+        settingsParams.setMargins(left, dp(8), dp(8), bottom);
+        settingsHomeButton.setLayoutParams(settingsParams);
+
+        FrameLayout.LayoutParams browserParams = new FrameLayout.LayoutParams(
+                side, side, Gravity.BOTTOM | Gravity.LEFT);
+        browserParams.setMargins(left, dp(8), dp(8), bottom + side + gap);
+        browserHomeButton.setLayoutParams(browserParams);
+
+        FrameLayout.LayoutParams cardParams = new FrameLayout.LayoutParams(
+                cardWidth, FrameLayout.LayoutParams.WRAP_CONTENT,
+                Gravity.BOTTOM | Gravity.RIGHT);
+        cardParams.setMargins(dp(8), dp(8), dp(8), bottom);
+        connectionCard.setLayoutParams(cardParams);
+
+        settingsHomeButton.setNextFocusUpId(View.NO_ID);
+        settingsHomeButton.setNextFocusDownId(browserHomeButton.getId());
+        browserHomeButton.setNextFocusUpId(settingsHomeButton.getId());
+        browserHomeButton.setNextFocusDownId(View.NO_ID);
+
+        if (persistentBrandBadge != null) {
+            ViewGroup.LayoutParams badgeParams = persistentBrandBadge.getLayoutParams();
+            if (badgeParams instanceof FrameLayout.LayoutParams) {
+                FrameLayout.LayoutParams updated = (FrameLayout.LayoutParams) badgeParams;
+                updated.width = dp(56);
+                updated.height = dp(56);
+                updated.gravity = Gravity.TOP | Gravity.LEFT;
+                updated.setMargins(dp(10), dp(10), 0, 0);
+                persistentBrandBadge.setLayoutParams(updated);
+            }
+        }
+    }
+
     private void buildScreen() {
         root = new FrameLayout(this);
         root.setBackgroundColor(Color.rgb(3, 12, 32));
@@ -1331,6 +1381,12 @@ public class MainActivity extends Activity {
 
         addPersistentBrandBadge();
         setContentView(root);
+        if (compactPlayerChrome) {
+            root.addOnLayoutChangeListener((view, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom) -> {
+                applyMobileHomeLayout(right - left);
+            });
+            root.post(() -> applyMobileHomeLayout(root.getWidth()));
+        }
         settingsButton.requestFocus();
     }
 
