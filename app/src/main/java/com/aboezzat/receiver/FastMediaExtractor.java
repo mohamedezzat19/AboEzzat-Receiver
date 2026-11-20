@@ -196,8 +196,8 @@ public final class FastMediaExtractor {
 
     private static String clean(String value) {
         if (value == null) return null;
-        return value.trim().replace("\\\\/", "/").replace("\\\\u0026", "&")
-                .replace("\\\\u003D", "=").replace("&amp;", "&");
+        return value.trim().replace("\\/", "/").replace("\\u0026", "&")
+                .replace("\\u003D", "=").replace("&amp;", "&");
     }
 
     private static boolean isHttp(String value) {
