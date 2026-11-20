@@ -205,7 +205,8 @@ public final class DlnaMediaRenderer {
                 if ("UNSUBSCRIBE".equals(method)) {
                     respondExtra(client, 200, "text/plain", "", Collections.emptyMap());
                 } else if (sid != null) {
-                    respondExtra(client, 200, "text/plain", "", Map.of("SID", sid, "TIMEOUT", "Second-1800"));
+                    Map<String,String> renewal = new HashMap<>(); renewal.put("SID", sid); renewal.put("TIMEOUT", "Second-1800");
+                    respondExtra(client, 200, "text/plain", "", renewal);
                 } else {
                     String newSid = "uuid:" + UUID.randomUUID();
                     respondExtra(client, 200, "text/plain", "", Map.of("SID", newSid, "TIMEOUT", "Second-1800"));
@@ -282,16 +283,26 @@ public final class DlnaMediaRenderer {
         Map<String,String> result = new HashMap<>();
         XmlPullParser p = XmlPullParserFactory.newInstance().newPullParser();
         p.setInput(new StringReader(body));
+        int actionDepth = -1;
+        int argDepth = -1;
         String key = null;
-        int depth = -1;
+        StringBuilder value = new StringBuilder();
         while (p.next() != XmlPullParser.END_DOCUMENT) {
-            if (p.getEventType() == XmlPullParser.START_TAG && depth < 0) {
-                String n = p.getName();
-                if (!"Envelope".equals(n) && !"Body".equals(n)) { key = n; depth = p.getDepth(); }
-            } else if (depth >= 0 && p.getEventType() == XmlPullParser.TEXT) {
-                result.put(key, p.getText());
-            } else if (depth >= 0 && p.getEventType() == XmlPullParser.END_TAG && p.getDepth() == depth) {
-                depth = -1; key = null;
+            if (p.getEventType() == XmlPullParser.START_TAG) {
+                String name = p.getName();
+                if (actionDepth < 0 && !"Envelope".equals(name) && !"Body".equals(name)) {
+                    actionDepth = p.getDepth();
+                } else if (actionDepth >= 0 && p.getDepth() == actionDepth + 1) {
+                    key = name;
+                    argDepth = p.getDepth();
+                    value.setLength(0);
+                }
+            } else if (p.getEventType() == XmlPullParser.TEXT && key != null) {
+                value.append(p.getText());
+            } else if (p.getEventType() == XmlPullParser.END_TAG && key != null && p.getDepth() == argDepth) {
+                result.put(key, value.toString());
+                key = null;
+                argDepth = -1;
             }
         }
         return result;
