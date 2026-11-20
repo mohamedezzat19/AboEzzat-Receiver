@@ -387,21 +387,28 @@ public final class DlnaMediaRenderer {
         return null;
     }
     private String lanIp() {
+        String fallback = null;
         try {
             Enumeration<NetworkInterface> en = NetworkInterface.getNetworkInterfaces();
             while (en.hasMoreElements()) {
                 NetworkInterface ni = en.nextElement();
-                if (!ni.isUp() || ni.isLoopback()) continue;
+                if (!ni.isUp() || ni.isLoopback() || ni.isVirtual()) continue;
                 String n = ni.getName().toLowerCase(Locale.ROOT);
-                if (n.contains("tun") || n.contains("vpn") || n.contains("wg")) continue;
+                if (n.contains("tun") || n.contains("tap") || n.contains("vpn")
+                        || n.contains("ppp") || n.contains("wg")) continue;
                 Enumeration<InetAddress> ips = ni.getInetAddresses();
                 while (ips.hasMoreElements()) {
                     InetAddress ip = ips.nextElement();
-                    if (ip instanceof Inet4Address && ip.isSiteLocalAddress() && !ip.isLoopbackAddress()) return ip.getHostAddress();
+                    if (!(ip instanceof Inet4Address) || !ip.isSiteLocalAddress()
+                            || ip.isLoopbackAddress() || ip.isLinkLocalAddress()) continue;
+                    if (n.contains("wlan") || n.contains("wifi") || n.contains("eth")) {
+                        return ip.getHostAddress();
+                    }
+                    if (fallback == null) fallback = ip.getHostAddress();
                 }
             }
         } catch (Exception ignored) {}
-        return "0.0.0.0";
+        return fallback == null ? "0.0.0.0" : fallback;
     }
     private NetworkInterface findLanInterface() {
         try {
