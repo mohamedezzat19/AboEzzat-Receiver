@@ -4328,7 +4328,11 @@ public class MainActivity extends Activity {
                     player.seekTo(savedPosition);
                     Toast.makeText(MainActivity.this, "تم استئناف التشغيل من آخر موضع محفوظ", Toast.LENGTH_SHORT).show();
                 }
-                player.play();\n                if (isDashManifestUrl(playbackUrl)) {\n                    final String diagnosticUrl = playbackUrl;\n                    new Handler(Looper.getMainLooper()).postDelayed(() -> showDashPlaybackDiagnostic(diagnosticUrl), 15000L);\n                }\n            }\n            // Keep the screen clean when a newly received video starts.
+                player.play();
+                if (isDashManifestUrl(playbackUrl)) {
+                    final String diagnosticUrl = playbackUrl;
+                    new Handler(Looper.getMainLooper()).postDelayed(() -> showDashPlaybackDiagnostic(diagnosticUrl), 15000L);
+                }\n            }\n            // Keep the screen clean when a newly received video starts.
             playerView.hideController();
             focusPlayPauseAsPlayerHome();
 
@@ -4357,7 +4361,8 @@ public class MainActivity extends Activity {
                     || lowerUrl.contains("format=m3u8")
                     || lowerUrl.contains("playlist.m3u8")
                     || lowerUrl.contains("chunklist");
-            boolean dashManifest = lowerUrl.contains("application/dash+xml")\n                    || lowerUrl.contains("format=mpd") || lowerPath.endsWith(".mpd");
+            boolean dashManifest = lowerUrl.contains("application/dash+xml")
+                    || lowerUrl.contains("format=mpd") || lowerPath.endsWith(".mpd");
 
             if (hlsManifest || lowerPath.matches("^/[^/]+/[^/]+/index\\.html$")) {
                 builder.setMimeType(MimeTypes.APPLICATION_M3U8);
