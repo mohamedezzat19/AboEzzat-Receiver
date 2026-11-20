@@ -693,6 +693,7 @@ public class MainActivity extends Activity {
         super.onResume();
         registerNetworkCallback();
         updateConnectionInfo();
+        new AppUpdater(this).verifyPendingInstallAfterResume();
     }
 
     @Override
@@ -2573,6 +2574,10 @@ public class MainActivity extends Activity {
     @Override
     protected void onActivityResult(int requestCode, int resultCode, android.content.Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode == 9318) {
+            // The authoritative check runs in onResume against PackageManager's installed version.
+            return;
+        }
         if (requestCode != REQUEST_BROWSER_VOICE || resultCode != RESULT_OK || data == null) return;
         java.util.ArrayList<String> matches = data.getStringArrayListExtra(
                 android.speech.RecognizerIntent.EXTRA_RESULTS);
