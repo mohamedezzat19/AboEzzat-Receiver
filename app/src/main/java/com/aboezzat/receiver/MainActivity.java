@@ -1161,7 +1161,7 @@ public class MainActivity extends Activity {
             promptSubtitleTitleAndSearch();
             return true;
         });
-        int subtitleEndMargin = compactPlayerChrome ? dp(166) : dp(182);
+        int subtitleEndMargin = compactPlayerChrome ? dp(114) : dp(130);
         FrameLayout.LayoutParams playerSubtitleParams = new FrameLayout.LayoutParams(
                 dp(46), dp(44), Gravity.TOP | Gravity.END);
         playerSubtitleParams.setMargins(dp(8), dp(10), subtitleEndMargin, dp(8));
@@ -1196,7 +1196,7 @@ public class MainActivity extends Activity {
         playerDownloadButton.setOnClickListener(v -> showCurrentPlaybackDownloadOptions());
         FrameLayout.LayoutParams playerDownloadParams = new FrameLayout.LayoutParams(
                 dp(46), dp(44), Gravity.TOP | Gravity.END);
-        playerDownloadParams.setMargins(dp(8), dp(10), dp(114), dp(8));
+        playerDownloadParams.setMargins(dp(8), dp(10), dp(compactPlayerChrome ? 166 : 182), dp(8));
         root.addView(playerDownloadButton, playerDownloadParams);
 
         // These overlays must sit above the full-screen PlayerView on phones and TVs.
@@ -1223,9 +1223,12 @@ public class MainActivity extends Activity {
             } else {
                 playerControlsHandler.removeCallbacks(hidePlayerControlsRunnable);
             }
-            // أزرار التطبيق الرئيسية لا تظهر مطلقًا فوق المشغل.
-            if (settingsHomeButton != null) settingsHomeButton.setVisibility(View.GONE);
-            if (browserHomeButton != null) browserHomeButton.setVisibility(View.GONE);
+            // أزرار التطبيق الرئيسية لا تظهر مطلقًا فوق المشغل، ولا نخفيها بعد العودة للرئيسية.
+            boolean mediaSurfaceActive = playerView != null && playerView.getVisibility() == View.VISIBLE;
+            if (mediaSurfaceActive) {
+                if (settingsHomeButton != null) settingsHomeButton.setVisibility(View.GONE);
+                if (browserHomeButton != null) browserHomeButton.setVisibility(View.GONE);
+            }
             if (playerSubtitleButton != null) {
                 playerSubtitleButton.setVisibility(controlsVisible && currentPlaybackHasVideo
                         ? View.VISIBLE : View.GONE);
@@ -4875,7 +4878,7 @@ public class MainActivity extends Activity {
         boolean hasVideo = currentPlaybackHasVideo && currentPlaybackUrl != null && !currentPlaybackUrl.isEmpty();
         String audio = currentPlaybackAudioUrl == null ? "" : currentPlaybackAudioUrl;
         if (audio.isEmpty() && currentPlaybackUrl != null) audio = currentPlaybackUrl;
-        boolean hasAudio = !audio.isEmpty();
+        boolean hasAudio = currentPlaybackHasVideo || !audio.isEmpty();
         if (!hasVideo && !hasAudio) {
             Toast.makeText(this, "لا توجد وسائط قابلة للتنزيل حاليًا", Toast.LENGTH_SHORT).show();
             return;
@@ -4887,7 +4890,7 @@ public class MainActivity extends Activity {
                 .setItems(options.toArray(new String[0]), (dialog, which) -> {
                     boolean asMp3 = hasVideo ? which == 1 : true;
                     String video = hasVideo ? currentPlaybackUrl : "";
-                    String audioUrl = hasAudio ? audio : "";
+                    String audioUrl = !currentPlaybackAudioUrl.isEmpty() ? currentPlaybackAudioUrl : "";
                     PlaybackHistoryItem item = new PlaybackHistoryItem(video, audioUrl,
                             "وسائط AboEzzat", currentPlaybackHeaders);
                     startHistoryDownload(item, asMp3);
@@ -5042,10 +5045,10 @@ public class MainActivity extends Activity {
             if (playPause != null) {
                 playPause.setFocusable(true);
                 playPause.setFocusableInTouchMode(true);
-                playPause.setNextFocusUpId(settingsHomeButton == null
-                        ? View.NO_ID : settingsHomeButton.getId());
-                if (settingsHomeButton != null) settingsHomeButton.setNextFocusDownId(playPause.getId());
-                if (browserHomeButton != null) browserHomeButton.setNextFocusDownId(playPause.getId());
+                int topActionId = playerSettingsButton == null ? View.NO_ID : playerSettingsButton.getId();
+                playPause.setNextFocusUpId(topActionId);
+                if (playerSettingsButton != null) playerSettingsButton.setNextFocusDownId(playPause.getId());
+                if (playerDownloadButton != null) playerDownloadButton.setNextFocusDownId(playPause.getId());
                 if (playerSubtitleButton != null) playerSubtitleButton.setNextFocusDownId(playPause.getId());
                 playPause.requestFocus();
             } else {
