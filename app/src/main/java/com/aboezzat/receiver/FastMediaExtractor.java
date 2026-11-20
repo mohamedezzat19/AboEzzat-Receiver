@@ -132,13 +132,44 @@ public final class FastMediaExtractor {
 
     private static String findJson(String html, String platform) {
         Matcher m = JSON_VIDEO.matcher(html);
+        String bestValue = null;
+        int bestScore = Integer.MIN_VALUE;
         while (m.find()) {
             String key = m.group(1);
-            if ("TikTok".equals(platform) && !(key.equalsIgnoreCase("playAddr") || key.equalsIgnoreCase("play_addr") || key.equalsIgnoreCase("downloadAddr"))) continue;
+            String lowerKey = key.toLowerCase(Locale.ROOT);
+            if ("TikTok".equals(platform) && !(lowerKey.equals("playaddr")
+                    || lowerKey.equals("play_addr") || lowerKey.equals("downloadaddr"))) continue;
             String value = clean(m.group(2));
-            if (isHttp(value) && ((value.toLowerCase(Locale.ROOT).contains(".mp4") || value.toLowerCase(Locale.ROOT).contains(".m3u8") || value.toLowerCase(Locale.ROOT).contains(".mpd") || value.toLowerCase(Locale.ROOT).contains(".webm")) || key.toLowerCase(Locale.ROOT).contains("playable") || key.toLowerCase(Locale.ROOT).contains("playaddr") || key.equalsIgnoreCase("downloadAddr") || key.equalsIgnoreCase("video_url") || key.equalsIgnoreCase("video_url_https") || key.equalsIgnoreCase("playbackUrl") || key.equalsIgnoreCase("hlsUrl") || key.equalsIgnoreCase("manifestUrl"))) return value;
+            if (!isHttp(value)) continue;
+
+            String lowerValue = value.toLowerCase(Locale.ROOT);
+            boolean mediaLike = lowerValue.contains(".mp4") || lowerValue.contains(".m3u8")
+                    || lowerValue.contains(".mpd") || lowerValue.contains(".webm")
+                    || lowerKey.contains("playable") || lowerKey.contains("playaddr")
+                    || lowerKey.equals("downloadaddr") || lowerKey.equals("video_url")
+                    || lowerKey.equals("video_url_https") || lowerKey.equals("playbackurl")
+                    || lowerKey.equals("hlsurl") || lowerKey.equals("manifesturl");
+            if (!mediaLike) continue;
+
+            // Prefer explicitly high-quality/playback fields over generic or download fallbacks.
+            int score = 0;
+            if (lowerKey.contains("quality_hd") || lowerKey.contains("native_hd")) score += 60;
+            else if (lowerKey.equals("playaddr") || lowerKey.equals("play_addr")) score += 50;
+            else if (lowerKey.equals("playbackurl") || lowerKey.equals("hlsurl")
+                    || lowerKey.equals("manifesturl")) score += 45;
+            else if (lowerKey.equals("playable_url")) score += 40;
+            else if (lowerKey.equals("video_url") || lowerKey.equals("video_url_https")) score += 30;
+            else if (lowerKey.equals("downloadaddr")) score += 20;
+            if (lowerValue.contains(".m3u8") || lowerValue.contains(".mpd")) score += 8;
+            else if (lowerValue.contains(".mp4") || lowerValue.contains(".webm")) score += 5;
+            if (lowerValue.contains("preview") || lowerValue.contains("thumbnail")
+                    || lowerValue.contains("cover")) score -= 100;
+            if (score > bestScore) {
+                bestScore = score;
+                bestValue = value;
+            }
         }
-        return null;
+        return bestValue;
     }
 
     private static String findMp4(String html) {
