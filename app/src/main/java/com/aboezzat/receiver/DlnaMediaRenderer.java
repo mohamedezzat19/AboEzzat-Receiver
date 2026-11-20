@@ -265,13 +265,26 @@ public final class DlnaMediaRenderer {
         String actionHeader = headers.get("soapaction");
         String action = actionHeader == null ? "" : actionHeader.substring(actionHeader.lastIndexOf('#') + 1).replace("\"", "").trim();
         Map<String,String> args = parseArgs(body);
-        String service = headers.get("soapaction") == null ? "" : headers.get("soapaction");
+        if (action.isEmpty()) {
+            action = findSoapAction(body);
+        }
+        Log.i(TAG, "SOAP request action=" + action + " args=" + args.keySet());
         String response;
         switch (action) {
             case "SetAVTransportURI":
                 String uri = args.get("CurrentURI");
-                if (uri == null || !(uri.startsWith("http://") || uri.startsWith("https://"))) {
-                    soapFault(client, 402, "Invalid Args"); return;
+                uri = uri == null ? "" : uri.trim();
+                boolean validUri = false;
+                try {
+                    URL parsed = new URL(uri);
+                    validUri = ("http".equalsIgnoreCase(parsed.getProtocol())
+                            || "https".equalsIgnoreCase(parsed.getProtocol()))
+                            && parsed.getHost() != null && !parsed.getHost().trim().isEmpty();
+                } catch (Exception ignored) { }
+                if (!validUri) {
+                    Log.w(TAG, "SetAVTransportURI rejected: CurrentURI missing or not a valid HTTP(S) URL; args=" + args.keySet());
+                    soapFault(client, 402, "Invalid CurrentURI");
+                    return;
                 }
                 currentUri = uri;
                 state = "STOPPED";
@@ -364,6 +377,24 @@ public final class DlnaMediaRenderer {
         }
     }
 
+    private String findSoapAction(String body) {
+        try {
+            XmlPullParser parser = XmlPullParserFactory.newInstance().newPullParser();
+            parser.setInput(new StringReader(body));
+            boolean inBody = false;
+            while (parser.next() != XmlPullParser.END_DOCUMENT) {
+                if (parser.getEventType() == XmlPullParser.START_TAG) {
+                    String name = parser.getName();
+                    if ("Body".equals(name)) inBody = true;
+                    else if (inBody) return name;
+                }
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "Unable to identify SOAP action from body", e);
+        }
+        return "";
+    }
+
     private Map<String,String> parseArgs(String body) throws Exception {
         Map<String,String> result = new HashMap<>();
         XmlPullParser p = XmlPullParserFactory.newInstance().newPullParser();
@@ -382,8 +413,11 @@ public final class DlnaMediaRenderer {
                     argDepth = p.getDepth();
                     value.setLength(0);
                 }
-            } else if (p.getEventType() == XmlPullParser.TEXT && key != null) {
-                value.append(p.getText());
+            } else if ((p.getEventType() == XmlPullParser.TEXT
+                    || p.getEventType() == XmlPullParser.CDSECT
+                    || p.getEventType() == XmlPullParser.ENTITY_REF) && key != null) {
+                String text = p.getText();
+                if (text != null) value.append(text);
             } else if (p.getEventType() == XmlPullParser.END_TAG && key != null && p.getDepth() == argDepth) {
                 result.put(key, value.toString());
                 key = null;
@@ -447,6 +481,7 @@ public final class DlnaMediaRenderer {
                 + "</u:" + action + "Response></s:Body></s:Envelope>";
     }
     private void soapFault(Socket c, int code, String desc) throws Exception {
+        Log.w(TAG, "Returning UPnP SOAP fault " + code + ": " + desc);
         String b = "<?xml version=\"1.0\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\"><s:Body><s:Fault><faultcode>s:Client</faultcode><faultstring>UPnPError</faultstring><detail><UPnPError xmlns=\"urn:schemas-upnp-org:control-1-0\"><errorCode>"
                 + code + "</errorCode><errorDescription>" + desc + "</errorDescription></UPnPError></detail></s:Fault></s:Body></s:Envelope>";
         respond(c, 500, "text/xml; charset=utf-8", b);
