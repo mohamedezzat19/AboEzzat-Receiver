@@ -2563,7 +2563,7 @@ public class MainActivity extends Activity {
                         // Confirm the manifest signature before handing the original URL to
                         // Media3; otherwise continue parsing the page for its real stream URL.
                         String manifestProbe = pageContent;
-                        if (manifestProbe.startsWith("\\uFEFF")) manifestProbe = manifestProbe.substring(1);
+                        if (!manifestProbe.isEmpty() && manifestProbe.charAt(0) == 0xFEFF) manifestProbe = manifestProbe.substring(1);
                         manifestProbe = manifestProbe.trim();
                         if (manifestProbe.startsWith("#EXTM3U")) {
                             run.candidate(connection.getURL().toString(), "HLS manifest body", false, true);
