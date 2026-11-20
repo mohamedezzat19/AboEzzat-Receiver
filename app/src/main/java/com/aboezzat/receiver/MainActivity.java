@@ -2558,6 +2558,17 @@ public class MainActivity extends Activity {
                             }
                         }
                         String pageContent = html.toString();
+                        // Some IPTV endpoints return the HLS manifest body from index.html
+                        // (often text/plain or text/html) instead of exposing a .m3u8 URL.
+                        // Confirm the manifest signature before handing the original URL to
+                        // Media3; otherwise continue parsing the page for its real stream URL.
+                        String manifestProbe = pageContent;
+                        if (manifestProbe.startsWith("\\uFEFF")) manifestProbe = manifestProbe.substring(1);
+                        manifestProbe = manifestProbe.trim();
+                        if (manifestProbe.startsWith("#EXTM3U")) {
+                            run.candidate(connection.getURL().toString(), "HLS manifest body", false, true);
+                            return;
+                        }
                         String result = extractDirectMediaFromHtml(pageContent, pageUrl);
                         // A number of IPTV/player pages expose only a small index.html
                         // shell and keep the actual stream URLs in a same-origin index.json.
@@ -4145,9 +4156,9 @@ public class MainActivity extends Activity {
             }
             return;
         }
-        // index.html is a web page, not an HLS playlist. Resolve its public player
-        // metadata first; only hand a real .m3u8 stream to VLC after extraction.
-        if (hasMedia && (isDirectStreamUrl(mediaUrl) || isKnownHtmlHlsPlaylistUrl(mediaUrl))) {
+        // A known index.html endpoint may be either an HLS manifest served from an
+        // .html path or a real HTML player shell. Inspect it before choosing playback.
+        if (hasMedia && isDirectStreamUrl(mediaUrl)) {
             extractionInProgress = false;
             extractionAttemptCount = 0;
             extractionStatus = "preparing";
@@ -4155,7 +4166,6 @@ public class MainActivity extends Activity {
             persistExtractionState();
         }
         if (hasMedia && !isImageUrl(mediaUrl) && !isDirectStreamUrl(mediaUrl)
-                && !isKnownHtmlHlsPlaylistUrl(mediaUrl)
                 && !isPhoneLocalMediaUrl(mediaUrl) && !hasAudio
                 && (mediaUrl.startsWith("http://") || mediaUrl.startsWith("https://"))) {
             if (isYouTubeUrl(mediaUrl)) extractYouTubeOnReceiver(mediaUrl);
