@@ -612,6 +612,18 @@ public class MainActivity extends Activity {
             String command = intent.getStringExtra(ReceiverServerService.EXTRA_COMMAND);
             String incomingUrl = intent.getStringExtra(ReceiverServerService.EXTRA_URL);
             String incomingAudio = intent.getStringExtra(ReceiverServerService.EXTRA_AUDIO);
+            String dlnaMetadata = intent.getStringExtra(ReceiverServerService.EXTRA_METADATA);
+            if (dlnaMetadata != null && !dlnaMetadata.isEmpty()) {
+                String lowerMetadata = dlnaMetadata.toLowerCase(Locale.ROOT);
+                Log.i(TAG, "DLNA metadata received: chars=" + dlnaMetadata.length()
+                        + ", headerTag=" + lowerMetadata.contains("<header")
+                        + ", httpHeaderTag=" + lowerMetadata.contains("http-header")
+                        + ", cookieMarker=" + lowerMetadata.contains("cookie")
+                        + ", refererMarker=" + lowerMetadata.contains("referer")
+                        + ", originMarker=" + lowerMetadata.contains("origin"));
+            } else {
+                Log.i(TAG, "DLNA metadata received: empty");
+            }
             java.util.Map<String, String> incomingHeaders = new java.util.LinkedHashMap<>();
             try {
                 JSONObject headerJson = new JSONObject(intent.getStringExtra("server_headers") == null
