@@ -70,6 +70,7 @@ public class ReceiverServerService extends Service {
         startForeground(NOTIFICATION_ID, buildNotification());
         startServer();
         startDiscoveryHeartbeat();
+        startDlnaRenderer();
     }
 
     @Override
@@ -81,6 +82,7 @@ public class ReceiverServerService extends Service {
             startForeground(NOTIFICATION_ID, buildNotification());
             startServer();
             startDiscoveryHeartbeat();
+            startDlnaRenderer();
         }
         return START_STICKY;
     }
