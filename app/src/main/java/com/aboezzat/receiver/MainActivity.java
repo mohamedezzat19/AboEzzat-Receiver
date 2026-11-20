@@ -2700,7 +2700,9 @@ public class MainActivity extends Activity {
             playbackStatusMessage = "تعذر الاستخراج المباشر وSmartTube غير متاح؛ لم يتم فتح منتقي التطبيقات.";
             persistExtractionState();
         }
-        recordReceiverFailure("استخراج الرابط", pageUrl, "", playbackStatusMessage);
+        recordReceiverFailure("استخراج الرابط", pageUrl, "",
+                playbackStatusMessage == null || playbackStatusMessage.trim().isEmpty()
+                        ? "لم يتم العثور على رابط بث مباشر بعد تجربة محركات الاستخراج." : playbackStatusMessage);
         pendingBrowserUrl = pageUrl;
         showWelcome();
         if (browserShortcut != null) browserShortcut.setVisibility(View.VISIBLE);
@@ -4122,6 +4124,8 @@ public class MainActivity extends Activity {
         if (!hasMedia && !hasAudio) {
             if ((originalMediaUrl != null && !originalMediaUrl.trim().isEmpty())
                     || (originalAudioUrl != null && !originalAudioUrl.trim().isEmpty())) {
+                recordReceiverFailure("استلام الرابط", originalIncomingMediaUrl, "",
+                        "الرابط المستلم لم يكن عنوان HTTP/HTTPS صالحًا أو لم يكن مدعومًا.");
                 Toast.makeText(this, "رابط غير مدعوم؛ استخدم رابط HTTP أو HTTPS صالحًا.", Toast.LENGTH_LONG).show();
             }
             return;
