@@ -2139,7 +2139,7 @@ public class MainActivity extends Activity {
                 "thumbnail", "thumbnailurl", "thumb", "poster", "cover",
                 "preview", "previewurl", "avatar", "image", "imageurl",
                 "logo", "icon", "subtitle", "subtitles", "caption",
-                "description", "watermark", "ad", "ads", "advertisement",
+                "description", "watermark", "ads", "advertisement", "adurl", "adtag",
                 "banner", "sprite", "storyboard"
         };
         for (String token : excluded) {
