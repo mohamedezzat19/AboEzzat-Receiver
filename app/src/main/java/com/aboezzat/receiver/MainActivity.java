@@ -1877,10 +1877,14 @@ public class MainActivity extends Activity {
                     && (lowerPath.contains("/t50.") || lowerPath.contains("/v/t")));
             return knownSocialCdnVideo
                     || lowerPath.endsWith(".mp4") || lowerPath.endsWith(".m4v")
-                    || lowerPath.endsWith(".webm") || lowerPath.endsWith(".mov")
-                    || lowerPath.endsWith(".flv") || lowerPath.endsWith(".m3u8") || lowerPath.endsWith(".mpd")
+                    || lowerPath.endsWith(".mkv") || lowerPath.endsWith(".webm") || lowerPath.endsWith(".mov")
+                    || lowerPath.endsWith(".flv") || lowerPath.endsWith(".avi")
+                    || lowerPath.endsWith(".mpg") || lowerPath.endsWith(".mpeg")
+                    || lowerPath.endsWith(".3gp") || lowerPath.endsWith(".ogv")
+                    || lowerPath.endsWith(".wmv") || lowerPath.endsWith(".vob")
+                    || lowerPath.endsWith(".ts") || lowerPath.endsWith(".m2ts")
+                    || lowerPath.endsWith(".m3u8") || lowerPath.endsWith(".mpd")
                     || lowerPath.endsWith(".ism") || lowerPath.endsWith(".ismc")
-                    || lowerPath.endsWith(".m2ts")
                     || lowerPath.endsWith(".mp3") || lowerPath.endsWith(".m4a")
                     || lowerPath.endsWith(".aac") || lowerPath.endsWith(".ogg")
                     || lowerPath.endsWith(".oga") || lowerPath.endsWith(".opus")
@@ -1895,6 +1899,17 @@ public class MainActivity extends Activity {
                     || lower.contains("contenttype=audio");
         } catch (Exception ignored) {
             return false;
+        }
+    }
+
+    private String resolveExtractedUrl(String value, String pageUrl) {
+        String candidate = cleanExtractedUrl(value);
+        if (candidate != null) return candidate;
+        if (value == null || pageUrl == null) return null;
+        try {
+            return cleanExtractedUrl(new URL(new URL(pageUrl), value.trim()).toString());
+        } catch (Exception ignored) {
+            return null;
         }
     }
 
@@ -1914,7 +1929,7 @@ public class MainActivity extends Activity {
         }
         if (candidate.startsWith("//")) candidate = "https:" + candidate;
         return candidate.startsWith("http://") || candidate.startsWith("https://")
-                ? candidate : null;
+                || candidate.startsWith("rtsp://") ? candidate : null;
     }
 
     // Extract only publicly exposed media URLs from page metadata or player JSON.
@@ -1953,7 +1968,11 @@ public class MainActivity extends Activity {
                 "hls_pull_url", "hlsPullUrl", "flv_pull_url", "flvPullUrl",
                 "pull_url", "pullUrl", "liveUrl", "live_url",
                 "flvUrl", "flv_url", "flvPullUrl", "flv_pull_url",
-                "hlsPullUrl", "hls_pull_url", "live_play_url", "livePlayUrl"
+                "hlsPullUrl", "hls_pull_url", "live_play_url", "livePlayUrl",
+                "src", "source", "file", "fileUrl", "file_url", "media", "mediaUrl",
+                "media_url", "manifest", "manifestUrl", "manifest_url", "dashUrl",
+                "dash_url", "mpdUrl", "mpd_url", "playlist", "playlistUrl",
+                "playlist_url", "stream", "streamUrl", "stream_url", "url"
         };
         for (String field : fieldNames) {
             java.util.regex.Matcher matcher = java.util.regex.Pattern
@@ -1966,8 +1985,18 @@ public class MainActivity extends Activity {
             }
         }
 
+        // Capture common direct media extensions, including extensionless RTSP URLs
+        // exposed by HTML media elements and public player configuration.
+        java.util.regex.Matcher mediaElements = java.util.regex.Pattern
+                .compile("(?is)<(?:video|audio|source)\\b[^>]*?\\b(?:src|data-src)\\s*=\\s*['\\\"]([^'\\\"]+)['\\\"]")
+                .matcher(html);
+        while (mediaElements.find()) {
+            String candidate = resolveExtractedUrl(mediaElements.group(1), pageUrl);
+            if (candidate != null && isDirectStreamUrl(candidate)) candidates.add(candidate);
+        }
+
         java.util.regex.Matcher rawMedia = java.util.regex.Pattern
-                .compile("(?is)(https?:\\\\?/\\\\?/[^\\s'\\\"><]+?\\.(?:mp4|m4v|webm|mov|m3u8|mpd|mp3|m4a|aac|ogg|oga|opus|wav|flac)(?:\\?[^\\s'\\\"><]*)?)")
+                .compile("(?is)(?:https?:\\\\?/\\\\?/|rtsp://)[^\\s'\\\"><]+?\\.(?:mp4|m4v|mkv|webm|mov|flv|avi|mpg|mpeg|3gp|ogv|wmv|vob|ts|m2ts|m3u8|mpd|ism|ismc|mp3|m4a|aac|ogg|oga|opus|wav|flac|wma)(?:[?#][^\\s'\\\"><]*)?")
                 .matcher(html);
         while (rawMedia.find()) {
             String candidate = cleanExtractedUrl(rawMedia.group(1));
