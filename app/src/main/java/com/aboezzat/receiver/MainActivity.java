@@ -2316,6 +2316,25 @@ public class MainActivity extends Activity {
         return false;
     }
 
+    private boolean isLikelyMediaJsonKey(String normalizedKey) {
+        if (normalizedKey == null || normalizedKey.isEmpty()
+                || isExcludedJsonMediaKey(normalizedKey)) return false;
+        // These keys commonly hold signed, extension-less CDN URLs in IPTV and
+        // social-media player JSON. Avoid accepting arbitrary generic "url" fields.
+        String[] mediaKeys = {
+                "playaddr", "downloadaddr", "contenturl", "videourl",
+                "playbackurl", "hlsurl", "playurl", "streamurl",
+                "hlspullurl", "flvpullurl", "pullurl", "liveurl",
+                "liveplayurl", "mediaurl", "manifesturl", "dashurl",
+                "mpdurl", "playlisturl", "sourceurl", "fileurl",
+                "flvurl", "srcurl"
+        };
+        for (String key : mediaKeys) {
+            if (normalizedKey.equals(key)) return true;
+        }
+        return false;
+    }
+
     private void collectJsonMediaCandidates(Object node,
             java.util.Set<String> candidates, String pageUrl,
             int depth, int[] visitedNodes) {
@@ -2330,15 +2349,22 @@ public class MainActivity extends Activity {
                 String key = keys.next();
                 String normalizedKey = key == null ? "" : key.toLowerCase(Locale.ROOT)
                         .replace("-", "").replace("_", "");
-                // Do not treat poster/thumbnail/artwork or ad metadata as a playable
-                // stream, even when its URL happens to use a social CDN host.
                 if (isExcludedJsonMediaKey(normalizedKey)) continue;
                 Object value = object.opt(key);
                 if (value instanceof String) {
                     String raw = ((String) value).trim();
                     String candidate = resolveExtractedUrl(raw, pageUrl);
-                    if (candidate != null && isDirectStreamUrl(candidate)) {
+                    if (candidate != null && (isDirectStreamUrl(candidate)
+                            || (isLikelyMediaJsonKey(normalizedKey) && isHttpUrl(candidate)))) {
                         candidates.add(candidate);
+                    } else if (raw.length() > 1 && raw.length() <= 1024 * 1024
+                            && (raw.startsWith("{") || raw.startsWith("["))) {
+                        // Some APIs double-encode the player object as a JSON string.
+                        try {
+                            Object nested = new org.json.JSONTokener(raw).nextValue();
+                            collectJsonMediaCandidates(nested, candidates, pageUrl,
+                                    depth + 1, visitedNodes);
+                        } catch (Exception ignored) { }
                     }
                 } else if (value instanceof JSONObject || value instanceof org.json.JSONArray) {
                     collectJsonMediaCandidates(value, candidates, pageUrl,
@@ -2355,6 +2381,13 @@ public class MainActivity extends Activity {
                     String candidate = resolveExtractedUrl(raw, pageUrl);
                     if (candidate != null && isDirectStreamUrl(candidate)) {
                         candidates.add(candidate);
+                    } else if (raw.length() > 1 && raw.length() <= 1024 * 1024
+                            && (raw.startsWith("{") || raw.startsWith("["))) {
+                        try {
+                            Object nested = new org.json.JSONTokener(raw).nextValue();
+                            collectJsonMediaCandidates(nested, candidates, pageUrl,
+                                    depth + 1, visitedNodes);
+                        } catch (Exception ignored) { }
                     }
                 } else if (value instanceof JSONObject || value instanceof org.json.JSONArray) {
                     collectJsonMediaCandidates(value, candidates, pageUrl,
