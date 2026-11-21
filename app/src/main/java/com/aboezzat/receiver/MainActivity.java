@@ -6355,15 +6355,17 @@ public class MainActivity extends Activity {
             Toast.makeText(this, "المزامنة متاحة لملفات SRT وVTT فقط", Toast.LENGTH_LONG).show();
             return;
         }
+        File source = activeExternalSubtitleSource;
         File shifted = null;
         try {
-            shifted = createShiftedSubtitleCopy(activeExternalSubtitleSource, nextOffset);
+            shifted = createShiftedSubtitleCopy(source, nextOffset);
             if (shifted == null || !applySubtitleFile(shifted)) {
                 if (shifted != null) shifted.delete();
+                activeExternalSubtitleSource = source;
                 Toast.makeText(this, "تعذّر تطبيق توقيت الترجمة الجديد", Toast.LENGTH_LONG).show();
                 return;
             }
-            activeExternalSubtitleSource = activeExternalSubtitleSource;
+            activeExternalSubtitleSource = source;
             activeExternalSubtitleOffsetMs = nextOffset;
             Toast.makeText(this, "تم تحديث توقيت الترجمة: "
                     + String.format(Locale.US, "%+.1f", nextOffset / 1000.0) + " ثانية",
