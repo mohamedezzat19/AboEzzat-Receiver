@@ -6,4 +6,5 @@
     android:background="#000000"
     app:resize_mode="fit"
     app:surface_type="texture_view"
-    app:use_controller="true" />
+    app:use_controller="true"
+    app:controller_layout_id="@layout/receiver_player_controller" />
