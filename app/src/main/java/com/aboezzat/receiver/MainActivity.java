@@ -149,6 +149,7 @@ public class MainActivity extends Activity {
     private FrameLayout browserHomePanel;
     private LinearLayout browserBookmarksContainer;
     private static final int REQUEST_BROWSER_VOICE = 7421;
+    private static final int REQUEST_SUBTITLE_FILE = 7422;
     private boolean tvBrowserMode = false;
     private WebView pendingPopupWebView;
     private WebView activePopupWebView;
@@ -3221,6 +3222,12 @@ public class MainActivity extends Activity {
             // The authoritative check runs in onResume against PackageManager's installed version.
             return;
         }
+        if (requestCode == REQUEST_SUBTITLE_FILE) {
+            if (resultCode == RESULT_OK && data != null && data.getData() != null) {
+                importExternalSubtitle(data.getData());
+            }
+            return;
+        }
         if (requestCode != REQUEST_BROWSER_VOICE || resultCode != RESULT_OK || data == null) return;
         java.util.ArrayList<String> matches = data.getStringArrayListExtra(
                 android.speech.RecognizerIntent.EXTRA_RESULTS);
@@ -5626,7 +5633,8 @@ public class MainActivity extends Activity {
         }
         String[] options = {
                 "🔊  اختيار مسار الصوت",
-                "💬  اختيار مسار الترجمة",
+                "💬  اختيار مسار الترجمة المدمجة",
+                "📂  استيراد ملف ترجمة من الجهاز",
                 "🌐  البحث عن ترجمة عربية"
         };
         new AlertDialog.Builder(this)
@@ -5640,6 +5648,9 @@ public class MainActivity extends Activity {
                             showPlaybackTrackDialog(C.TRACK_TYPE_TEXT);
                             break;
                         case 2:
+                            openExternalSubtitlePicker();
+                            break;
+                        case 3:
                             promptSubtitleTitleAndSearch();
                             break;
                     }
@@ -6201,6 +6212,98 @@ public class MainActivity extends Activity {
         thread.start();
     }
 
+    private void openExternalSubtitlePicker() {
+        if (player == null || currentPlaybackUrl == null || currentPlaybackUrl.trim().isEmpty()) {
+            Toast.makeText(this, "لا يوجد فيديو يعمل حاليًا", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        android.content.Intent intent = new android.content.Intent(android.content.Intent.ACTION_OPEN_DOCUMENT);
+        intent.addCategory(android.content.Intent.CATEGORY_OPENABLE);
+        intent.setType("*/*");
+        intent.putExtra(android.content.Intent.EXTRA_MIME_TYPES, new String[]{
+                "application/x-subrip", "text/plain", "text/vtt",
+                "application/ttml+xml", "text/x-ssa", "text/x-ass"
+        });
+        try {
+            startActivityForResult(intent, REQUEST_SUBTITLE_FILE);
+        } catch (ActivityNotFoundException e) {
+            Toast.makeText(this, "لا يوجد مدير ملفات لاختيار الترجمة", Toast.LENGTH_LONG).show();
+        }
+    }
+
+    private void importExternalSubtitle(Uri sourceUri) {
+        Thread thread = new Thread(() -> {
+            File copiedFile = null;
+            String error = null;
+            try {
+                String segment = sourceUri.getLastPathSegment();
+                String lowerName = segment == null ? "" : Uri.decode(segment).toLowerCase(Locale.ROOT);
+                String extension = "";
+                int dot = lowerName.lastIndexOf('.');
+                if (dot >= 0 && dot < lowerName.length() - 1) {
+                    extension = lowerName.substring(dot + 1).replaceAll("[^a-z0-9]", "");
+                }
+                if (!("srt".equals(extension) || "vtt".equals(extension)
+                        || "ttml".equals(extension) || "xml".equals(extension)
+                        || "ssa".equals(extension) || "ass".equals(extension))) {
+                    String mime = getContentResolver().getType(sourceUri);
+                    if ("text/vtt".equalsIgnoreCase(mime)) extension = "vtt";
+                    else if ("application/ttml+xml".equalsIgnoreCase(mime)) extension = "ttml";
+                    else if ("text/x-ssa".equalsIgnoreCase(mime)) extension = "ssa";
+                    else if ("text/x-ass".equalsIgnoreCase(mime)) extension = "ass";
+                    else if ("application/x-subrip".equalsIgnoreCase(mime)
+                            || "text/plain".equalsIgnoreCase(mime)) extension = "srt";
+                }
+                if (extension.isEmpty()) throw new java.io.IOException("Unsupported subtitle format");
+                File directory = new File(getCacheDir(), "external_subtitles");
+                if (!directory.exists() && !directory.mkdirs()) {
+                    throw new java.io.IOException("Cannot create subtitle cache");
+                }
+                copiedFile = File.createTempFile("receiver_subtitle_", "." + extension, directory);
+                try (InputStream input = getContentResolver().openInputStream(sourceUri);
+                     java.io.FileOutputStream output = new java.io.FileOutputStream(copiedFile)) {
+                    if (input == null) throw new java.io.IOException("Cannot open subtitle");
+                    byte[] buffer = new byte[8192];
+                    int count;
+                    long total = 0L;
+                    while ((count = input.read(buffer)) != -1) {
+                        total += count;
+                        if (total > 20L * 1024L * 1024L) {
+                            throw new java.io.IOException("Subtitle file is too large");
+                        }
+                        output.write(buffer, 0, count);
+                    }
+                    output.flush();
+                }
+            } catch (Exception e) {
+                if (copiedFile != null) copiedFile.delete();
+                error = "تعذّر قراءة ملف الترجمة. تأكد أنه SRT أو VTT أو ASS أو SSA أو TTML.";
+                Log.w(TAG, "External subtitle import failed", e);
+            }
+            final File readyFile = copiedFile;
+            final String errorMessage = error;
+            runOnUiThread(() -> {
+                if (isFinishing()) {
+                    if (readyFile != null) readyFile.delete();
+                    return;
+                }
+                if (readyFile == null) {
+                    Toast.makeText(this, errorMessage == null ? "تعذّر استيراد الترجمة" : errorMessage,
+                            Toast.LENGTH_LONG).show();
+                    return;
+                }
+                if (applySubtitleFile(readyFile)) {
+                    Toast.makeText(this, "تم تحميل ملف الترجمة", Toast.LENGTH_SHORT).show();
+                } else {
+                    readyFile.delete();
+                    Toast.makeText(this, "تعذّر تشغيل ملف الترجمة مع هذا الفيديو", Toast.LENGTH_LONG).show();
+                }
+            });
+        }, "ReceiverExternalSubtitleImport");
+        thread.setDaemon(true);
+        thread.start();
+    }
+
     private boolean applySubtitleFile(File subtitleFile) {
         if (player == null || currentPlaybackUrl == null || currentPlaybackUrl.trim().isEmpty()
                 || subtitleFile == null || !subtitleFile.isFile()) return false;
@@ -6209,10 +6312,15 @@ public class MainActivity extends Activity {
                 long position = Math.max(0L, player.getCurrentPosition());
                 boolean wasPlaying = player.isPlaying();
                 savePlaybackPositionLocked();
+                String name = subtitleFile.getName().toLowerCase(Locale.ROOT);
+                String subtitleMime;
+                if (name.endsWith(".vtt")) subtitleMime = "text/vtt";
+                else if (name.endsWith(".ttml") || name.endsWith(".xml")) subtitleMime = "application/ttml+xml";
+                else if (name.endsWith(".ssa") || name.endsWith(".ass")) subtitleMime = "text/x-ssa";
+                else subtitleMime = MimeTypes.APPLICATION_SUBRIP;
                 MediaItem.SubtitleConfiguration subtitleConfig =
                         new MediaItem.SubtitleConfiguration.Builder(Uri.fromFile(subtitleFile))
-                                .setMimeType(MimeTypes.APPLICATION_SUBRIP)
-                                .setLanguage("ar")
+                                .setMimeType(subtitleMime)
                                 .setSelectionFlags(C.SELECTION_FLAG_DEFAULT)
                                 .build();
                 MediaItem.Builder videoItemBuilder = new MediaItem.Builder()
