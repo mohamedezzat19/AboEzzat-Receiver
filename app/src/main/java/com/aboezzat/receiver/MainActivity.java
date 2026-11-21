@@ -2184,8 +2184,10 @@ public class MainActivity extends Activity {
                         body.append(buffer, 0, count);
                     }
                 }
-                String media = extractDirectMediaFromHtml(body.toString(), jsonUrl);
-                if (media != null && isDirectStreamUrl(media)) return media;
+                String jsonBody = body.toString();
+                String media = extractDirectMediaFromHtml(jsonBody, jsonUrl);
+                if (media != null && (isDirectStreamUrl(media)
+                        || isJsonMediaFieldCandidate(jsonBody, jsonUrl, media))) return media;
             } catch (Exception e) {
                 Log.w(TAG, "Same-origin JSON index lookup failed");
             } finally {
@@ -2339,6 +2341,16 @@ public class MainActivity extends Activity {
             if (normalizedKey.equals(key)) return true;
         }
         return false;
+    }
+
+    private boolean isJsonMediaFieldCandidate(String html, String pageUrl, String mediaUrl) {
+        if (html == null || html.isEmpty() || mediaUrl == null) return false;
+        java.util.LinkedHashSet<String> jsonMediaCandidates = new java.util.LinkedHashSet<>();
+        try {
+            Object jsonRoot = new org.json.JSONTokener(html).nextValue();
+            collectJsonMediaCandidates(jsonRoot, jsonMediaCandidates, pageUrl, 0, new int[] {0});
+        } catch (Exception ignored) { }
+        return jsonMediaCandidates.contains(mediaUrl);
     }
 
     private void collectJsonMediaCandidates(Object node,
@@ -2629,7 +2641,8 @@ public class MainActivity extends Activity {
                         if (result == null) {
                             result = extractLinkedJsonMedia(pageContent, pageUrl);
                         }
-                        if (result != null && isDirectStreamUrl(result)) {
+                        if (result != null && (isDirectStreamUrl(result)
+                                || isJsonMediaFieldCandidate(pageContent, pageUrl, result))) {
                             run.candidate(result, "Page/JSON Metadata", false, false);
                             return;
                         }
