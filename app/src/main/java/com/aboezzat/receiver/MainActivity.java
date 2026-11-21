@@ -165,6 +165,7 @@ public class MainActivity extends Activity {
     private TextView browserHomeButton;
     private TextView playerSettingsButton;
     private TextView playerDownloadButton;
+    private TextView playerFullscreenButton;
     private final Handler imageControlsHandler = new Handler(Looper.getMainLooper());
     private final Runnable hideImageControlsRunnable = () -> setImageControlsVisible(false);
     private boolean imageControlsVisible = false;
@@ -1404,11 +1405,11 @@ public class MainActivity extends Activity {
         });
         int subtitleEndMargin = compactPlayerChrome ? dp(114) : dp(130);
         FrameLayout.LayoutParams playerSubtitleParams = new FrameLayout.LayoutParams(
-                dp(46), dp(44), Gravity.TOP | Gravity.END);
-        playerSubtitleParams.setMargins(dp(8), dp(10), subtitleEndMargin, dp(8));
+                dp(46), dp(46), Gravity.BOTTOM | Gravity.END);
+        playerSubtitleParams.setMargins(dp(8), dp(8), dp(62), dp(18));
         root.addView(playerSubtitleButton, playerSubtitleParams);
 
-        playerSettingsButton = makeText("⚙", 24, Color.WHITE, true);
+        playerSettingsButton = makeText("1.0x", 14, Color.WHITE, true);
         playerSettingsButton.setGravity(Gravity.CENTER);
         playerSettingsButton.setFocusable(true);
         playerSettingsButton.setFocusableInTouchMode(true);
@@ -1416,21 +1417,21 @@ public class MainActivity extends Activity {
         playerSettingsButton.setMinWidth(dp(46));
         playerSettingsButton.setMinHeight(dp(44));
         playerSettingsButton.setId(View.generateViewId());
-        playerSettingsButton.setContentDescription("إعدادات المشغل");
+        playerSettingsButton.setContentDescription("سرعة التشغيل");
         playerSettingsButton.setBackground(browserFocusBackground(Color.TRANSPARENT, Color.TRANSPARENT, 12, false));
         playerSettingsButton.setOnFocusChangeListener((v, focused) -> v.setBackground(browserFocusBackground(
                 focused ? Color.argb(48, 105, 185, 255) : Color.TRANSPARENT,
                 focused ? Color.rgb(105, 185, 255) : Color.TRANSPARENT, 12, focused)));
-        playerSettingsButton.setOnClickListener(v -> showPlaybackSettingsDialog());
+        playerSettingsButton.setOnClickListener(v -> showPlaybackSpeedDialog());
         playerSettingsButton.setNextFocusLeftId(playerDownloadButton == null ? View.NO_ID : playerDownloadButton.getId());
         FrameLayout.LayoutParams playerSettingsParams = new FrameLayout.LayoutParams(
-                dp(46), dp(44), Gravity.TOP | Gravity.END);
-        playerSettingsParams.setMargins(dp(8), dp(10), dp(62), dp(8));
+                dp(54), dp(46), Gravity.BOTTOM | Gravity.END);
+        playerSettingsParams.setMargins(dp(8), dp(8), dp(114), dp(18));
         root.addView(playerSettingsButton, playerSettingsParams);
         // Player settings are hidden on the home screen; playback/image flows reveal them.
         playerSettingsButton.setVisibility(View.GONE);
 
-        playerDownloadButton = makeText("⬇", 24, Color.WHITE, true);
+        playerDownloadButton = makeText("HD", 16, Color.WHITE, true);
         playerDownloadButton.setGravity(Gravity.CENTER);
         playerDownloadButton.setFocusable(true);
         playerDownloadButton.setFocusableInTouchMode(true);
@@ -1438,24 +1439,42 @@ public class MainActivity extends Activity {
         playerDownloadButton.setMinWidth(dp(46));
         playerDownloadButton.setMinHeight(dp(44));
         playerDownloadButton.setId(View.generateViewId());
-        playerDownloadButton.setContentDescription("تنزيل الوسائط");
+        playerDownloadButton.setContentDescription("جودة الفيديو");
         playerDownloadButton.setBackground(browserFocusBackground(Color.TRANSPARENT, Color.TRANSPARENT, 12, false));
         playerDownloadButton.setOnFocusChangeListener((v, focused) -> v.setBackground(browserFocusBackground(
                 focused ? Color.argb(48, 105, 185, 255) : Color.TRANSPARENT,
                 focused ? Color.rgb(105, 185, 255) : Color.TRANSPARENT, 12, focused)));
-        playerDownloadButton.setOnClickListener(v -> showCurrentPlaybackDownloadOptions());
+        playerDownloadButton.setOnClickListener(v -> showPlaybackQualityDialog());
         playerDownloadButton.setNextFocusRightId(playerSettingsButton == null ? View.NO_ID : playerSettingsButton.getId());
         playerDownloadButton.setNextFocusLeftId(playerSubtitleButton == null ? View.NO_ID : playerSubtitleButton.getId());
         FrameLayout.LayoutParams playerDownloadParams = new FrameLayout.LayoutParams(
-                dp(46), dp(44), Gravity.TOP | Gravity.END);
-        playerDownloadParams.setMargins(dp(8), dp(10), dp(compactPlayerChrome ? 166 : 182), dp(8));
+                dp(46), dp(46), Gravity.BOTTOM | Gravity.END);
+        playerDownloadParams.setMargins(dp(8), dp(8), dp(10), dp(18));
         root.addView(playerDownloadButton, playerDownloadParams);
-        // Download is a player action, never a home-screen shortcut.
+        playerFullscreenButton = makeText("▣", 23, Color.WHITE, true);
+        playerFullscreenButton.setGravity(Gravity.CENTER);
+        playerFullscreenButton.setFocusable(true);
+        playerFullscreenButton.setFocusableInTouchMode(true);
+        playerFullscreenButton.setClickable(true);
+        playerFullscreenButton.setId(View.generateViewId());
+        playerFullscreenButton.setContentDescription("ملء الشاشة وأبعاد الصورة");
+        playerFullscreenButton.setBackground(browserFocusBackground(Color.TRANSPARENT, Color.TRANSPARENT, 12, false));
+        playerFullscreenButton.setOnFocusChangeListener((v, focused) -> v.setBackground(browserFocusBackground(
+                focused ? Color.argb(48, 105, 185, 255) : Color.TRANSPARENT,
+                focused ? Color.rgb(105, 185, 255) : Color.TRANSPARENT, 12, focused)));
+        playerFullscreenButton.setOnClickListener(v -> showPlaybackResizeDialog());
+        FrameLayout.LayoutParams fullscreenParams = new FrameLayout.LayoutParams(
+                dp(46), dp(46), Gravity.BOTTOM | Gravity.END);
+        fullscreenParams.setMargins(dp(8), dp(8), dp(166), dp(18));
+        root.addView(playerFullscreenButton, fullscreenParams);
+        // Download remains accessible from the existing playback settings/history flows.
         playerDownloadButton.setVisibility(View.GONE);
         playerSubtitleButton.setNextFocusRightId(playerDownloadButton.getId());
-        playerDownloadButton.setNextFocusRightId(playerSettingsButton.getId());
+        playerSubtitleButton.setNextFocusLeftId(playerSettingsButton.getId());
         playerDownloadButton.setNextFocusLeftId(playerSubtitleButton.getId());
-        playerSettingsButton.setNextFocusLeftId(playerDownloadButton.getId());
+        playerSettingsButton.setNextFocusRightId(playerSubtitleButton.getId());
+        playerSettingsButton.setNextFocusLeftId(playerFullscreenButton.getId());
+        playerFullscreenButton.setNextFocusRightId(playerSettingsButton.getId());
 
         // These overlays must sit above the full-screen PlayerView on phones and TVs.
         settingsHomeButton.bringToFront();
@@ -1463,6 +1482,7 @@ public class MainActivity extends Activity {
         playerSubtitleButton.bringToFront();
         playerSettingsButton.bringToFront();
         playerDownloadButton.bringToFront();
+        playerFullscreenButton.bringToFront();
 
         playerView.post(() -> {
             View nativeSettings = playerView.findViewById(androidx.media3.ui.R.id.exo_settings);
@@ -1493,6 +1513,7 @@ public class MainActivity extends Activity {
             }
             if (playerSettingsButton != null) playerSettingsButton.setVisibility(controlsVisible ? View.VISIBLE : View.GONE);
             if (playerDownloadButton != null) playerDownloadButton.setVisibility(controlsVisible ? View.VISIBLE : View.GONE);
+            if (playerFullscreenButton != null) playerFullscreenButton.setVisibility(controlsVisible ? View.VISIBLE : View.GONE);
         });
         // Give every native controller button the same remote-focus treatment.
         playerView.post(this::stylePlayerControllerFocus);
