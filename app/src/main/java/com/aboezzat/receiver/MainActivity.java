@@ -4771,6 +4771,8 @@ public class MainActivity extends Activity {
         }
         // Preserve the last saved position; do not overwrite it with position zero on shutdown.
         currentPlaybackUrl = "";
+        activeExternalSubtitleSource = null;
+        activeExternalSubtitleOffsetMs = 0L;
     }
 
     private void rememberPlaybackUrl(String url) {
