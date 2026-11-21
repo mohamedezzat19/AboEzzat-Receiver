@@ -1393,8 +1393,10 @@ public class MainActivity extends Activity {
             view.setScaleY(focused ? 1.04f : 1f);
         });
         playerSubtitleButton.setVisibility(View.GONE);
-        playerSubtitleButton.setMinWidth(dp(46));
-        playerSubtitleButton.setMinHeight(dp(44));
+        int playerActionSize = dp(isTelevisionDevice() ? 60 : 46);
+        int playerActionBottom = dp(isTelevisionDevice() ? 88 : 58);
+        playerSubtitleButton.setMinWidth(playerActionSize);
+        playerSubtitleButton.setMinHeight(playerActionSize);
         playerSubtitleButton.setId(View.generateViewId());
         playerSubtitleButton.setContentDescription("خيارات الصوت والترجمة");
         playerSubtitleButton.setOnClickListener(v -> showPlaybackSubtitleAudioDialog());
@@ -1403,10 +1405,9 @@ public class MainActivity extends Activity {
             promptSubtitleTitleAndSearch();
             return true;
         });
-        int subtitleEndMargin = compactPlayerChrome ? dp(114) : dp(130);
         FrameLayout.LayoutParams playerSubtitleParams = new FrameLayout.LayoutParams(
-                dp(46), dp(46), Gravity.BOTTOM | Gravity.END);
-        playerSubtitleParams.setMargins(dp(8), dp(8), dp(62), dp(18));
+                playerActionSize, playerActionSize, Gravity.BOTTOM | Gravity.END);
+        playerSubtitleParams.setMargins(dp(8), dp(8), dp(isTelevisionDevice() ? 76 : 62), playerActionBottom);
         root.addView(playerSubtitleButton, playerSubtitleParams);
 
         playerSettingsButton = makeText("1.0x", 14, Color.WHITE, true);
@@ -1414,8 +1415,8 @@ public class MainActivity extends Activity {
         playerSettingsButton.setFocusable(true);
         playerSettingsButton.setFocusableInTouchMode(true);
         playerSettingsButton.setClickable(true);
-        playerSettingsButton.setMinWidth(dp(46));
-        playerSettingsButton.setMinHeight(dp(44));
+        playerSettingsButton.setMinWidth(playerActionSize);
+        playerSettingsButton.setMinHeight(playerActionSize);
         playerSettingsButton.setId(View.generateViewId());
         playerSettingsButton.setContentDescription("سرعة التشغيل");
         playerSettingsButton.setBackground(browserFocusBackground(Color.TRANSPARENT, Color.TRANSPARENT, 12, false));
@@ -1425,8 +1426,8 @@ public class MainActivity extends Activity {
         playerSettingsButton.setOnClickListener(v -> showPlaybackSpeedDialog());
         playerSettingsButton.setNextFocusLeftId(playerDownloadButton == null ? View.NO_ID : playerDownloadButton.getId());
         FrameLayout.LayoutParams playerSettingsParams = new FrameLayout.LayoutParams(
-                dp(54), dp(46), Gravity.BOTTOM | Gravity.END);
-        playerSettingsParams.setMargins(dp(8), dp(8), dp(114), dp(18));
+                playerActionSize, playerActionSize, Gravity.BOTTOM | Gravity.END);
+        playerSettingsParams.setMargins(dp(8), dp(8), dp(isTelevisionDevice() ? 142 : 114), playerActionBottom);
         root.addView(playerSettingsButton, playerSettingsParams);
         // Player settings are hidden on the home screen; playback/image flows reveal them.
         playerSettingsButton.setVisibility(View.GONE);
@@ -1436,8 +1437,8 @@ public class MainActivity extends Activity {
         playerDownloadButton.setFocusable(true);
         playerDownloadButton.setFocusableInTouchMode(true);
         playerDownloadButton.setClickable(true);
-        playerDownloadButton.setMinWidth(dp(46));
-        playerDownloadButton.setMinHeight(dp(44));
+        playerDownloadButton.setMinWidth(playerActionSize);
+        playerDownloadButton.setMinHeight(playerActionSize);
         playerDownloadButton.setId(View.generateViewId());
         playerDownloadButton.setContentDescription("جودة الفيديو");
         playerDownloadButton.setBackground(browserFocusBackground(Color.TRANSPARENT, Color.TRANSPARENT, 12, false));
@@ -1448,8 +1449,8 @@ public class MainActivity extends Activity {
         playerDownloadButton.setNextFocusRightId(playerSettingsButton == null ? View.NO_ID : playerSettingsButton.getId());
         playerDownloadButton.setNextFocusLeftId(playerSubtitleButton == null ? View.NO_ID : playerSubtitleButton.getId());
         FrameLayout.LayoutParams playerDownloadParams = new FrameLayout.LayoutParams(
-                dp(46), dp(46), Gravity.BOTTOM | Gravity.END);
-        playerDownloadParams.setMargins(dp(8), dp(8), dp(10), dp(18));
+                playerActionSize, playerActionSize, Gravity.BOTTOM | Gravity.END);
+        playerDownloadParams.setMargins(dp(8), dp(8), dp(10), playerActionBottom);
         root.addView(playerDownloadButton, playerDownloadParams);
         playerFullscreenButton = makeText("▣", 23, Color.WHITE, true);
         playerFullscreenButton.setGravity(Gravity.CENTER);
@@ -1464,8 +1465,8 @@ public class MainActivity extends Activity {
                 focused ? Color.rgb(105, 185, 255) : Color.TRANSPARENT, 12, focused)));
         playerFullscreenButton.setOnClickListener(v -> showPlaybackResizeDialog());
         FrameLayout.LayoutParams fullscreenParams = new FrameLayout.LayoutParams(
-                dp(46), dp(46), Gravity.BOTTOM | Gravity.END);
-        fullscreenParams.setMargins(dp(8), dp(8), dp(166), dp(18));
+                playerActionSize, playerActionSize, Gravity.BOTTOM | Gravity.END);
+        fullscreenParams.setMargins(dp(8), dp(8), dp(isTelevisionDevice() ? 208 : 166), playerActionBottom);
         root.addView(playerFullscreenButton, fullscreenParams);
         // Download remains accessible from the existing playback settings/history flows.
         playerDownloadButton.setVisibility(View.GONE);
