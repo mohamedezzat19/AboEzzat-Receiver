@@ -270,6 +270,9 @@ public class MainActivity extends Activity {
     private final Object playerLock = new Object();
     private SharedPreferences playbackPrefs;
     private String currentPlaybackUrl = "";
+    // External subtitle timing adjustment is applied to a generated copy; the imported source stays unchanged.
+    private File activeExternalSubtitleSource;
+    private long activeExternalSubtitleOffsetMs = 0L;
     private String currentPlaybackFallbackUrl = "";
     private boolean smartTubeFallbackAttempted = false;
     private final Handler playbackProgressHandler = new Handler(Looper.getMainLooper());
@@ -5635,7 +5638,8 @@ public class MainActivity extends Activity {
                 "🔊  اختيار مسار الصوت",
                 "💬  اختيار مسار الترجمة المدمجة",
                 "📂  استيراد ملف ترجمة من الجهاز",
-                "🌐  البحث عن ترجمة عربية"
+                "🌐  البحث عن ترجمة عربية",
+                "⏱️  مزامنة توقيت الترجمة"
         };
         new AlertDialog.Builder(this)
                 .setTitle("الصوت والترجمة")
@@ -5652,6 +5656,9 @@ public class MainActivity extends Activity {
                             break;
                         case 3:
                             promptSubtitleTitleAndSearch();
+                            break;
+                        case 4:
+                            showSubtitleSyncDialog();
                             break;
                     }
                 })
@@ -6304,6 +6311,140 @@ public class MainActivity extends Activity {
         thread.start();
     }
 
+
+    // Subtitle offset support is deliberately limited to external SRT/VTT files.
+    // Embedded tracks, ASS/SSA and TTML need format-specific timing engines and are not shifted here.
+    private void showSubtitleSyncDialog() {
+        if (activeExternalSubtitleSource == null || !activeExternalSubtitleSource.isFile()) {
+            new AlertDialog.Builder(this).setTitle("مزامنة الترجمة")
+                    .setMessage("المزامنة الزمنية متاحة حاليًا لملفات الترجمة الخارجية SRT وVTT فقط. استورد ملفًا خارجيًا أولًا؛ المسارات المدمجة وASS/SSA وTTML لا يتم تغيير توقيتها بهذه الأداة.")
+                    .setPositiveButton("حسنًا", null).show();
+            return;
+        }
+        String current = String.format(Locale.US, "%.1f", activeExternalSubtitleOffsetMs / 1000.0);
+        String[] choices = {
+                "تأخير الترجمة 5 ثوانٍ",
+                "تأخير الترجمة نصف ثانية",
+                "تقديم الترجمة نصف ثانية",
+                "تقديم الترجمة 5 ثوانٍ",
+                "إعادة التوقيت إلى الصفر"
+        };
+        new AlertDialog.Builder(this).setTitle("مزامنة الترجمة — الإزاحة الحالية: " + current + " ث")
+                .setItems(choices, (dialog, which) -> {
+                    long delta;
+                    switch (which) {
+                        case 0: delta = 5000L; break;
+                        case 1: delta = 500L; break;
+                        case 2: delta = -500L; break;
+                        case 3: delta = -5000L; break;
+                        default: delta = -activeExternalSubtitleOffsetMs; break;
+                    }
+                    adjustExternalSubtitleOffset(delta);
+                }).setNegativeButton("إغلاق", null).show();
+    }
+
+    private void adjustExternalSubtitleOffset(long deltaMs) {
+        if (activeExternalSubtitleSource == null || !activeExternalSubtitleSource.isFile()) return;
+        long nextOffset = activeExternalSubtitleOffsetMs + deltaMs;
+        if (nextOffset < -600000L || nextOffset > 600000L) {
+            Toast.makeText(this, "أقصى تقديم أو تأخير مسموح به 10 دقائق", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        String extension = activeExternalSubtitleSource.getName().toLowerCase(Locale.ROOT);
+        if (!(extension.endsWith(".srt") || extension.endsWith(".vtt"))) {
+            Toast.makeText(this, "المزامنة متاحة لملفات SRT وVTT فقط", Toast.LENGTH_LONG).show();
+            return;
+        }
+        File shifted = null;
+        try {
+            shifted = createShiftedSubtitleCopy(activeExternalSubtitleSource, nextOffset);
+            if (shifted == null || !applySubtitleFile(shifted)) {
+                if (shifted != null) shifted.delete();
+                Toast.makeText(this, "تعذّر تطبيق توقيت الترجمة الجديد", Toast.LENGTH_LONG).show();
+                return;
+            }
+            activeExternalSubtitleSource = activeExternalSubtitleSource;
+            activeExternalSubtitleOffsetMs = nextOffset;
+            Toast.makeText(this, "تم تحديث توقيت الترجمة: "
+                    + String.format(Locale.US, "%+.1f", nextOffset / 1000.0) + " ثانية",
+                    Toast.LENGTH_SHORT).show();
+        } catch (Exception e) {
+            if (shifted != null) shifted.delete();
+            Log.w(TAG, "Subtitle timing adjustment failed", e);
+            Toast.makeText(this, "تعذّرت مزامنة ملف الترجمة", Toast.LENGTH_LONG).show();
+        }
+    }
+
+    private File createShiftedSubtitleCopy(File source, long offsetMs) throws java.io.IOException {
+        if (source.length() > 20L * 1024L * 1024L) throw new java.io.IOException("Subtitle file too large");
+        String name = source.getName().toLowerCase(Locale.ROOT);
+        if (!(name.endsWith(".srt") || name.endsWith(".vtt"))) {
+            throw new java.io.IOException("Only SRT/VTT timing is supported");
+        }
+        File directory = new File(getCacheDir(), "external_subtitles");
+        if (!directory.exists() && !directory.mkdirs()) throw new java.io.IOException("Cannot create subtitle cache");
+        String extension = name.endsWith(".vtt") ? ".vtt" : ".srt";
+        File outputFile = File.createTempFile("receiver_subtitle_shifted_", extension, directory);
+        java.util.regex.Pattern timing = java.util.regex.Pattern.compile(
+                "^([ \\t]*)(\\d{1,}:\\d{2}:\\d{2}[,.]\\d{3}|\\d{1,}:\\d{2}[,.]\\d{3})(\\s+-->\\s+)(\\d{1,}:\\d{2}:\\d{2}[,.]\\d{3}|\\d{1,}:\\d{2}[,.]\\d{3})(.*)$");
+        try (java.io.BufferedReader reader = new java.io.BufferedReader(new java.io.InputStreamReader(
+                     new java.io.FileInputStream(source), StandardCharsets.UTF_8));
+             java.io.BufferedWriter writer = new java.io.BufferedWriter(new java.io.OutputStreamWriter(
+                     new java.io.FileOutputStream(outputFile), StandardCharsets.UTF_8))) {
+            String line;
+            while ((line = reader.readLine()) != null) {
+                java.util.regex.Matcher matcher = timing.matcher(line);
+                if (matcher.matches()) {
+                    long start = Math.max(0L, parseSubtitleTimestampMs(matcher.group(2)) + offsetMs);
+                    long end = Math.max(0L, parseSubtitleTimestampMs(matcher.group(4)) + offsetMs);
+                    if (end <= start) end = start + 1L;
+                    String startSep = matcher.group(2).contains(",") ? "," : ".";
+                    String endSep = matcher.group(4).contains(",") ? "," : ".";
+                    line = matcher.group(1) + formatSubtitleTimestampMs(start, startSep)
+                            + matcher.group(3) + formatSubtitleTimestampMs(end, endSep) + matcher.group(5);
+                }
+                writer.write(line);
+                writer.newLine();
+            }
+        } catch (Exception e) {
+            outputFile.delete();
+            if (e instanceof java.io.IOException) throw (java.io.IOException) e;
+            throw new java.io.IOException("Could not shift subtitle timestamps", e);
+        }
+        return outputFile;
+    }
+
+    private long parseSubtitleTimestampMs(String value) {
+        String normalized = value.replace(',', '.');
+        String[] parts = normalized.split(":");
+        long hours = 0L, minutes, seconds;
+        String secondPart;
+        if (parts.length == 3) {
+            hours = Long.parseLong(parts[0]);
+            minutes = Long.parseLong(parts[1]);
+            secondPart = parts[2];
+        } else if (parts.length == 2) {
+            minutes = Long.parseLong(parts[0]);
+            secondPart = parts[1];
+        } else {
+            throw new IllegalArgumentException("Invalid subtitle timestamp");
+        }
+        String[] sec = secondPart.split("\\.");
+        seconds = Long.parseLong(sec[0]);
+        long millis = Long.parseLong((sec.length > 1 ? sec[1] : "000").substring(0, 3));
+        return (((hours * 60L + minutes) * 60L) + seconds) * 1000L + millis;
+    }
+
+    private String formatSubtitleTimestampMs(long value, String separator) {
+        long total = Math.max(0L, value);
+        long hours = total / 3600000L;
+        long minutes = (total / 60000L) % 60L;
+        long seconds = (total / 1000L) % 60L;
+        long millis = total % 1000L;
+        return String.format(Locale.US, "%02d:%02d:%02d%s%03d",
+                hours, minutes, seconds, separator, millis);
+    }
+
     private boolean applySubtitleFile(File subtitleFile) {
         if (player == null || currentPlaybackUrl == null || currentPlaybackUrl.trim().isEmpty()
                 || subtitleFile == null || !subtitleFile.isFile()) return false;
@@ -6341,10 +6482,12 @@ public class MainActivity extends Activity {
                 player.prepare();
                 player.seekTo(position);
                 if (wasPlaying) player.play();
+                activeExternalSubtitleSource = subtitleFile;
+                activeExternalSubtitleOffsetMs = 0L;
                 return true;
             }
         } catch (Exception e) {
-            Log.e(TAG, "Could not apply Arabic subtitle", e);
+            Log.e(TAG, "Could not apply external subtitle", e);
             return false;
         }
     }
