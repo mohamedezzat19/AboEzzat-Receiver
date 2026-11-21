@@ -2284,13 +2284,19 @@ public class MainActivity extends Activity {
 
         // Some live-TV providers expose the actual stream only inside an index.json
         // response. Parse JSON structurally instead of relying only on HTML regexes.
+        // Keep media-key URLs separate so signed extension-less CDN URLs are not
+        // discarded by the extension-based direct-URL classifier below.
+        java.util.LinkedHashSet<String> jsonMediaCandidates = new java.util.LinkedHashSet<>();
         try {
             Object jsonRoot = new org.json.JSONTokener(html).nextValue();
-            collectJsonMediaCandidates(jsonRoot, candidates, pageUrl, 0, new int[] {0});
+            collectJsonMediaCandidates(jsonRoot, jsonMediaCandidates, pageUrl, 0, new int[] {0});
         } catch (Exception ignored) { }
 
         for (String candidate : candidates) {
             if (isDirectStreamUrl(candidate) && !candidate.equals(pageUrl)) return candidate;
+        }
+        for (String candidate : jsonMediaCandidates) {
+            if (candidate != null && isHttpUrl(candidate) && !candidate.equals(pageUrl)) return candidate;
         }
         return null;
     }
