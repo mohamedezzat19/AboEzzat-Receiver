@@ -1396,8 +1396,8 @@ public class MainActivity extends Activity {
         playerSubtitleButton.setMinWidth(dp(46));
         playerSubtitleButton.setMinHeight(dp(44));
         playerSubtitleButton.setId(View.generateViewId());
-        playerSubtitleButton.setContentDescription("البحث عن ترجمة عربية");
-        playerSubtitleButton.setOnClickListener(v -> searchAndApplyArabicSubtitle());
+        playerSubtitleButton.setContentDescription("خيارات الصوت والترجمة");
+        playerSubtitleButton.setOnClickListener(v -> showPlaybackSubtitleAudioDialog());
         playerSubtitleButton.setNextFocusRightId(playerDownloadButton == null ? View.NO_ID : playerDownloadButton.getId());
         playerSubtitleButton.setOnLongClickListener(v -> {
             promptSubtitleTitleAndSearch();
@@ -5616,6 +5616,35 @@ public class MainActivity extends Activity {
             playerView.setResizeMode(prefs.getInt("resize_mode",
                     androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_FIT));
         }
+    }
+
+    private void showPlaybackSubtitleAudioDialog() {
+        if (player == null || currentPlaybackUrl == null || currentPlaybackUrl.isEmpty()) {
+            Toast.makeText(this, "لا يوجد محتوى يعمل حاليًا", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        String[] options = {
+                "🔊  اختيار مسار الصوت",
+                "💬  اختيار مسار الترجمة",
+                "🌐  البحث عن ترجمة عربية"
+        };
+        new AlertDialog.Builder(this)
+                .setTitle("الصوت والترجمة")
+                .setItems(options, (dialog, which) -> {
+                    switch (which) {
+                        case 0:
+                            showPlaybackTrackDialog(C.TRACK_TYPE_AUDIO);
+                            break;
+                        case 1:
+                            showPlaybackTrackDialog(C.TRACK_TYPE_TEXT);
+                            break;
+                        case 2:
+                            promptSubtitleTitleAndSearch();
+                            break;
+                    }
+                })
+                .setNegativeButton("إغلاق", null)
+                .show();
     }
 
     private void showPlaybackSettingsDialog() {
