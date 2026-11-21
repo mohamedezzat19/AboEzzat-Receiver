@@ -14,17 +14,15 @@
         android:gravity="center"
         android:orientation="horizontal">
 
-        <TextView
+        <ImageButton
             android:id="@id/exo_rew"
             android:layout_width="76dp"
             android:layout_height="76dp"
             android:background="?android:attr/selectableItemBackgroundBorderless"
             android:contentDescription="ترجيع 10 ثوانٍ"
             android:focusable="true"
-            android:gravity="center"
-            android:text="↶ 10"
-            android:textColor="#FFFFFF"
-            android:textSize="20sp" />
+            android:src="@android:drawable/ic_media_rew"
+            android:tint="#FFFFFF" />
 
         <FrameLayout
             android:layout_width="104dp"
@@ -32,43 +30,37 @@
             android:layout_marginStart="30dp"
             android:layout_marginEnd="30dp">
 
-            <TextView
+            <ImageButton
                 android:id="@id/exo_play"
                 android:layout_width="match_parent"
                 android:layout_height="match_parent"
                 android:background="?android:attr/selectableItemBackgroundBorderless"
                 android:contentDescription="تشغيل"
                 android:focusable="true"
-                android:gravity="center"
-                android:text="▶"
-                android:textColor="#FFFFFF"
-                android:textSize="48sp" />
+                android:src="@android:drawable/ic_media_play"
+                android:tint="#FFFFFF" />
 
-            <TextView
+            <ImageButton
                 android:id="@id/exo_pause"
                 android:layout_width="match_parent"
                 android:layout_height="match_parent"
                 android:background="?android:attr/selectableItemBackgroundBorderless"
                 android:contentDescription="إيقاف مؤقت"
                 android:focusable="true"
-                android:gravity="center"
-                android:text="Ⅱ"
-                android:textColor="#FFFFFF"
-                android:textSize="48sp"
+                android:src="@android:drawable/ic_media_pause"
+                android:tint="#FFFFFF"
                 android:visibility="gone" />
         </FrameLayout>
 
-        <TextView
+        <ImageButton
             android:id="@id/exo_ffwd"
             android:layout_width="76dp"
             android:layout_height="76dp"
             android:background="?android:attr/selectableItemBackgroundBorderless"
             android:contentDescription="تقديم 10 ثوانٍ"
             android:focusable="true"
-            android:gravity="center"
-            android:text="10 ↷"
-            android:textColor="#FFFFFF"
-            android:textSize="20sp" />
+            android:src="@android:drawable/ic_media_ff"
+            android:tint="#FFFFFF" />
     </LinearLayout>
 
     <LinearLayout
