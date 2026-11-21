@@ -2442,6 +2442,19 @@ public class MainActivity extends Activity {
             if (!tryOpenSmartTubeFallback(pageUrl)) showExtractionFailureFallback(pageUrl);
             return;
         }
+        // Known IPTV providers expose the HLS manifest directly at
+        // /<category>/<channel-id>/index.html (including /pages/<id>/index.html).
+        // Do not run page/social extractors against this URL: pass it straight to
+        // Media3 with the HLS MIME override applied by createPlaybackMediaItem().
+        if (isKnownHtmlHlsPlaylistUrl(pageUrl)) {
+            extractionInProgress = false;
+            extractionStatus = "known_html_hls_direct";
+            playbackStatusMessage = "تم التعرف على رابط HLS مباشر";
+            persistExtractionState();
+            playContent(pageUrl, null);
+            return;
+        }
+
         final int generation = ++extractionGeneration;
         android.content.SharedPreferences settings =
                 getSharedPreferences("receiver_settings", MODE_PRIVATE);
