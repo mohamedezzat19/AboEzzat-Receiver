@@ -1481,13 +1481,57 @@ public class MainActivity extends Activity {
         playerSettingsButton.setNextFocusLeftId(playerFullscreenButton.getId());
         playerFullscreenButton.setNextFocusRightId(playerSettingsButton.getId());
 
+        // Reezn-style layout: subtitle, speed and aspect actions share one bottom row.
+        // Quality remains in the upper-right control position instead of floating beside the timeline.
+        LinearLayout playerActionRow = new LinearLayout(this);
+        playerActionRow.setOrientation(LinearLayout.HORIZONTAL);
+        playerActionRow.setGravity(Gravity.CENTER);
+        playerActionRow.setClipChildren(false);
+        playerActionRow.setClipToPadding(false);
+        playerActionRow.setBackgroundColor(Color.TRANSPARENT);
+
+        root.removeView(playerSubtitleButton);
+        root.removeView(playerSettingsButton);
+        root.removeView(playerDownloadButton);
+        root.removeView(playerFullscreenButton);
+
+        LinearLayout.LayoutParams actionItemParams = new LinearLayout.LayoutParams(
+                playerActionSize, playerActionSize);
+        actionItemParams.setMargins(dp(8), 0, dp(8), 0);
+        playerActionRow.addView(playerSubtitleButton, new LinearLayout.LayoutParams(actionItemParams));
+        playerActionRow.addView(playerSettingsButton, new LinearLayout.LayoutParams(actionItemParams));
+        playerActionRow.addView(playerFullscreenButton, new LinearLayout.LayoutParams(actionItemParams));
+
+        FrameLayout.LayoutParams actionRowParams = new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, playerActionSize,
+                Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL);
+        actionRowParams.bottomMargin = playerActionBottom;
+        root.addView(playerActionRow, actionRowParams);
+
+        FrameLayout.LayoutParams qualityParams = new FrameLayout.LayoutParams(
+                playerActionSize, playerActionSize, Gravity.TOP | Gravity.END);
+        qualityParams.setMargins(dp(8), dp(isTelevisionDevice() ? 28 : 16),
+                dp(isTelevisionDevice() ? 24 : 16), dp(8));
+        root.addView(playerDownloadButton, qualityParams);
+
+        // Arabic RTL order: subtitle at the right, then speed, then aspect ratio.
+        playerSubtitleButton.setNextFocusLeftId(playerSettingsButton.getId());
+        playerSettingsButton.setNextFocusRightId(playerSubtitleButton.getId());
+        playerSettingsButton.setNextFocusLeftId(playerFullscreenButton.getId());
+        playerFullscreenButton.setNextFocusRightId(playerSettingsButton.getId());
+        playerFullscreenButton.setNextFocusLeftId(playerSubtitleButton.getId());
+        playerDownloadButton.setNextFocusDownId(playerSubtitleButton.getId());
+        playerSubtitleButton.setNextFocusUpId(playerDownloadButton.getId());
+
+        playerActionRow.setVisibility(View.GONE);
+        playerFullscreenButton.setVisibility(View.GONE);
+        playerDownloadButton.setVisibility(View.GONE);
+
         // These overlays must sit above the full-screen PlayerView on phones and TVs.
         settingsHomeButton.bringToFront();
         browserHomeButton.bringToFront();
-        playerSubtitleButton.bringToFront();
-        playerSettingsButton.bringToFront();
+        playerActionRow.bringToFront();
         playerDownloadButton.bringToFront();
-        playerFullscreenButton.bringToFront();
 
         playerView.post(() -> {
             View nativeSettings = playerView.findViewById(androidx.media3.ui.R.id.exo_settings);
@@ -1512,6 +1556,7 @@ public class MainActivity extends Activity {
                 if (settingsHomeButton != null) settingsHomeButton.setVisibility(View.GONE);
                 if (browserHomeButton != null) browserHomeButton.setVisibility(View.GONE);
             }
+            if (playerActionRow != null) playerActionRow.setVisibility(controlsVisible ? View.VISIBLE : View.GONE);
             if (playerSubtitleButton != null) {
                 playerSubtitleButton.setVisibility(controlsVisible && currentPlaybackHasVideo
                         ? View.VISIBLE : View.GONE);
