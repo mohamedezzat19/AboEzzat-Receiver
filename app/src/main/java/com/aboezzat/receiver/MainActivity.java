@@ -1481,8 +1481,7 @@ public class MainActivity extends Activity {
         playerSettingsButton.setNextFocusLeftId(playerFullscreenButton.getId());
         playerFullscreenButton.setNextFocusRightId(playerSettingsButton.getId());
 
-        // Reezn-style layout: subtitle, speed and aspect actions share one bottom row.
-        // Quality remains in the upper-right control position instead of floating beside the timeline.
+        // Keep every auxiliary player action together in the bottom control row.
         LinearLayout playerActionRow = new LinearLayout(this);
         playerActionRow.setOrientation(LinearLayout.HORIZONTAL);
         playerActionRow.setGravity(Gravity.CENTER);
@@ -1501,27 +1500,22 @@ public class MainActivity extends Activity {
         playerActionRow.addView(playerSubtitleButton, new LinearLayout.LayoutParams(actionItemParams));
         playerActionRow.addView(playerSettingsButton, new LinearLayout.LayoutParams(actionItemParams));
         playerActionRow.addView(playerFullscreenButton, new LinearLayout.LayoutParams(actionItemParams));
+        playerActionRow.addView(playerDownloadButton, new LinearLayout.LayoutParams(actionItemParams));
 
         FrameLayout.LayoutParams actionRowParams = new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT, playerActionSize,
                 Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL);
-        actionRowParams.bottomMargin = playerActionBottom;
+        actionRowParams.bottomMargin = dp(isTelevisionDevice() ? 12 : 8);
         root.addView(playerActionRow, actionRowParams);
 
-        FrameLayout.LayoutParams qualityParams = new FrameLayout.LayoutParams(
-                playerActionSize, playerActionSize, Gravity.TOP | Gravity.END);
-        qualityParams.setMargins(dp(8), dp(isTelevisionDevice() ? 28 : 16),
-                dp(isTelevisionDevice() ? 24 : 16), dp(8));
-        root.addView(playerDownloadButton, qualityParams);
-
-        // Arabic RTL order: subtitle at the right, then speed, then aspect ratio.
+        // The four actions form one predictable remote-focus chain.
         playerSubtitleButton.setNextFocusLeftId(playerSettingsButton.getId());
         playerSettingsButton.setNextFocusRightId(playerSubtitleButton.getId());
         playerSettingsButton.setNextFocusLeftId(playerFullscreenButton.getId());
         playerFullscreenButton.setNextFocusRightId(playerSettingsButton.getId());
-        playerFullscreenButton.setNextFocusLeftId(playerSubtitleButton.getId());
-        playerDownloadButton.setNextFocusDownId(playerSubtitleButton.getId());
-        playerSubtitleButton.setNextFocusUpId(playerDownloadButton.getId());
+        playerFullscreenButton.setNextFocusLeftId(playerDownloadButton.getId());
+        playerDownloadButton.setNextFocusRightId(playerFullscreenButton.getId());
+        playerDownloadButton.setNextFocusLeftId(playerSubtitleButton.getId());
 
         playerActionRow.setVisibility(View.GONE);
         playerFullscreenButton.setVisibility(View.GONE);
@@ -1531,7 +1525,6 @@ public class MainActivity extends Activity {
         settingsHomeButton.bringToFront();
         browserHomeButton.bringToFront();
         playerActionRow.bringToFront();
-        playerDownloadButton.bringToFront();
 
         playerView.post(() -> {
             View nativeSettings = playerView.findViewById(androidx.media3.ui.R.id.exo_settings);
