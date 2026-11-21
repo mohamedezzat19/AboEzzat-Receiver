@@ -96,6 +96,7 @@ public class MainActivity extends Activity {
     private volatile boolean extractionInProgress = false;
     private volatile int extractionAttemptCount = 0;
     private volatile String extractionStatus = "idle";
+    private volatile String lastJsonIndexDiagnostic = "";
     private volatile String playbackStatusMessage = "";
     private volatile String originalIncomingMediaUrl = "";
     private volatile java.util.Map<String, String> pendingPlaybackHeaders = java.util.Collections.emptyMap();
@@ -2197,6 +2198,41 @@ public class MainActivity extends Activity {
         return null;
     }
 
+    private String buildJsonIndexDiagnostic(int status, String contentType, String body) {
+        StringBuilder out = new StringBuilder();
+        out.append("HTTP ").append(status)
+                .append("; type=").append(contentType == null ? "unknown" : contentType)
+                .append("; chars=").append(body == null ? 0 : body.length());
+        if (body == null || body.trim().isEmpty()) {
+            out.append("; body=empty");
+            return out.toString();
+        }
+        try {
+            Object root = new org.json.JSONTokener(body).nextValue();
+            if (root instanceof JSONObject) {
+                JSONObject object = (JSONObject) root;
+                out.append("; JSON=object; keys=");
+                java.util.Iterator<String> keys = object.keys();
+                int count = 0;
+                while (keys.hasNext() && count < 12) {
+                    if (count > 0) out.append(",");
+                    String key = keys.next();
+                    String safeKey = key == null ? "" : key.replaceAll("[^A-Za-z0-9_-]", "");
+                    out.append(safeKey.substring(0, Math.min(48, safeKey.length())));
+                    count++;
+                }
+                if (keys.hasNext()) out.append(",more");
+            } else if (root instanceof org.json.JSONArray) {
+                out.append("; JSON=array");
+            } else {
+                out.append("; JSON=scalar");
+            }
+        } catch (Exception ignored) {
+            out.append("; JSON=invalid-or-non-json");
+        }
+        return out.toString();
+    }
+
     private boolean isSameOrigin(String firstUrl, String secondUrl) {
         try {
             URL first = new URL(firstUrl);
@@ -2507,6 +2543,7 @@ public class MainActivity extends Activity {
         }
 
         final int generation = ++extractionGeneration;
+        lastJsonIndexDiagnostic = "";
         android.content.SharedPreferences settings =
                 getSharedPreferences("receiver_settings", MODE_PRIVATE);
         boolean useCobalt = settings.getBoolean("receiver_engine_cobalt", true);
@@ -2579,8 +2616,15 @@ public class MainActivity extends Activity {
                     connection.setReadTimeout(12000);
                     connection.setRequestProperty("User-Agent",
                             "Mozilla/5.0 (Linux; Android 12; TV) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36");
-                    connection.setRequestProperty("Accept",
-                            "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8");
+                    boolean jsonIndexRequest = false;
+                    try {
+                        String requestPath = new URL(pageUrl).getPath();
+                        jsonIndexRequest = requestPath != null
+                                && requestPath.toLowerCase(Locale.ROOT).endsWith(".json");
+                    } catch (Exception ignored) { }
+                    connection.setRequestProperty("Accept", jsonIndexRequest
+                            ? "application/json,text/plain,application/*;q=0.9,*/*;q=0.8"
+                            : "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8");
                     connection.setRequestProperty("Accept-Language", "en-US,en;q=0.8");
                     // Reuse the TikTok WebView request context when resolving the original
                     // watch page; otherwise the Receiver fetches it as an unrelated client.
@@ -2601,8 +2645,13 @@ public class MainActivity extends Activity {
                         }
                     }
                     int status = connection.getResponseCode();
+                    String responseType = connection.getContentType();
+                    if (jsonIndexRequest) {
+                        lastJsonIndexDiagnostic = "HTTP " + status + "; type="
+                                + (responseType == null ? "unknown" : responseType);
+                    }
                     if (status >= 200 && status < 400) {
-                        String type = connection.getContentType();
+                        String type = responseType;
                         if (type != null && (type.toLowerCase(Locale.ROOT).startsWith("video/")
                                 || type.toLowerCase(Locale.ROOT).startsWith("audio/")
                                 || type.toLowerCase(Locale.ROOT).contains("application/vnd.apple.mpegurl")
@@ -2622,6 +2671,9 @@ public class MainActivity extends Activity {
                             }
                         }
                         String pageContent = html.toString();
+                        if (jsonIndexRequest) {
+                            lastJsonIndexDiagnostic = buildJsonIndexDiagnostic(status, responseType, pageContent);
+                        }
                         // Some IPTV endpoints return the HLS manifest body from index.html
                         // (often text/plain or text/html) instead of exposing a .m3u8 URL.
                         // Confirm the manifest signature before handing the original URL to
@@ -2795,6 +2847,10 @@ public class MainActivity extends Activity {
         // failure reason. At this point every enabled resolver has finished without
         // producing a direct playable stream.
         playbackStatusMessage = "انتهت محركات استخراج الرابط دون العثور على رابط بث مباشر قابل للتشغيل من الصفحة.";
+        if (pageUrl != null && pageUrl.toLowerCase(Locale.ROOT).contains(".json")
+                && lastJsonIndexDiagnostic != null && !lastJsonIndexDiagnostic.isEmpty()) {
+            playbackStatusMessage += "\nتشخيص JSON: " + lastJsonIndexDiagnostic;
+        }
         persistExtractionState();
         recordReceiverFailure("استخراج الرابط", pageUrl, "", playbackStatusMessage);
         pendingBrowserUrl = pageUrl;
