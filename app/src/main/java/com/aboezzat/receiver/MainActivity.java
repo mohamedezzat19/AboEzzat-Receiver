@@ -2207,6 +2207,12 @@ public class MainActivity extends Activity {
             out.append("; body=empty");
             return out.toString();
         }
+        // Some providers return a tiny PNG placeholder/error image from a URL
+        // ending in .json. Never mislabel binary image bytes as a JSON scalar.
+        if (contentType != null && contentType.toLowerCase(Locale.ROOT).startsWith("image/")) {
+            out.append("; body=non-json-image");
+            return out.toString();
+        }
         try {
             Object root = new org.json.JSONTokener(body).nextValue();
             if (root instanceof JSONObject) {
@@ -2672,7 +2678,23 @@ public class MainActivity extends Activity {
                         }
                         String pageContent = html.toString();
                         if (jsonIndexRequest) {
-                            lastJsonIndexDiagnostic = buildJsonIndexDiagnostic(status, responseType, pageContent);
+                            String responseHost = "";
+                            try {
+                                String host = connection.getURL().getHost();
+                                responseHost = host == null ? "" : host.toLowerCase(Locale.ROOT);
+                            } catch (Exception ignored) { }
+                            String disposition = connection.getHeaderField("Content-Disposition");
+                            String safeDisposition = "none";
+                            if (disposition != null) {
+                                String lowerDisposition = disposition.toLowerCase(Locale.ROOT);
+                                safeDisposition = lowerDisposition.startsWith("attachment")
+                                        ? "attachment" : lowerDisposition.startsWith("inline")
+                                        ? "inline" : "present";
+                            }
+                            lastJsonIndexDiagnostic = buildJsonIndexDiagnostic(status, responseType, pageContent)
+                                    + "; final-host=" + responseHost
+                                    + "; length=" + connection.getContentLengthLong()
+                                    + "; disposition=" + safeDisposition;
                         }
                         // Some IPTV endpoints return the HLS manifest body from index.html
                         // (often text/plain or text/html) instead of exposing a .m3u8 URL.
