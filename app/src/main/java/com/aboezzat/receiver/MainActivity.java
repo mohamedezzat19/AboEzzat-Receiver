@@ -2894,10 +2894,32 @@ public class MainActivity extends Activity {
                         String manifestProbe = pageContent;
                         if (!manifestProbe.isEmpty() && manifestProbe.charAt(0) == 0xFEFF) manifestProbe = manifestProbe.substring(1);
                         manifestProbe = manifestProbe.trim();
+                        // A few proxy endpoints wrap the actual playlist in a JSON string
+                        // scalar. JSONTokener reports that wrapper as JSON=scalar, although
+                        // the decoded string itself is a valid HLS manifest.
+                        boolean decodedJsonString = false;
+                        if (directJsonIndexInput && !manifestProbe.startsWith("#EXTM3U")) {
+                            try {
+                                Object scalar = new org.json.JSONTokener(manifestProbe).nextValue();
+                                if (scalar instanceof String) {
+                                    String decoded = ((String) scalar).trim();
+                                    if (!decoded.isEmpty() && decoded.charAt(0) == 0xFEFF) {
+                                        decoded = decoded.substring(1).trim();
+                                    }
+                                    if (decoded.startsWith("#EXTM3U")) {
+                                        manifestProbe = decoded;
+                                        decodedJsonString = true;
+                                    }
+                                }
+                            } catch (Exception ignored) { }
+                        }
                         if (manifestProbe.startsWith("#EXTM3U")) {
                             // The body, not the .json suffix or Content-Type, is authoritative.
                             // Remember the exact final URL so Media3 uses its HLS parser.
                             detectedHlsManifestUrls.add(connection.getURL().toString());
+                            if (decodedJsonString) {
+                                lastJsonIndexDiagnostic += "; decoded-body=JSON-string-wrapped-HLS";
+                            }
                             run.candidate(connection.getURL().toString(), "HLS manifest body", false, true);
                             return;
                         }
