@@ -2133,6 +2133,21 @@ public class MainActivity extends Activity {
         }
     }
 
+    private boolean isTikTokLiveCdnVideoUrl(String value) {
+        if (value == null || value.trim().isEmpty()) return false;
+        try {
+            Uri uri = Uri.parse(value.trim());
+            String host = uri.getHost() == null ? "" : uri.getHost().toLowerCase(Locale.ROOT);
+            String path = uri.getPath() == null ? "" : uri.getPath().toLowerCase(Locale.ROOT);
+            return (host.equals("tiktokcdn.com") || host.endsWith(".tiktokcdn.com"))
+                    && host.startsWith("pull-")
+                    && path.contains("/stage/stream-")
+                    && (path.endsWith(".flv") || path.endsWith(".m3u8"));
+        } catch (Exception ignored) {
+            return false;
+        }
+    }
+
     private boolean isTikTokSourcePageUrl(String value) {
         if (value == null || value.trim().isEmpty()) return false;
         try {
@@ -4547,7 +4562,12 @@ public class MainActivity extends Activity {
         boolean hasMedia = mediaUrl != null && !mediaUrl.trim().isEmpty();
         boolean hasAudio = audioUrl != null && !audioUrl.trim().isEmpty();
 
+        // TikTok LIVE pull-* URLs are already extracted, signed CDN streams.
+        // Do not discard them and re-resolve the source page (which can lose the
+        // captured media URL and its request headers). Keep the legacy page refresh
+        // behavior only for standard TikTok video CDN URLs.
         if (hasMedia && !hasAudio && isTikTokCdnVideoUrl(mediaUrl)
+                && !isTikTokLiveCdnVideoUrl(mediaUrl)
                 && isTikTokSourcePageUrl(sourceUrl)) {
             resolveSharedVideoToStream(sourceUrl);
             return;
