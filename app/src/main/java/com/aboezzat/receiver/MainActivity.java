@@ -1427,7 +1427,7 @@ public class MainActivity extends Activity {
         playerSettingsButton.setOnFocusChangeListener((v, focused) -> v.setBackground(browserFocusBackground(
                 focused ? Color.argb(48, 105, 185, 255) : Color.TRANSPARENT,
                 focused ? Color.rgb(105, 185, 255) : Color.TRANSPARENT, 12, focused)));
-        playerSettingsButton.setOnClickListener(v -> showPlaybackSpeedDialog());
+        playerSettingsButton.setOnClickListener(v -> showPlaybackSettingsDialog());
         playerSettingsButton.setNextFocusLeftId(playerDownloadButton == null ? View.NO_ID : playerDownloadButton.getId());
         FrameLayout.LayoutParams playerSettingsParams = new FrameLayout.LayoutParams(
                 playerActionSize, playerActionSize, Gravity.BOTTOM | Gravity.END);
@@ -1436,7 +1436,7 @@ public class MainActivity extends Activity {
         // Player settings are hidden on the home screen; playback/image flows reveal them.
         playerSettingsButton.setVisibility(View.GONE);
 
-        playerDownloadButton = makeText("HD", 16, Color.WHITE, true);
+        playerDownloadButton = makeText("↓", 22, Color.WHITE, true);
         playerDownloadButton.setGravity(Gravity.CENTER);
         playerDownloadButton.setFocusable(true);
         playerDownloadButton.setFocusableInTouchMode(true);
@@ -1444,12 +1444,12 @@ public class MainActivity extends Activity {
         playerDownloadButton.setMinWidth(playerActionSize);
         playerDownloadButton.setMinHeight(playerActionSize);
         playerDownloadButton.setId(View.generateViewId());
-        playerDownloadButton.setContentDescription("جودة الفيديو");
+        playerDownloadButton.setContentDescription("تنزيل الوسائط الحالية");
         playerDownloadButton.setBackground(browserFocusBackground(Color.TRANSPARENT, Color.TRANSPARENT, 12, false));
         playerDownloadButton.setOnFocusChangeListener((v, focused) -> v.setBackground(browserFocusBackground(
                 focused ? Color.argb(48, 105, 185, 255) : Color.TRANSPARENT,
                 focused ? Color.rgb(105, 185, 255) : Color.TRANSPARENT, 12, focused)));
-        playerDownloadButton.setOnClickListener(v -> showPlaybackQualityDialog());
+        playerDownloadButton.setOnClickListener(v -> showCurrentPlaybackDownloadOptions());
         playerDownloadButton.setNextFocusRightId(playerSettingsButton == null ? View.NO_ID : playerSettingsButton.getId());
         playerDownloadButton.setNextFocusLeftId(playerSubtitleButton == null ? View.NO_ID : playerSubtitleButton.getId());
         FrameLayout.LayoutParams playerDownloadParams = new FrameLayout.LayoutParams(
@@ -1484,7 +1484,8 @@ public class MainActivity extends Activity {
         // Keep every auxiliary player action together in the bottom control row.
         LinearLayout playerActionRow = new LinearLayout(this);
         playerActionRow.setOrientation(LinearLayout.HORIZONTAL);
-        playerActionRow.setGravity(Gravity.CENTER);
+        playerActionRow.setLayoutDirection(View.LAYOUT_DIRECTION_RTL);
+        playerActionRow.setGravity(Gravity.CENTER_VERTICAL | Gravity.END);
         playerActionRow.setClipChildren(false);
         playerActionRow.setClipToPadding(false);
         playerActionRow.setBackgroundColor(Color.TRANSPARENT);
@@ -1497,9 +1498,10 @@ public class MainActivity extends Activity {
         LinearLayout.LayoutParams actionItemParams = new LinearLayout.LayoutParams(
                 playerActionSize, playerActionSize);
         actionItemParams.setMargins(dp(8), 0, dp(8), 0);
-        playerActionRow.addView(playerSubtitleButton, new LinearLayout.LayoutParams(actionItemParams));
+        // Right-to-left order: settings, subtitles, download.
+        // Quality, speed and aspect ratio remain available in the existing settings dialog.
         playerActionRow.addView(playerSettingsButton, new LinearLayout.LayoutParams(actionItemParams));
-        playerActionRow.addView(playerFullscreenButton, new LinearLayout.LayoutParams(actionItemParams));
+        playerActionRow.addView(playerSubtitleButton, new LinearLayout.LayoutParams(actionItemParams));
         playerActionRow.addView(playerDownloadButton, new LinearLayout.LayoutParams(actionItemParams));
 
         FrameLayout.LayoutParams actionRowParams = new FrameLayout.LayoutParams(
@@ -1509,13 +1511,10 @@ public class MainActivity extends Activity {
         root.addView(playerActionRow, actionRowParams);
 
         // The four actions form one predictable remote-focus chain.
-        playerSubtitleButton.setNextFocusLeftId(playerSettingsButton.getId());
-        playerSettingsButton.setNextFocusRightId(playerSubtitleButton.getId());
-        playerSettingsButton.setNextFocusLeftId(playerFullscreenButton.getId());
-        playerFullscreenButton.setNextFocusRightId(playerSettingsButton.getId());
-        playerFullscreenButton.setNextFocusLeftId(playerDownloadButton.getId());
-        playerDownloadButton.setNextFocusRightId(playerFullscreenButton.getId());
-        playerDownloadButton.setNextFocusLeftId(playerSubtitleButton.getId());
+        playerSettingsButton.setNextFocusLeftId(playerSubtitleButton.getId());
+        playerSubtitleButton.setNextFocusRightId(playerSettingsButton.getId());
+        playerSubtitleButton.setNextFocusLeftId(playerDownloadButton.getId());
+        playerDownloadButton.setNextFocusRightId(playerSubtitleButton.getId());
 
         playerActionRow.setVisibility(View.GONE);
         playerFullscreenButton.setVisibility(View.GONE);
@@ -5479,6 +5478,7 @@ public class MainActivity extends Activity {
                     });
                     player.setVolume(muted ? 0.0f : lastNonZeroVolume);
                     playerView.setPlayer(player);
+                    wireTransportButtons();
                 }
 
                 savePlaybackPositionLocked();
@@ -5890,22 +5890,51 @@ public class MainActivity extends Activity {
         stylePlayerControllerFocusRecursive(playerView);
     }
 
+    // Rebind transport actions after Media3 attaches its custom controller.
+    private void wireTransportButtons() {
+        if (playerView == null) return;
+        View rewind = playerView.findViewById(androidx.media3.ui.R.id.exo_rew);
+        View play = playerView.findViewById(androidx.media3.ui.R.id.exo_play);
+        View pause = playerView.findViewById(androidx.media3.ui.R.id.exo_pause);
+        View forward = playerView.findViewById(androidx.media3.ui.R.id.exo_ffwd);
+
+        if (rewind != null) rewind.setOnClickListener(v -> {
+            ExoPlayer current = player;
+            if (current != null) current.seekBack();
+        });
+        if (play != null) play.setOnClickListener(v -> {
+            ExoPlayer current = player;
+            if (current != null) current.play();
+        });
+        if (pause != null) pause.setOnClickListener(v -> {
+            ExoPlayer current = player;
+            if (current != null) current.pause();
+        });
+        if (forward != null) forward.setOnClickListener(v -> {
+            ExoPlayer current = player;
+            if (current != null) current.seekForward();
+        });
+    }
+
     private void stylePlayerControllerFocusRecursive(View view) {
         if (view == null) return;
+        // Keep the timeline clean: its own scrubber is the only visible focus indicator.
+        if (view instanceof androidx.media3.ui.DefaultTimeBar) {
+            view.setBackgroundColor(Color.TRANSPARENT);
+            return;
+        }
         if (!(view instanceof ViewGroup) && (view.isClickable() || view.isFocusable())) {
             view.setFocusable(true);
             view.setFocusableInTouchMode(true);
             if (android.os.Build.VERSION.SDK_INT >= 26) view.setDefaultFocusHighlightEnabled(false);
-            view.setBackground(browserFocusBackground(Color.TRANSPARENT,
-                    Color.TRANSPARENT, 10, false));
+            view.setBackground(roundedBackground(Color.TRANSPARENT, Color.TRANSPARENT, 24));
             view.setOnFocusChangeListener((focusedView, focused) -> {
-                // Transparent at rest; a slim cool-blue outline and subtle tint
-                // identify only the currently focused playback control.
-                focusedView.setBackground(browserFocusBackground(
-                        focused ? Color.argb(48, 105, 185, 255) : Color.TRANSPARENT,
-                        focused ? Color.rgb(105, 185, 255) : Color.TRANSPARENT,
-                        10, focused));
-                focusedView.setElevation(focused ? dp(4) : 0);
+                focusedView.setBackground(roundedBackground(
+                        focused ? Color.argb(26, 255, 255, 255) : Color.TRANSPARENT,
+                        Color.TRANSPARENT, 24));
+                focusedView.setElevation(0);
+                focusedView.setScaleX(focused ? 1.025f : 1f);
+                focusedView.setScaleY(focused ? 1.025f : 1f);
             });
         }
         if (view instanceof ViewGroup) {
@@ -5921,7 +5950,10 @@ public class MainActivity extends Activity {
         playerView.post(() -> {
             if (playerView == null || playerView.getVisibility() != View.VISIBLE) return;
             stylePlayerControllerFocus();
-            View playPause = playerView.findViewById(androidx.media3.ui.R.id.exo_play_pause);
+            View playPause = playerView.findViewById(androidx.media3.ui.R.id.exo_play);
+            if (playPause == null || playPause.getVisibility() != View.VISIBLE) {
+                playPause = playerView.findViewById(androidx.media3.ui.R.id.exo_pause);
+            }
             if (playPause != null) {
                 playPause.setFocusable(true);
                 playPause.setFocusableInTouchMode(true);
@@ -6614,6 +6646,7 @@ public class MainActivity extends Activity {
                             .build();
                     player.setVolume(muted ? 0.0f : lastNonZeroVolume);
                     playerView.setPlayer(player);
+                    wireTransportButtons();
                 }
                 savePlaybackPositionLocked();
                 player.stop();
