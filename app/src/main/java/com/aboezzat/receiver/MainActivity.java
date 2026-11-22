@@ -2994,7 +2994,10 @@ public class MainActivity extends Activity {
         void candidate(String url, String engine, boolean cobaltResult, boolean contentTypeResult) {
             runOnUiThread(() -> {
                 if (finished || generation != extractionGeneration || isFinishing()) return;
-                if (!isHttpUrl(url) || pageUrl.equals(url)) {
+                // A directly shared .json URL can itself return an HLS playlist.
+                // In that case the confirmed manifest URL is intentionally the same
+                // as the incoming URL; do not reject it as a non-extracted page.
+                if (!isHttpUrl(url) || (pageUrl.equals(url) && !contentTypeResult)) {
                     failedOnMain();
                     return;
                 }
