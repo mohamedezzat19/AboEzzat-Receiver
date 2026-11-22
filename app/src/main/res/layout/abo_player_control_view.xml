@@ -5,22 +5,25 @@
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:layout_gravity="bottom"
+    android:layoutDirection="ltr"
     android:background="#B8000000"
-    android:paddingStart="12dp"
-    android:paddingEnd="12dp"
-    android:paddingTop="5dp"
-    android:paddingBottom="6dp">
+    android:paddingStart="16dp"
+    android:paddingEnd="16dp"
+    android:paddingTop="6dp"
+    android:paddingBottom="8dp">
 
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:orientation="vertical">
+        android:orientation="vertical"
+        android:layoutDirection="ltr">
 
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:gravity="center_vertical"
-            android:orientation="horizontal">
+            android:orientation="horizontal"
+            android:layoutDirection="ltr">
 
             <TextView
                 android:id="@+id/exo_position"
@@ -54,110 +57,138 @@
                 android:textSize="11sp" />
         </LinearLayout>
 
+        <!-- Playback controls stay grouped toward the center/left. -->
+        <!-- Utility controls stay anchored to the physical right in every locale. -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:gravity="center"
-            android:orientation="horizontal">
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:layoutDirection="ltr">
 
-            <ImageButton
-                android:id="@+id/exo_prev"
-                android:layout_width="38dp"
-                android:layout_height="42dp"
-                android:background="@android:color/transparent"
-                android:contentDescription="العنصر السابق"
-                android:padding="9dp"
-                android:src="@android:drawable/ic_media_previous"
-                android:tint="#FFFFFFFF" />
-
-            <ImageButton
-                android:id="@+id/exo_rew"
-                android:layout_width="42dp"
-                android:layout_height="42dp"
-                android:background="@android:color/transparent"
-                android:contentDescription="ترجيع"
-                android:padding="9dp"
-                android:src="@android:drawable/ic_media_rew"
-                android:tint="#FFFFFFFF" />
-
-            <ImageButton
-                android:id="@+id/exo_play_pause"
-                android:layout_width="48dp"
-                android:layout_height="46dp"
-                android:background="@android:color/transparent"
-                android:contentDescription="تشغيل أو إيقاف مؤقت"
-                android:padding="9dp"
-                android:src="@android:drawable/ic_media_play"
-                android:tint="#FFFFFFFF" />
-
-            <ImageButton
-                android:id="@+id/exo_ffwd"
-                android:layout_width="42dp"
-                android:layout_height="42dp"
-                android:background="@android:color/transparent"
-                android:contentDescription="تقديم"
-                android:padding="9dp"
-                android:src="@android:drawable/ic_media_ff"
-                android:tint="#FFFFFFFF" />
-
-            <ImageButton
-                android:id="@+id/exo_next"
-                android:layout_width="38dp"
-                android:layout_height="42dp"
-                android:background="@android:color/transparent"
-                android:contentDescription="العنصر التالي"
-                android:padding="9dp"
-                android:src="@android:drawable/ic_media_next"
-                android:tint="#FFFFFFFF" />
-
-            <TextView
-                android:id="@+id/abo_player_repeat"
-                android:layout_width="42dp"
-                android:layout_height="42dp"
-                android:clickable="true"
-                android:contentDescription="تكرار التشغيل: متوقف"
-                android:focusable="true"
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
                 android:gravity="center"
-                android:text="↻"
-                android:textColor="#FFFFFFFF"
-                android:textSize="23sp" />
+                android:orientation="horizontal"
+                android:layoutDirection="ltr">
 
-            <TextView
-                android:id="@+id/abo_player_subtitle"
-                android:layout_width="42dp"
-                android:layout_height="42dp"
-                android:clickable="true"
-                android:contentDescription="البحث عن ترجمة عربية"
-                android:focusable="true"
-                android:gravity="center"
-                android:text="CC"
-                android:textColor="#FFFFFFFF"
-                android:textSize="14sp"
-                android:textStyle="bold" />
+                <ImageButton
+                    android:id="@+id/exo_prev"
+                    android:layout_width="40dp"
+                    android:layout_height="44dp"
+                    android:layout_marginEnd="7dp"
+                    android:background="@android:color/transparent"
+                    android:contentDescription="العنصر السابق"
+                    android:padding="9dp"
+                    android:src="@android:drawable/ic_media_previous"
+                    android:tint="#FFFFFFFF" />
 
-            <TextView
-                android:id="@+id/abo_player_download"
-                android:layout_width="42dp"
-                android:layout_height="42dp"
-                android:clickable="true"
-                android:contentDescription="تنزيل الوسائط الحالية"
-                android:focusable="true"
-                android:gravity="center"
-                android:text="⬇"
-                android:textColor="#FFFFFFFF"
-                android:textSize="22sp" />
+                <ImageButton
+                    android:id="@+id/exo_rew"
+                    android:layout_width="44dp"
+                    android:layout_height="44dp"
+                    android:layout_marginEnd="7dp"
+                    android:background="@android:color/transparent"
+                    android:contentDescription="ترجيع للخلف"
+                    android:padding="9dp"
+                    android:src="@android:drawable/ic_media_rew"
+                    android:tint="#FFFFFFFF" />
 
-            <TextView
-                android:id="@+id/abo_player_settings"
-                android:layout_width="42dp"
-                android:layout_height="42dp"
-                android:clickable="true"
-                android:contentDescription="إعدادات المشغل"
-                android:focusable="true"
-                android:gravity="center"
-                android:text="⚙"
-                android:textColor="#FFFFFFFF"
-                android:textSize="21sp" />
+                <ImageButton
+                    android:id="@+id/exo_play_pause"
+                    android:layout_width="50dp"
+                    android:layout_height="46dp"
+                    android:layout_marginEnd="7dp"
+                    android:background="@android:color/transparent"
+                    android:contentDescription="تشغيل أو إيقاف مؤقت"
+                    android:padding="9dp"
+                    android:src="@android:drawable/ic_media_play"
+                    android:tint="#FFFFFFFF" />
+
+                <ImageButton
+                    android:id="@+id/exo_ffwd"
+                    android:layout_width="44dp"
+                    android:layout_height="44dp"
+                    android:layout_marginEnd="7dp"
+                    android:background="@android:color/transparent"
+                    android:contentDescription="تقديم للأمام"
+                    android:padding="9dp"
+                    android:src="@android:drawable/ic_media_ff"
+                    android:tint="#FFFFFFFF" />
+
+                <ImageButton
+                    android:id="@+id/exo_next"
+                    android:layout_width="40dp"
+                    android:layout_height="44dp"
+                    android:background="@android:color/transparent"
+                    android:contentDescription="العنصر التالي"
+                    android:padding="9dp"
+                    android:src="@android:drawable/ic_media_next"
+                    android:tint="#FFFFFFFF" />
+            </LinearLayout>
+
+            <LinearLayout
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:gravity="center_vertical"
+                android:orientation="horizontal"
+                android:layoutDirection="ltr">
+
+                <TextView
+                    android:id="@+id/abo_player_repeat"
+                    android:layout_width="44dp"
+                    android:layout_height="44dp"
+                    android:layout_marginStart="10dp"
+                    android:clickable="true"
+                    android:contentDescription="تكرار التشغيل: متوقف"
+                    android:focusable="true"
+                    android:gravity="center"
+                    android:text="↻"
+                    android:textColor="#FFFFFFFF"
+                    android:textSize="23sp" />
+
+                <TextView
+                    android:id="@+id/abo_player_download"
+                    android:layout_width="44dp"
+                    android:layout_height="44dp"
+                    android:layout_marginStart="8dp"
+                    android:clickable="true"
+                    android:contentDescription="تنزيل الوسائط الحالية"
+                    android:focusable="true"
+                    android:gravity="center"
+                    android:text="⬇"
+                    android:textColor="#FFFFFFFF"
+                    android:textSize="22sp" />
+
+                <TextView
+                    android:id="@+id/abo_player_subtitle"
+                    android:layout_width="44dp"
+                    android:layout_height="44dp"
+                    android:layout_marginStart="8dp"
+                    android:clickable="true"
+                    android:contentDescription="البحث عن ترجمة عربية"
+                    android:focusable="true"
+                    android:gravity="center"
+                    android:text="CC"
+                    android:textColor="#FFFFFFFF"
+                    android:textSize="14sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:id="@+id/abo_player_settings"
+                    android:layout_width="44dp"
+                    android:layout_height="44dp"
+                    android:layout_marginStart="8dp"
+                    android:clickable="true"
+                    android:contentDescription="إعدادات المشغل"
+                    android:focusable="true"
+                    android:gravity="center"
+                    android:text="⚙"
+                    android:textColor="#FFFFFFFF"
+                    android:textSize="21sp" />
+            </LinearLayout>
         </LinearLayout>
     </LinearLayout>
 </FrameLayout>
