@@ -97,6 +97,10 @@ public class MainActivity extends Activity {
     private volatile int extractionAttemptCount = 0;
     private volatile String extractionStatus = "idle";
     private volatile String lastJsonIndexDiagnostic = "";
+    // URLs whose response body was positively identified as an HLS playlist,
+    // even when the server gives them a misleading .json suffix or MIME type.
+    private final java.util.Set<String> detectedHlsManifestUrls =
+            java.util.Collections.newSetFromMap(new java.util.concurrent.ConcurrentHashMap<String, Boolean>());
     private volatile String lastIncomingIntentDiagnostic = "";
     private volatile String playbackStatusMessage = "";
     private volatile String originalIncomingMediaUrl = "";
@@ -2891,6 +2895,9 @@ public class MainActivity extends Activity {
                         if (!manifestProbe.isEmpty() && manifestProbe.charAt(0) == 0xFEFF) manifestProbe = manifestProbe.substring(1);
                         manifestProbe = manifestProbe.trim();
                         if (manifestProbe.startsWith("#EXTM3U")) {
+                            // The body, not the .json suffix or Content-Type, is authoritative.
+                            // Remember the exact final URL so Media3 uses its HLS parser.
+                            detectedHlsManifestUrls.add(connection.getURL().toString());
                             run.candidate(connection.getURL().toString(), "HLS manifest body", false, true);
                             return;
                         }
@@ -5701,7 +5708,9 @@ public class MainActivity extends Activity {
             boolean smoothManifest = lowerPath.endsWith(".ism") || lowerPath.endsWith(".ismc")
                     || lowerUrl.contains(".ism/manifest") || lowerUrl.contains("format=smoothstreaming");
 
-            if (hlsManifest || lowerPath.matches("^/[^/]+/[^/]+/index\\.html$")) {
+            boolean bodyConfirmedHls = detectedHlsManifestUrls.contains(url);
+            if (hlsManifest || bodyConfirmedHls
+                    || lowerPath.matches("^/[^/]+/[^/]+/index\\.html$")) {
                 builder.setMimeType(MimeTypes.APPLICATION_M3U8);
                 Log.i(TAG, "Treating URL as an HLS playlist");
             } else if (dashManifest) {
