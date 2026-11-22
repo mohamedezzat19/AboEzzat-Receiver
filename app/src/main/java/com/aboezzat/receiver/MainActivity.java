@@ -149,7 +149,6 @@ public class MainActivity extends Activity {
     private FrameLayout browserHomePanel;
     private LinearLayout browserBookmarksContainer;
     private static final int REQUEST_BROWSER_VOICE = 7421;
-    private static final int REQUEST_SUBTITLE_FILE = 7422;
     private boolean tvBrowserMode = false;
     private WebView pendingPopupWebView;
     private WebView activePopupWebView;
@@ -166,7 +165,6 @@ public class MainActivity extends Activity {
     private TextView browserHomeButton;
     private TextView playerSettingsButton;
     private TextView playerDownloadButton;
-    private TextView playerFullscreenButton;
     private final Handler imageControlsHandler = new Handler(Looper.getMainLooper());
     private final Runnable hideImageControlsRunnable = () -> setImageControlsVisible(false);
     private boolean imageControlsVisible = false;
@@ -270,9 +268,6 @@ public class MainActivity extends Activity {
     private final Object playerLock = new Object();
     private SharedPreferences playbackPrefs;
     private String currentPlaybackUrl = "";
-    // External subtitle timing adjustment is applied to a generated copy; the imported source stays unchanged.
-    private File activeExternalSubtitleSource;
-    private long activeExternalSubtitleOffsetMs = 0L;
     private String currentPlaybackFallbackUrl = "";
     private boolean smartTubeFallbackAttempted = false;
     private final Handler playbackProgressHandler = new Handler(Looper.getMainLooper());
@@ -1397,30 +1392,29 @@ public class MainActivity extends Activity {
             view.setScaleY(focused ? 1.04f : 1f);
         });
         playerSubtitleButton.setVisibility(View.GONE);
-        int playerActionSize = dp(isTelevisionDevice() ? 60 : 46);
-        int playerActionBottom = dp(isTelevisionDevice() ? 88 : 58);
-        playerSubtitleButton.setMinWidth(playerActionSize);
-        playerSubtitleButton.setMinHeight(playerActionSize);
+        playerSubtitleButton.setMinWidth(dp(46));
+        playerSubtitleButton.setMinHeight(dp(44));
         playerSubtitleButton.setId(View.generateViewId());
-        playerSubtitleButton.setContentDescription("خيارات الصوت والترجمة");
-        playerSubtitleButton.setOnClickListener(v -> showPlaybackSubtitleAudioDialog());
+        playerSubtitleButton.setContentDescription("البحث عن ترجمة عربية");
+        playerSubtitleButton.setOnClickListener(v -> searchAndApplyArabicSubtitle());
         playerSubtitleButton.setNextFocusRightId(playerDownloadButton == null ? View.NO_ID : playerDownloadButton.getId());
         playerSubtitleButton.setOnLongClickListener(v -> {
             promptSubtitleTitleAndSearch();
             return true;
         });
+        int subtitleEndMargin = compactPlayerChrome ? dp(114) : dp(130);
         FrameLayout.LayoutParams playerSubtitleParams = new FrameLayout.LayoutParams(
-                playerActionSize, playerActionSize, Gravity.BOTTOM | Gravity.END);
-        playerSubtitleParams.setMargins(dp(8), dp(8), dp(isTelevisionDevice() ? 76 : 62), playerActionBottom);
+                dp(46), dp(44), Gravity.TOP | Gravity.END);
+        playerSubtitleParams.setMargins(dp(8), dp(10), subtitleEndMargin, dp(8));
         root.addView(playerSubtitleButton, playerSubtitleParams);
 
-        playerSettingsButton = makeText("⚙", 20, Color.WHITE, true);
+        playerSettingsButton = makeText("⚙", 24, Color.WHITE, true);
         playerSettingsButton.setGravity(Gravity.CENTER);
         playerSettingsButton.setFocusable(true);
         playerSettingsButton.setFocusableInTouchMode(true);
         playerSettingsButton.setClickable(true);
-        playerSettingsButton.setMinWidth(playerActionSize);
-        playerSettingsButton.setMinHeight(playerActionSize);
+        playerSettingsButton.setMinWidth(dp(46));
+        playerSettingsButton.setMinHeight(dp(44));
         playerSettingsButton.setId(View.generateViewId());
         playerSettingsButton.setContentDescription("إعدادات المشغل");
         playerSettingsButton.setBackground(browserFocusBackground(Color.TRANSPARENT, Color.TRANSPARENT, 12, false));
@@ -1430,21 +1424,21 @@ public class MainActivity extends Activity {
         playerSettingsButton.setOnClickListener(v -> showPlaybackSettingsDialog());
         playerSettingsButton.setNextFocusLeftId(playerDownloadButton == null ? View.NO_ID : playerDownloadButton.getId());
         FrameLayout.LayoutParams playerSettingsParams = new FrameLayout.LayoutParams(
-                playerActionSize, playerActionSize, Gravity.BOTTOM | Gravity.END);
-        playerSettingsParams.setMargins(dp(8), dp(8), dp(isTelevisionDevice() ? 142 : 114), playerActionBottom);
+                dp(46), dp(44), Gravity.TOP | Gravity.END);
+        playerSettingsParams.setMargins(dp(8), dp(10), dp(62), dp(8));
         root.addView(playerSettingsButton, playerSettingsParams);
         // Player settings are hidden on the home screen; playback/image flows reveal them.
         playerSettingsButton.setVisibility(View.GONE);
 
-        playerDownloadButton = makeText("↓", 22, Color.WHITE, true);
+        playerDownloadButton = makeText("⬇", 24, Color.WHITE, true);
         playerDownloadButton.setGravity(Gravity.CENTER);
         playerDownloadButton.setFocusable(true);
         playerDownloadButton.setFocusableInTouchMode(true);
         playerDownloadButton.setClickable(true);
-        playerDownloadButton.setMinWidth(playerActionSize);
-        playerDownloadButton.setMinHeight(playerActionSize);
+        playerDownloadButton.setMinWidth(dp(46));
+        playerDownloadButton.setMinHeight(dp(44));
         playerDownloadButton.setId(View.generateViewId());
-        playerDownloadButton.setContentDescription("تنزيل الوسائط الحالية");
+        playerDownloadButton.setContentDescription("تنزيل الوسائط");
         playerDownloadButton.setBackground(browserFocusBackground(Color.TRANSPARENT, Color.TRANSPARENT, 12, false));
         playerDownloadButton.setOnFocusChangeListener((v, focused) -> v.setBackground(browserFocusBackground(
                 focused ? Color.argb(48, 105, 185, 255) : Color.TRANSPARENT,
@@ -1453,78 +1447,22 @@ public class MainActivity extends Activity {
         playerDownloadButton.setNextFocusRightId(playerSettingsButton == null ? View.NO_ID : playerSettingsButton.getId());
         playerDownloadButton.setNextFocusLeftId(playerSubtitleButton == null ? View.NO_ID : playerSubtitleButton.getId());
         FrameLayout.LayoutParams playerDownloadParams = new FrameLayout.LayoutParams(
-                playerActionSize, playerActionSize, Gravity.BOTTOM | Gravity.END);
-        playerDownloadParams.setMargins(dp(8), dp(8), dp(10), playerActionBottom);
+                dp(46), dp(44), Gravity.TOP | Gravity.END);
+        playerDownloadParams.setMargins(dp(8), dp(10), dp(compactPlayerChrome ? 166 : 182), dp(8));
         root.addView(playerDownloadButton, playerDownloadParams);
-        playerFullscreenButton = makeText("▣", 23, Color.WHITE, true);
-        playerFullscreenButton.setGravity(Gravity.CENTER);
-        playerFullscreenButton.setFocusable(true);
-        playerFullscreenButton.setFocusableInTouchMode(true);
-        playerFullscreenButton.setClickable(true);
-        playerFullscreenButton.setId(View.generateViewId());
-        playerFullscreenButton.setContentDescription("ملء الشاشة وأبعاد الصورة");
-        playerFullscreenButton.setBackground(browserFocusBackground(Color.TRANSPARENT, Color.TRANSPARENT, 12, false));
-        playerFullscreenButton.setOnFocusChangeListener((v, focused) -> v.setBackground(browserFocusBackground(
-                focused ? Color.argb(48, 105, 185, 255) : Color.TRANSPARENT,
-                focused ? Color.rgb(105, 185, 255) : Color.TRANSPARENT, 12, focused)));
-        playerFullscreenButton.setOnClickListener(v -> showPlaybackResizeDialog());
-        FrameLayout.LayoutParams fullscreenParams = new FrameLayout.LayoutParams(
-                playerActionSize, playerActionSize, Gravity.BOTTOM | Gravity.END);
-        fullscreenParams.setMargins(dp(8), dp(8), dp(isTelevisionDevice() ? 208 : 166), playerActionBottom);
-        root.addView(playerFullscreenButton, fullscreenParams);
-        // Download remains accessible from the existing playback settings/history flows.
+        // Download is a player action, never a home-screen shortcut.
         playerDownloadButton.setVisibility(View.GONE);
         playerSubtitleButton.setNextFocusRightId(playerDownloadButton.getId());
-        playerSubtitleButton.setNextFocusLeftId(playerSettingsButton.getId());
+        playerDownloadButton.setNextFocusRightId(playerSettingsButton.getId());
         playerDownloadButton.setNextFocusLeftId(playerSubtitleButton.getId());
-        playerSettingsButton.setNextFocusRightId(playerSubtitleButton.getId());
-        playerSettingsButton.setNextFocusLeftId(playerFullscreenButton.getId());
-        playerFullscreenButton.setNextFocusRightId(playerSettingsButton.getId());
-
-        // Keep every auxiliary player action together in the bottom control row.
-        LinearLayout playerActionRow = new LinearLayout(this);
-        playerActionRow.setOrientation(LinearLayout.HORIZONTAL);
-        playerActionRow.setLayoutDirection(View.LAYOUT_DIRECTION_RTL);
-        playerActionRow.setGravity(Gravity.CENTER_VERTICAL | Gravity.RIGHT);
-        playerActionRow.setClipChildren(false);
-        playerActionRow.setClipToPadding(false);
-        playerActionRow.setBackgroundColor(Color.TRANSPARENT);
-
-        root.removeView(playerSubtitleButton);
-        root.removeView(playerSettingsButton);
-        root.removeView(playerDownloadButton);
-        root.removeView(playerFullscreenButton);
-
-        LinearLayout.LayoutParams actionItemParams = new LinearLayout.LayoutParams(
-                playerActionSize, playerActionSize);
-        actionItemParams.setMargins(dp(8), 0, dp(8), 0);
-        // Right-to-left order: settings, subtitles, download.
-        // Quality, speed and aspect ratio remain available in the existing settings dialog.
-        playerActionRow.addView(playerSettingsButton, new LinearLayout.LayoutParams(actionItemParams));
-        playerActionRow.addView(playerSubtitleButton, new LinearLayout.LayoutParams(actionItemParams));
-        playerActionRow.addView(playerDownloadButton, new LinearLayout.LayoutParams(actionItemParams));
-
-        FrameLayout.LayoutParams actionRowParams = new FrameLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT, playerActionSize,
-                Gravity.BOTTOM | Gravity.RIGHT);
-        actionRowParams.setMargins(0, 0, dp(isTelevisionDevice() ? 24 : 12),
-                dp(isTelevisionDevice() ? 12 : 8));
-        root.addView(playerActionRow, actionRowParams);
-
-        // The four actions form one predictable remote-focus chain.
-        playerSettingsButton.setNextFocusLeftId(playerSubtitleButton.getId());
-        playerSubtitleButton.setNextFocusRightId(playerSettingsButton.getId());
-        playerSubtitleButton.setNextFocusLeftId(playerDownloadButton.getId());
-        playerDownloadButton.setNextFocusRightId(playerSubtitleButton.getId());
-
-        playerActionRow.setVisibility(View.GONE);
-        playerFullscreenButton.setVisibility(View.GONE);
-        playerDownloadButton.setVisibility(View.GONE);
+        playerSettingsButton.setNextFocusLeftId(playerDownloadButton.getId());
 
         // These overlays must sit above the full-screen PlayerView on phones and TVs.
         settingsHomeButton.bringToFront();
         browserHomeButton.bringToFront();
-        playerActionRow.bringToFront();
+        playerSubtitleButton.bringToFront();
+        playerSettingsButton.bringToFront();
+        playerDownloadButton.bringToFront();
 
         playerView.post(() -> {
             View nativeSettings = playerView.findViewById(androidx.media3.ui.R.id.exo_settings);
@@ -1549,14 +1487,12 @@ public class MainActivity extends Activity {
                 if (settingsHomeButton != null) settingsHomeButton.setVisibility(View.GONE);
                 if (browserHomeButton != null) browserHomeButton.setVisibility(View.GONE);
             }
-            if (playerActionRow != null) playerActionRow.setVisibility(controlsVisible ? View.VISIBLE : View.GONE);
             if (playerSubtitleButton != null) {
                 playerSubtitleButton.setVisibility(controlsVisible && currentPlaybackHasVideo
                         ? View.VISIBLE : View.GONE);
             }
             if (playerSettingsButton != null) playerSettingsButton.setVisibility(controlsVisible ? View.VISIBLE : View.GONE);
             if (playerDownloadButton != null) playerDownloadButton.setVisibility(controlsVisible ? View.VISIBLE : View.GONE);
-            if (playerFullscreenButton != null) playerFullscreenButton.setVisibility(controlsVisible ? View.VISIBLE : View.GONE);
         });
         // Give every native controller button the same remote-focus treatment.
         playerView.post(this::stylePlayerControllerFocus);
@@ -3263,12 +3199,6 @@ public class MainActivity extends Activity {
             // The authoritative check runs in onResume against PackageManager's installed version.
             return;
         }
-        if (requestCode == REQUEST_SUBTITLE_FILE) {
-            if (resultCode == RESULT_OK && data != null && data.getData() != null) {
-                importExternalSubtitle(data.getData());
-            }
-            return;
-        }
         if (requestCode != REQUEST_BROWSER_VOICE || resultCode != RESULT_OK || data == null) return;
         java.util.ArrayList<String> matches = data.getStringArrayListExtra(
                 android.speech.RecognizerIntent.EXTRA_RESULTS);
@@ -4809,8 +4739,6 @@ public class MainActivity extends Activity {
         }
         // Preserve the last saved position; do not overwrite it with position zero on shutdown.
         currentPlaybackUrl = "";
-        activeExternalSubtitleSource = null;
-        activeExternalSubtitleOffsetMs = 0L;
     }
 
     private void rememberPlaybackUrl(String url) {
@@ -5669,43 +5597,6 @@ public class MainActivity extends Activity {
         }
     }
 
-    private void showPlaybackSubtitleAudioDialog() {
-        if (player == null || currentPlaybackUrl == null || currentPlaybackUrl.isEmpty()) {
-            Toast.makeText(this, "لا يوجد محتوى يعمل حاليًا", Toast.LENGTH_SHORT).show();
-            return;
-        }
-        String[] options = {
-                "🔊  اختيار مسار الصوت",
-                "💬  اختيار مسار الترجمة المدمجة",
-                "📂  استيراد ملف ترجمة من الجهاز",
-                "🌐  البحث عن ترجمة عربية",
-                "⏱️  مزامنة توقيت الترجمة"
-        };
-        new AlertDialog.Builder(this)
-                .setTitle("الصوت والترجمة")
-                .setItems(options, (dialog, which) -> {
-                    switch (which) {
-                        case 0:
-                            showPlaybackTrackDialog(C.TRACK_TYPE_AUDIO);
-                            break;
-                        case 1:
-                            showPlaybackTrackDialog(C.TRACK_TYPE_TEXT);
-                            break;
-                        case 2:
-                            openExternalSubtitlePicker();
-                            break;
-                        case 3:
-                            promptSubtitleTitleAndSearch();
-                            break;
-                        case 4:
-                            showSubtitleSyncDialog();
-                            break;
-                    }
-                })
-                .setNegativeButton("إغلاق", null)
-                .show();
-    }
-
     private void showPlaybackSettingsDialog() {
         if (imageView != null && imageView.getVisibility() == View.VISIBLE) {
             showImageSettingsDialog();
@@ -5892,23 +5783,20 @@ public class MainActivity extends Activity {
 
     private void stylePlayerControllerFocusRecursive(View view) {
         if (view == null) return;
-        // Keep the timeline clean: its own scrubber is the only visible focus indicator.
-        if (view instanceof androidx.media3.ui.DefaultTimeBar) {
-            view.setBackgroundColor(Color.TRANSPARENT);
-            return;
-        }
         if (!(view instanceof ViewGroup) && (view.isClickable() || view.isFocusable())) {
             view.setFocusable(true);
             view.setFocusableInTouchMode(true);
             if (android.os.Build.VERSION.SDK_INT >= 26) view.setDefaultFocusHighlightEnabled(false);
-            view.setBackground(roundedBackground(Color.TRANSPARENT, Color.TRANSPARENT, 24));
+            view.setBackground(browserFocusBackground(Color.TRANSPARENT,
+                    Color.TRANSPARENT, 10, false));
             view.setOnFocusChangeListener((focusedView, focused) -> {
-                focusedView.setBackground(roundedBackground(
-                        focused ? Color.argb(26, 255, 255, 255) : Color.TRANSPARENT,
-                        Color.TRANSPARENT, 24));
-                focusedView.setElevation(0);
-                focusedView.setScaleX(focused ? 1.025f : 1f);
-                focusedView.setScaleY(focused ? 1.025f : 1f);
+                // Transparent at rest; a slim cool-blue outline and subtle tint
+                // identify only the currently focused playback control.
+                focusedView.setBackground(browserFocusBackground(
+                        focused ? Color.argb(48, 105, 185, 255) : Color.TRANSPARENT,
+                        focused ? Color.rgb(105, 185, 255) : Color.TRANSPARENT,
+                        10, focused));
+                focusedView.setElevation(focused ? dp(4) : 0);
             });
         }
         if (view instanceof ViewGroup) {
@@ -5924,10 +5812,7 @@ public class MainActivity extends Activity {
         playerView.post(() -> {
             if (playerView == null || playerView.getVisibility() != View.VISIBLE) return;
             stylePlayerControllerFocus();
-            View playPause = playerView.findViewById(androidx.media3.ui.R.id.exo_play);
-            if (playPause == null || playPause.getVisibility() != View.VISIBLE) {
-                playPause = playerView.findViewById(androidx.media3.ui.R.id.exo_pause);
-            }
+            View playPause = playerView.findViewById(androidx.media3.ui.R.id.exo_play_pause);
             if (playPause != null) {
                 playPause.setFocusable(true);
                 playPause.setFocusableInTouchMode(true);
@@ -6265,234 +6150,6 @@ public class MainActivity extends Activity {
         thread.start();
     }
 
-    private void openExternalSubtitlePicker() {
-        if (player == null || currentPlaybackUrl == null || currentPlaybackUrl.trim().isEmpty()) {
-            Toast.makeText(this, "لا يوجد فيديو يعمل حاليًا", Toast.LENGTH_SHORT).show();
-            return;
-        }
-        android.content.Intent intent = new android.content.Intent(android.content.Intent.ACTION_OPEN_DOCUMENT);
-        intent.addCategory(android.content.Intent.CATEGORY_OPENABLE);
-        intent.setType("*/*");
-        intent.putExtra(android.content.Intent.EXTRA_MIME_TYPES, new String[]{
-                "application/x-subrip", "text/plain", "text/vtt",
-                "application/ttml+xml", "text/x-ssa", "text/x-ass"
-        });
-        try {
-            startActivityForResult(intent, REQUEST_SUBTITLE_FILE);
-        } catch (ActivityNotFoundException e) {
-            Toast.makeText(this, "لا يوجد مدير ملفات لاختيار الترجمة", Toast.LENGTH_LONG).show();
-        }
-    }
-
-    private void importExternalSubtitle(Uri sourceUri) {
-        Thread thread = new Thread(() -> {
-            File copiedFile = null;
-            String error = null;
-            try {
-                String segment = sourceUri.getLastPathSegment();
-                String lowerName = segment == null ? "" : Uri.decode(segment).toLowerCase(Locale.ROOT);
-                String extension = "";
-                int dot = lowerName.lastIndexOf('.');
-                if (dot >= 0 && dot < lowerName.length() - 1) {
-                    extension = lowerName.substring(dot + 1).replaceAll("[^a-z0-9]", "");
-                }
-                if (!("srt".equals(extension) || "vtt".equals(extension)
-                        || "ttml".equals(extension) || "xml".equals(extension)
-                        || "ssa".equals(extension) || "ass".equals(extension))) {
-                    String mime = getContentResolver().getType(sourceUri);
-                    if ("text/vtt".equalsIgnoreCase(mime)) extension = "vtt";
-                    else if ("application/ttml+xml".equalsIgnoreCase(mime)) extension = "ttml";
-                    else if ("text/x-ssa".equalsIgnoreCase(mime)) extension = "ssa";
-                    else if ("text/x-ass".equalsIgnoreCase(mime)) extension = "ass";
-                    else if ("application/x-subrip".equalsIgnoreCase(mime)
-                            || "text/plain".equalsIgnoreCase(mime)) extension = "srt";
-                }
-                if (extension.isEmpty()) throw new java.io.IOException("Unsupported subtitle format");
-                File directory = new File(getCacheDir(), "external_subtitles");
-                if (!directory.exists() && !directory.mkdirs()) {
-                    throw new java.io.IOException("Cannot create subtitle cache");
-                }
-                copiedFile = File.createTempFile("receiver_subtitle_", "." + extension, directory);
-                try (InputStream input = getContentResolver().openInputStream(sourceUri);
-                     java.io.FileOutputStream output = new java.io.FileOutputStream(copiedFile)) {
-                    if (input == null) throw new java.io.IOException("Cannot open subtitle");
-                    byte[] buffer = new byte[8192];
-                    int count;
-                    long total = 0L;
-                    while ((count = input.read(buffer)) != -1) {
-                        total += count;
-                        if (total > 20L * 1024L * 1024L) {
-                            throw new java.io.IOException("Subtitle file is too large");
-                        }
-                        output.write(buffer, 0, count);
-                    }
-                    output.flush();
-                }
-            } catch (Exception e) {
-                if (copiedFile != null) copiedFile.delete();
-                error = "تعذّر قراءة ملف الترجمة. تأكد أنه SRT أو VTT أو ASS أو SSA أو TTML.";
-                Log.w(TAG, "External subtitle import failed", e);
-            }
-            final File readyFile = copiedFile;
-            final String errorMessage = error;
-            runOnUiThread(() -> {
-                if (isFinishing()) {
-                    if (readyFile != null) readyFile.delete();
-                    return;
-                }
-                if (readyFile == null) {
-                    Toast.makeText(this, errorMessage == null ? "تعذّر استيراد الترجمة" : errorMessage,
-                            Toast.LENGTH_LONG).show();
-                    return;
-                }
-                if (applySubtitleFile(readyFile)) {
-                    Toast.makeText(this, "تم تحميل ملف الترجمة", Toast.LENGTH_SHORT).show();
-                } else {
-                    readyFile.delete();
-                    Toast.makeText(this, "تعذّر تشغيل ملف الترجمة مع هذا الفيديو", Toast.LENGTH_LONG).show();
-                }
-            });
-        }, "ReceiverExternalSubtitleImport");
-        thread.setDaemon(true);
-        thread.start();
-    }
-
-
-    // Subtitle offset support is deliberately limited to external SRT/VTT files.
-    // Embedded tracks, ASS/SSA and TTML need format-specific timing engines and are not shifted here.
-    private void showSubtitleSyncDialog() {
-        if (activeExternalSubtitleSource == null || !activeExternalSubtitleSource.isFile()) {
-            new AlertDialog.Builder(this).setTitle("مزامنة الترجمة")
-                    .setMessage("المزامنة الزمنية متاحة حاليًا لملفات الترجمة الخارجية SRT وVTT فقط. استورد ملفًا خارجيًا أولًا؛ المسارات المدمجة وASS/SSA وTTML لا يتم تغيير توقيتها بهذه الأداة.")
-                    .setPositiveButton("حسنًا", null).show();
-            return;
-        }
-        String current = String.format(Locale.US, "%.1f", activeExternalSubtitleOffsetMs / 1000.0);
-        String[] choices = {
-                "تأخير الترجمة 5 ثوانٍ",
-                "تأخير الترجمة نصف ثانية",
-                "تقديم الترجمة نصف ثانية",
-                "تقديم الترجمة 5 ثوانٍ",
-                "إعادة التوقيت إلى الصفر"
-        };
-        new AlertDialog.Builder(this).setTitle("مزامنة الترجمة — الإزاحة الحالية: " + current + " ث")
-                .setItems(choices, (dialog, which) -> {
-                    long delta;
-                    switch (which) {
-                        case 0: delta = 5000L; break;
-                        case 1: delta = 500L; break;
-                        case 2: delta = -500L; break;
-                        case 3: delta = -5000L; break;
-                        default: delta = -activeExternalSubtitleOffsetMs; break;
-                    }
-                    adjustExternalSubtitleOffset(delta);
-                }).setNegativeButton("إغلاق", null).show();
-    }
-
-    private void adjustExternalSubtitleOffset(long deltaMs) {
-        if (activeExternalSubtitleSource == null || !activeExternalSubtitleSource.isFile()) return;
-        long nextOffset = activeExternalSubtitleOffsetMs + deltaMs;
-        if (nextOffset < -600000L || nextOffset > 600000L) {
-            Toast.makeText(this, "أقصى تقديم أو تأخير مسموح به 10 دقائق", Toast.LENGTH_SHORT).show();
-            return;
-        }
-        String extension = activeExternalSubtitleSource.getName().toLowerCase(Locale.ROOT);
-        if (!(extension.endsWith(".srt") || extension.endsWith(".vtt"))) {
-            Toast.makeText(this, "المزامنة متاحة لملفات SRT وVTT فقط", Toast.LENGTH_LONG).show();
-            return;
-        }
-        File source = activeExternalSubtitleSource;
-        File shifted = null;
-        try {
-            shifted = createShiftedSubtitleCopy(source, nextOffset);
-            if (shifted == null || !applySubtitleFile(shifted)) {
-                if (shifted != null) shifted.delete();
-                activeExternalSubtitleSource = source;
-                Toast.makeText(this, "تعذّر تطبيق توقيت الترجمة الجديد", Toast.LENGTH_LONG).show();
-                return;
-            }
-            activeExternalSubtitleSource = source;
-            activeExternalSubtitleOffsetMs = nextOffset;
-            Toast.makeText(this, "تم تحديث توقيت الترجمة: "
-                    + String.format(Locale.US, "%+.1f", nextOffset / 1000.0) + " ثانية",
-                    Toast.LENGTH_SHORT).show();
-        } catch (Exception e) {
-            if (shifted != null) shifted.delete();
-            Log.w(TAG, "Subtitle timing adjustment failed", e);
-            Toast.makeText(this, "تعذّرت مزامنة ملف الترجمة", Toast.LENGTH_LONG).show();
-        }
-    }
-
-    private File createShiftedSubtitleCopy(File source, long offsetMs) throws java.io.IOException {
-        if (source.length() > 20L * 1024L * 1024L) throw new java.io.IOException("Subtitle file too large");
-        String name = source.getName().toLowerCase(Locale.ROOT);
-        if (!(name.endsWith(".srt") || name.endsWith(".vtt"))) {
-            throw new java.io.IOException("Only SRT/VTT timing is supported");
-        }
-        File directory = new File(getCacheDir(), "external_subtitles");
-        if (!directory.exists() && !directory.mkdirs()) throw new java.io.IOException("Cannot create subtitle cache");
-        String extension = name.endsWith(".vtt") ? ".vtt" : ".srt";
-        File outputFile = File.createTempFile("receiver_subtitle_shifted_", extension, directory);
-        java.util.regex.Pattern timing = java.util.regex.Pattern.compile(
-                "^([ \\t]*)(\\d{1,}:\\d{2}:\\d{2}[,.]\\d{3}|\\d{1,}:\\d{2}[,.]\\d{3})(\\s+-->\\s+)(\\d{1,}:\\d{2}:\\d{2}[,.]\\d{3}|\\d{1,}:\\d{2}[,.]\\d{3})(.*)$");
-        try (java.io.BufferedReader reader = new java.io.BufferedReader(new java.io.InputStreamReader(
-                     new java.io.FileInputStream(source), StandardCharsets.UTF_8));
-             java.io.BufferedWriter writer = new java.io.BufferedWriter(new java.io.OutputStreamWriter(
-                     new java.io.FileOutputStream(outputFile), StandardCharsets.UTF_8))) {
-            String line;
-            while ((line = reader.readLine()) != null) {
-                java.util.regex.Matcher matcher = timing.matcher(line);
-                if (matcher.matches()) {
-                    long start = Math.max(0L, parseSubtitleTimestampMs(matcher.group(2)) + offsetMs);
-                    long end = Math.max(0L, parseSubtitleTimestampMs(matcher.group(4)) + offsetMs);
-                    if (end <= start) end = start + 1L;
-                    String startSep = matcher.group(2).contains(",") ? "," : ".";
-                    String endSep = matcher.group(4).contains(",") ? "," : ".";
-                    line = matcher.group(1) + formatSubtitleTimestampMs(start, startSep)
-                            + matcher.group(3) + formatSubtitleTimestampMs(end, endSep) + matcher.group(5);
-                }
-                writer.write(line);
-                writer.newLine();
-            }
-        } catch (Exception e) {
-            outputFile.delete();
-            if (e instanceof java.io.IOException) throw (java.io.IOException) e;
-            throw new java.io.IOException("Could not shift subtitle timestamps", e);
-        }
-        return outputFile;
-    }
-
-    private long parseSubtitleTimestampMs(String value) {
-        String normalized = value.replace(',', '.');
-        String[] parts = normalized.split(":");
-        long hours = 0L, minutes, seconds;
-        String secondPart;
-        if (parts.length == 3) {
-            hours = Long.parseLong(parts[0]);
-            minutes = Long.parseLong(parts[1]);
-            secondPart = parts[2];
-        } else if (parts.length == 2) {
-            minutes = Long.parseLong(parts[0]);
-            secondPart = parts[1];
-        } else {
-            throw new IllegalArgumentException("Invalid subtitle timestamp");
-        }
-        String[] sec = secondPart.split("\\.");
-        seconds = Long.parseLong(sec[0]);
-        long millis = Long.parseLong((sec.length > 1 ? sec[1] : "000").substring(0, 3));
-        return (((hours * 60L + minutes) * 60L) + seconds) * 1000L + millis;
-    }
-
-    private String formatSubtitleTimestampMs(long value, String separator) {
-        long total = Math.max(0L, value);
-        long hours = total / 3600000L;
-        long minutes = (total / 60000L) % 60L;
-        long seconds = (total / 1000L) % 60L;
-        long millis = total % 1000L;
-        return String.format(Locale.US, "%02d:%02d:%02d%s%03d",
-                hours, minutes, seconds, separator, millis);
-    }
-
     private boolean applySubtitleFile(File subtitleFile) {
         if (player == null || currentPlaybackUrl == null || currentPlaybackUrl.trim().isEmpty()
                 || subtitleFile == null || !subtitleFile.isFile()) return false;
@@ -6501,15 +6158,10 @@ public class MainActivity extends Activity {
                 long position = Math.max(0L, player.getCurrentPosition());
                 boolean wasPlaying = player.isPlaying();
                 savePlaybackPositionLocked();
-                String name = subtitleFile.getName().toLowerCase(Locale.ROOT);
-                String subtitleMime;
-                if (name.endsWith(".vtt")) subtitleMime = "text/vtt";
-                else if (name.endsWith(".ttml") || name.endsWith(".xml")) subtitleMime = "application/ttml+xml";
-                else if (name.endsWith(".ssa") || name.endsWith(".ass")) subtitleMime = "text/x-ssa";
-                else subtitleMime = MimeTypes.APPLICATION_SUBRIP;
                 MediaItem.SubtitleConfiguration subtitleConfig =
                         new MediaItem.SubtitleConfiguration.Builder(Uri.fromFile(subtitleFile))
-                                .setMimeType(subtitleMime)
+                                .setMimeType(MimeTypes.APPLICATION_SUBRIP)
+                                .setLanguage("ar")
                                 .setSelectionFlags(C.SELECTION_FLAG_DEFAULT)
                                 .build();
                 MediaItem.Builder videoItemBuilder = new MediaItem.Builder()
@@ -6530,12 +6182,10 @@ public class MainActivity extends Activity {
                 player.prepare();
                 player.seekTo(position);
                 if (wasPlaying) player.play();
-                activeExternalSubtitleSource = subtitleFile;
-                activeExternalSubtitleOffsetMs = 0L;
                 return true;
             }
         } catch (Exception e) {
-            Log.e(TAG, "Could not apply external subtitle", e);
+            Log.e(TAG, "Could not apply Arabic subtitle", e);
             return false;
         }
     }
