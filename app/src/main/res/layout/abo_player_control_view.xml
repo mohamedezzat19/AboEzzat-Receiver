@@ -151,7 +151,7 @@
                     android:textSize="23sp" 
                     android:background="@drawable/player_control_focus"/>
 
-                <ImageButton
+                <androidx.appcompat.widget.AppCompatImageButton
                     android:id="@+id/abo_player_download"
                     android:layout_width="44dp"
                     android:layout_height="44dp"
@@ -161,8 +161,8 @@
                     android:focusable="true"
                     android:padding="10dp"
                     android:scaleType="fitCenter"
-                    android:src="@drawable/ic_download_modern"
-                    android:tint="#FFFFFFFF"/>
+                    app:srcCompat="@drawable/ic_download_modern"
+                    app:tint="#FFFFFFFF"/>
 
                 <TextView
                     android:id="@+id/abo_player_subtitle"
