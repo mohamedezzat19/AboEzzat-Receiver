@@ -857,13 +857,21 @@ public class MainActivity extends Activity {
 
     private void handleExternalIntent(android.content.Intent intent) {
         if (intent == null) return;
-        lastIncomingIntentDiagnostic = summarizeIncomingIntentShape(intent);
         String action = intent.getAction();
         if (ReceiverServerService.ACTION_SERVER_REQUEST.equals(action)) {
             String command = intent.getStringExtra(ReceiverServerService.EXTRA_COMMAND);
             String incomingUrl = intent.getStringExtra(ReceiverServerService.EXTRA_URL);
             String incomingAudio = intent.getStringExtra(ReceiverServerService.EXTRA_AUDIO);
             String dlnaMetadata = intent.getStringExtra(ReceiverServerService.EXTRA_METADATA);
+            // Internal remote-control/status commands arrive through the same Activity
+            // action as media requests. Do not let them overwrite the last real share
+            // diagnostic before a failed-media report is generated.
+            if ((incomingUrl != null && !incomingUrl.trim().isEmpty())
+                    || (incomingAudio != null && !incomingAudio.trim().isEmpty())
+                    || (dlnaMetadata != null && !dlnaMetadata.trim().isEmpty())) {
+                lastIncomingIntentDiagnostic = summarizeIncomingIntentShape(intent);
+            }
+
             if (dlnaMetadata != null && !dlnaMetadata.isEmpty()) {
                 String lowerMetadata = dlnaMetadata.toLowerCase(Locale.ROOT);
                 Log.i(TAG, "DLNA metadata received: chars=" + dlnaMetadata.length()
