@@ -97,6 +97,7 @@ public class MainActivity extends Activity {
     private volatile int extractionAttemptCount = 0;
     private volatile String extractionStatus = "idle";
     private volatile String lastJsonIndexDiagnostic = "";
+    private volatile String lastIncomingIntentDiagnostic = "";
     private volatile String playbackStatusMessage = "";
     private volatile String originalIncomingMediaUrl = "";
     private volatile java.util.Map<String, String> pendingPlaybackHeaders = java.util.Collections.emptyMap();
@@ -365,6 +366,7 @@ public class MainActivity extends Activity {
             entry.put("requested_url", requestedUrl);
             entry.put("resolved_url", resolvedUrl == null ? "" : resolvedUrl);
             entry.put("reason", reason == null ? "" : reason);
+            entry.put("incoming_intent", lastIncomingIntentDiagnostic == null ? "" : lastIncomingIntentDiagnostic);
             entry.put("version", getPackageManager().getPackageInfo(getPackageName(), 0).versionName);
             next.put(entry);
             for (int i = 0; i < old.length() && next.length() < MAX_FAILED_MEDIA_LOG_ENTRIES; i++) {
@@ -398,6 +400,8 @@ public class MainActivity extends Activity {
                 .append("Reason: ").append(entry.optString("reason", "not available")).append("\n")
                 .append("App version: ").append(entry.optString("version", "unknown")).append("\n")
                 .append("Requested URL: ").append(includeFullUrls ? requested : redactSensitiveUrl(requested)).append("\n");
+        String intentShape = entry.optString("incoming_intent", "");
+        if (!intentShape.isEmpty()) report.append("Incoming intent: ").append(intentShape).append("\n");
         if (!resolved.isEmpty()) {
             report.append("Resolved URL: ").append(includeFullUrls ? resolved : redactSensitiveUrl(resolved)).append("\n");
         }
@@ -797,8 +801,70 @@ public class MainActivity extends Activity {
     }
 
     // Support web links shared directly to Receiver in addition to links sent over port 8081.
+    private String summarizeIncomingIntentShape(android.content.Intent intent) {
+        if (intent == null) return "intent=none";
+        StringBuilder out = new StringBuilder();
+        String action = intent.getAction();
+        out.append("action=").append(action == null ? "unknown" : action);
+        android.net.Uri referrer = intent.getReferrer();
+        if (referrer != null) {
+            out.append("; referrer-scheme=").append(referrer.getScheme() == null ? "unknown" : referrer.getScheme());
+            if ("android-app".equalsIgnoreCase(referrer.getScheme()) && referrer.getHost() != null) {
+                out.append("; referrer-app=").append(referrer.getHost().replaceAll("[^A-Za-z0-9._-]", ""));
+            }
+        }
+        android.os.Bundle extras = intent.getExtras();
+        if (extras != null) {
+            java.util.ArrayList<String> shapes = new java.util.ArrayList<>();
+            for (String key : extras.keySet()) {
+                if (shapes.size() >= 24) break;
+                Object value = extras.get(key);
+                String safeKey = key == null ? "unknown" : key.replaceAll("[^A-Za-z0-9_.-]", "");
+                String type = value == null ? "null"
+                        : value instanceof android.os.Bundle ? "bundle"
+                        : value instanceof android.net.Uri ? "uri"
+                        : value instanceof CharSequence ? "text"
+                        : value instanceof java.util.Map ? "map"
+                        : value.getClass().getSimpleName();
+                shapes.add(safeKey + ":" + type);
+                if (value instanceof android.os.Bundle
+                        && (safeKey.toLowerCase(Locale.ROOT).contains("header")
+                        || safeKey.toLowerCase(Locale.ROOT).contains("request"))) {
+                    android.os.Bundle nested = (android.os.Bundle) value;
+                    java.util.Iterator<String> it = nested.keySet().iterator();
+                    int nestedCount = 0;
+                    while (it.hasNext() && nestedCount++ < 12 && shapes.size() < 32) {
+                        String nestedKey = it.next();
+                        shapes.add("header-key:" + (nestedKey == null ? "unknown"
+                                : nestedKey.replaceAll("[^A-Za-z0-9_.-]", "")));
+                    }
+                }
+            }
+            out.append("; extras={").append(android.text.TextUtils.join(",", shapes)).append("}");
+        } else {
+            out.append("; extras=none");
+        }
+        android.content.ClipData clip = intent.getClipData();
+        if (clip != null) {
+            out.append("; clip-items=").append(clip.getItemCount());
+            android.content.ClipDescription description = clip.getDescription();
+            if (description != null) {
+                java.util.ArrayList<String> mimeTypes = new java.util.ArrayList<>();
+                for (int i = 0; i < description.getMimeTypeCount() && i < 6; i++) {
+                    mimeTypes.add(description.getMimeType(i));
+                }
+                out.append("; clip-mime={").append(android.text.TextUtils.join(",", mimeTypes)).append("}");
+            }
+        } else {
+            out.append("; clip=none");
+        }
+        if (out.length() > 1800) return out.substring(0, 1800);
+        return out.toString();
+    }
+
     private void handleExternalIntent(android.content.Intent intent) {
         if (intent == null) return;
+        lastIncomingIntentDiagnostic = summarizeIncomingIntentShape(intent);
         String action = intent.getAction();
         if (ReceiverServerService.ACTION_SERVER_REQUEST.equals(action)) {
             String command = intent.getStringExtra(ReceiverServerService.EXTRA_COMMAND);
