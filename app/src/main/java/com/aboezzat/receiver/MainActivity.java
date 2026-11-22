@@ -168,6 +168,7 @@ public class MainActivity extends Activity {
     private TextView playerSubtitleControlButton;
     private TextView playerDownloadControlButton;
     private TextView playerSettingsControlButton;
+    private TextView playerRepeatControlButton;
     private final Handler imageControlsHandler = new Handler(Looper.getMainLooper());
     private final Runnable hideImageControlsRunnable = () -> setImageControlsVisible(false);
     private boolean imageControlsVisible = false;
@@ -1477,6 +1478,7 @@ public class MainActivity extends Activity {
             playerSubtitleControlButton = playerView.findViewById(R.id.abo_player_subtitle);
             playerDownloadControlButton = playerView.findViewById(R.id.abo_player_download);
             playerSettingsControlButton = playerView.findViewById(R.id.abo_player_settings);
+            playerRepeatControlButton = playerView.findViewById(R.id.abo_player_repeat);
             if (playerSubtitleControlButton != null) {
                 playerSubtitleControlButton.setOnClickListener(v -> searchAndApplyArabicSubtitle());
             }
@@ -1485,6 +1487,10 @@ public class MainActivity extends Activity {
             }
             if (playerSettingsControlButton != null) {
                 playerSettingsControlButton.setOnClickListener(v -> showPlaybackSettingsDialog());
+            }
+            if (playerRepeatControlButton != null) {
+                playerRepeatControlButton.setOnClickListener(v -> cyclePlaybackRepeatMode());
+                updatePlaybackRepeatControl();
             }
         });
         playerView.setControllerVisibilityListener((PlayerView.ControllerVisibilityListener) visibility -> {
@@ -5421,6 +5427,12 @@ public class MainActivity extends Activity {
                                         .remove("position_" + endedUrl.hashCode())
                                         .apply();
                             }
+                            if (player.getRepeatMode() == Player.REPEAT_MODE_OFF
+                                    && getPlaybackRepeatMode() == Player.REPEAT_MODE_ALL
+                                    && playbackQueue.size() > 1) {
+                                playbackQueueIndex = 0;
+                                queueIncomingMedia(playbackQueue.get(0), null);
+                            }
                         }
                     });
                     player.setVolume(muted ? 0.0f : lastNonZeroVolume);
@@ -5599,8 +5611,14 @@ public class MainActivity extends Activity {
         SharedPreferences prefs = getPlayerSettingsPrefs();
         float speed = prefs.getFloat("playback_speed", 1.0f);
         player.setPlaybackParameters(new PlaybackParameters(speed));
-        player.setRepeatMode(prefs.getBoolean("repeat_one", false)
-                ? Player.REPEAT_MODE_ONE : Player.REPEAT_MODE_OFF);
+        int savedRepeatMode = prefs.getInt("repeat_mode",
+                prefs.getBoolean("repeat_one", false) ? Player.REPEAT_MODE_ONE : Player.REPEAT_MODE_OFF);
+        if (savedRepeatMode != Player.REPEAT_MODE_ONE && savedRepeatMode != Player.REPEAT_MODE_ALL) {
+            savedRepeatMode = Player.REPEAT_MODE_OFF;
+        }
+        player.setRepeatMode(savedRepeatMode == Player.REPEAT_MODE_ALL
+                ? Player.REPEAT_MODE_OFF : savedRepeatMode);
+        prefs.edit().putInt("repeat_mode", savedRepeatMode).apply();
         int maxVideoHeight = prefs.getInt("max_video_height", 0);
         TrackSelectionParameters.Builder trackBuilder = player.getTrackSelectionParameters().buildUpon();
         trackBuilder.setMaxVideoSize(Integer.MAX_VALUE,
@@ -5615,6 +5633,41 @@ public class MainActivity extends Activity {
         }
     }
 
+    private int getPlaybackRepeatMode() {
+        SharedPreferences prefs = getPlayerSettingsPrefs();
+        int mode = prefs.getInt("repeat_mode",
+                prefs.getBoolean("repeat_one", false) ? Player.REPEAT_MODE_ONE : Player.REPEAT_MODE_OFF);
+        return mode == Player.REPEAT_MODE_ONE || mode == Player.REPEAT_MODE_ALL
+                ? mode : Player.REPEAT_MODE_OFF;
+    }
+
+    private String playbackRepeatModeLabel(int mode) {
+        if (mode == Player.REPEAT_MODE_ONE) return "تكرار مرة واحدة";
+        if (mode == Player.REPEAT_MODE_ALL) return "تكرار القائمة";
+        return "التكرار متوقف";
+    }
+
+    private void updatePlaybackRepeatControl() {
+        if (playerRepeatControlButton == null) return;
+        int mode = getPlaybackRepeatMode();
+        playerRepeatControlButton.setText(mode == Player.REPEAT_MODE_OFF ? "↻" :
+                mode == Player.REPEAT_MODE_ONE ? "↻¹" : "🔁");
+        playerRepeatControlButton.setContentDescription("تكرار التشغيل: " + playbackRepeatModeLabel(mode));
+        playerRepeatControlButton.setAlpha(mode == Player.REPEAT_MODE_OFF ? 0.78f : 1f);
+    }
+
+    private void cyclePlaybackRepeatMode() {
+        if (player == null) return;
+        int current = getPlaybackRepeatMode();
+        int next = current == Player.REPEAT_MODE_OFF ? Player.REPEAT_MODE_ONE
+                : current == Player.REPEAT_MODE_ONE ? Player.REPEAT_MODE_ALL : Player.REPEAT_MODE_OFF;
+        player.setRepeatMode(next == Player.REPEAT_MODE_ONE ? Player.REPEAT_MODE_ONE : Player.REPEAT_MODE_OFF);
+        getPlayerSettingsPrefs().edit().putInt("repeat_mode", next)
+                .putBoolean("repeat_one", next == Player.REPEAT_MODE_ONE).apply();
+        updatePlaybackRepeatControl();
+        Toast.makeText(this, playbackRepeatModeLabel(next), Toast.LENGTH_SHORT).show();
+    }
+
     private void showPlaybackSettingsDialog() {
         if (imageView != null && imageView.getVisibility() == View.VISIBLE) {
             showImageSettingsDialog();
@@ -5627,7 +5680,7 @@ public class MainActivity extends Activity {
         SharedPreferences prefs = getPlayerSettingsPrefs();
         String speed = String.format(Locale.US, "%.2fx",
                 player.getPlaybackParameters().speed);
-        String repeat = player.getRepeatMode() == Player.REPEAT_MODE_ONE ? "مفعّل" : "متوقف";
+        String repeat = playbackRepeatModeLabel(getPlaybackRepeatMode());
         String quality = qualityLabel(prefs.getInt("max_video_height", 0));
         String[] options = {
                 "📺  جودة الفيديو والبث المباشر (" + quality + ")",
@@ -5649,13 +5702,7 @@ public class MainActivity extends Activity {
                         case 3: restartCurrentVideo(); break;
                         case 4: showPlaybackSpeedDialog(); break;
                         case 5: showPlaybackResizeDialog(); break;
-                        case 6:
-                            boolean repeatOne = player.getRepeatMode() != Player.REPEAT_MODE_ONE;
-                            player.setRepeatMode(repeatOne ? Player.REPEAT_MODE_ONE : Player.REPEAT_MODE_OFF);
-                            prefs.edit().putBoolean("repeat_one", repeatOne).apply();
-                            Toast.makeText(this, repeatOne ? "تكرار الفيديو مفعّل" : "تكرار الفيديو متوقف",
-                                    Toast.LENGTH_SHORT).show();
-                            break;
+                        case 6: cyclePlaybackRepeatMode(); break;
                         case 7: showSeekIncrementDialog(); break;
                     }
                 })
