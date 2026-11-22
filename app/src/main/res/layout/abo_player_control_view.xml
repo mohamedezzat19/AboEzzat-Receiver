@@ -151,20 +151,18 @@
                     android:textSize="23sp" 
                     android:background="@drawable/player_control_focus"/>
 
-                <TextView
+                <ImageButton
                     android:id="@+id/abo_player_download"
                     android:layout_width="44dp"
                     android:layout_height="44dp"
                     android:layout_marginStart="8dp"
-                    android:clickable="true"
+                    android:background="@drawable/player_control_focus"
                     android:contentDescription="تنزيل الوسائط الحالية"
                     android:focusable="true"
-                    android:gravity="center"
-                    android:drawable="@drawable/ic_download_modern"
-                    android:text=""
-                    android:textColor="#FFFFFFFF"
-                    android:textSize="22sp" 
-                    android:background="@drawable/player_control_focus"/>
+                    android:padding="10dp"
+                    android:scaleType="fitCenter"
+                    android:src="@drawable/ic_download_modern"
+                    android:tint="#FFFFFFFF"/>
 
                 <TextView
                     android:id="@+id/abo_player_subtitle"
