@@ -166,7 +166,7 @@ public class MainActivity extends Activity {
     private TextView playerSettingsButton;
     private TextView playerDownloadButton;
     private TextView playerSubtitleControlButton;
-    private ImageButton playerDownloadControlButton;
+    private androidx.appcompat.widget.AppCompatImageButton playerDownloadControlButton;
     private TextView playerSettingsControlButton;
     private TextView playerRepeatControlButton;
     private final Handler imageControlsHandler = new Handler(Looper.getMainLooper());
