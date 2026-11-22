@@ -13,7 +13,8 @@
         android:layout_gravity="bottom|center_horizontal"
         android:layout_marginBottom="62dp"
         android:gravity="center"
-        android:orientation="horizontal">
+        android:orientation="horizontal"
+        android:layoutDirection="ltr">
 
         <ImageButton
             android:id="@id/exo_rew"
@@ -69,9 +70,10 @@
         android:layout_height="wrap_content"
         android:layout_gravity="bottom"
         android:layout_marginBottom="146dp"
-        android:background="#99000000"
+        android:background="@android:color/transparent"
         android:gravity="center_vertical"
         android:orientation="horizontal"
+        android:layoutDirection="ltr"
         android:paddingStart="14dp"
         android:paddingTop="8dp"
         android:paddingEnd="14dp"
@@ -93,7 +95,7 @@
             android:layout_weight="1"
             app:bar_height="3dp"
             app:scrubber_color="#FFFFFF"
-            app:played_color="#F4C15D"
+            app:played_color="#FFFFFFFF"
             app:unplayed_color="#66FFFFFF"
             app:buffered_color="#99FFFFFF" />
 
