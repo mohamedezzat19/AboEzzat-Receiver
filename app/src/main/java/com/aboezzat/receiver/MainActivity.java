@@ -1414,7 +1414,7 @@ public class MainActivity extends Activity {
         playerSubtitleParams.setMargins(dp(8), dp(8), dp(isTelevisionDevice() ? 76 : 62), playerActionBottom);
         root.addView(playerSubtitleButton, playerSubtitleParams);
 
-        playerSettingsButton = makeText("1.0x", 14, Color.WHITE, true);
+        playerSettingsButton = makeText("⚙", 20, Color.WHITE, true);
         playerSettingsButton.setGravity(Gravity.CENTER);
         playerSettingsButton.setFocusable(true);
         playerSettingsButton.setFocusableInTouchMode(true);
@@ -1422,7 +1422,7 @@ public class MainActivity extends Activity {
         playerSettingsButton.setMinWidth(playerActionSize);
         playerSettingsButton.setMinHeight(playerActionSize);
         playerSettingsButton.setId(View.generateViewId());
-        playerSettingsButton.setContentDescription("سرعة التشغيل");
+        playerSettingsButton.setContentDescription("إعدادات المشغل");
         playerSettingsButton.setBackground(browserFocusBackground(Color.TRANSPARENT, Color.TRANSPARENT, 12, false));
         playerSettingsButton.setOnFocusChangeListener((v, focused) -> v.setBackground(browserFocusBackground(
                 focused ? Color.argb(48, 105, 185, 255) : Color.TRANSPARENT,
@@ -1506,8 +1506,9 @@ public class MainActivity extends Activity {
 
         FrameLayout.LayoutParams actionRowParams = new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT, playerActionSize,
-                Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL);
-        actionRowParams.bottomMargin = dp(isTelevisionDevice() ? 12 : 8);
+                Gravity.BOTTOM | Gravity.END);
+        actionRowParams.setMargins(0, 0, dp(isTelevisionDevice() ? 24 : 12),
+                dp(isTelevisionDevice() ? 12 : 8));
         root.addView(playerActionRow, actionRowParams);
 
         // The four actions form one predictable remote-focus chain.
