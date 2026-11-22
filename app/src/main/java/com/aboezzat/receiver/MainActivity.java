@@ -2750,6 +2750,13 @@ public class MainActivity extends Activity {
                             connection.setRequestProperty("Cookie", storedCookie);
                         }
                     }
+                    // Record only whether request context was available; never log cookie or header values.
+                    final boolean sentCookie = connection.getRequestProperty("Cookie") != null
+                            && !connection.getRequestProperty("Cookie").isEmpty();
+                    final boolean sentReferer = connection.getRequestProperty("Referer") != null
+                            && !connection.getRequestProperty("Referer").isEmpty();
+                    final boolean sentOrigin = connection.getRequestProperty("Origin") != null
+                            && !connection.getRequestProperty("Origin").isEmpty();
                     int status = connection.getResponseCode();
                     String responseType = connection.getContentType();
                     if (jsonIndexRequest) {
@@ -2791,9 +2798,22 @@ public class MainActivity extends Activity {
                                         ? "attachment" : lowerDisposition.startsWith("inline")
                                         ? "inline" : "present";
                             }
+                            String finalPath = "";
+                            try {
+                                String pathOnly = connection.getURL().getPath();
+                                finalPath = pathOnly == null ? "" : pathOnly;
+                                if (finalPath.length() > 160) finalPath = finalPath.substring(0, 160);
+                            } catch (Exception ignored) { }
+                            boolean redirected = !pageUrl.equals(connection.getURL().toString());
+                            String declaredLength = connection.getHeaderField("Content-Length");
                             lastJsonIndexDiagnostic = buildJsonIndexDiagnostic(status, responseType, pageContent)
                                     + "; final-host=" + responseHost
-                                    + "; length=" + connection.getContentLengthLong()
+                                    + "; final-path=" + (finalPath.isEmpty() ? "/" : finalPath)
+                                    + "; redirected=" + (redirected ? "yes" : "no")
+                                    + "; cookie=" + (sentCookie ? "present" : "absent")
+                                    + "; referer=" + (sentReferer ? "present" : "absent")
+                                    + "; origin=" + (sentOrigin ? "present" : "absent")
+                                    + "; length=" + (declaredLength == null ? "unknown" : declaredLength)
                                     + "; disposition=" + safeDisposition;
                         }
                         // Some IPTV endpoints return the HLS manifest body from index.html
