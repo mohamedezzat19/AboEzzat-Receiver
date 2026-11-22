@@ -162,9 +162,9 @@ jobs:
             exit 1
           fi
 
-          for ABI in armeabi-v7a arm64-v8a x86_64; do
+          for ABI in armeabi-v7a arm64-v8a; do
             if ! unzip -Z1 "$APK" | grep -q "^lib/$ABI/libavutil.so$"; then
-              echo "::error::Release APK is missing FFmpeg native libraries for $ABI."
+              echo "::error::Release APK is missing required ARM FFmpeg native libraries for $ABI."
               exit 1
             fi
             echo "Verified APK ABI: $ABI"

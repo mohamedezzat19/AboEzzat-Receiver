@@ -16,6 +16,12 @@ android {
         targetSdk 33
         versionCode ciVersionCode
         versionName ciVersionName
+
+        // Android phones, tablets, Android TV and Fire TV use ARM ABIs.
+        // Exclude x86/x86_64 emulator-only native libraries from this app.
+        ndk {
+            abiFilters 'armeabi-v7a', 'arm64-v8a'
+        }
     }
 
     compileOptions {
