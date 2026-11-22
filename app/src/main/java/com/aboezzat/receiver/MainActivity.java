@@ -2640,7 +2640,8 @@ public class MainActivity extends Activity {
         // page/JSON parser for it, even if the user disabled generic page extraction.
         boolean usePage = settings.getBoolean("receiver_engine_page", true) || jsonIndexInput;
         boolean useSocial = settings.getBoolean("receiver_engine_social", true);
-        if (jsonIndexInput) {
+        final boolean directJsonIndexInput = jsonIndexInput;
+        if (directJsonIndexInput) {
             lastJsonIndexDiagnostic = "JSON index resolver: enabled for direct .json URL";
         }
         String configured = settings.getString("cobalt_endpoint", "").trim();
@@ -2810,7 +2811,7 @@ public class MainActivity extends Activity {
                         }
                     }
                 } catch (Exception e) {
-                    if (jsonIndexInput) {
+                    if (directJsonIndexInput) {
                         // Keep diagnostics useful without recording exception messages,
                         // which can contain signed URLs or other request details.
                         lastJsonIndexDiagnostic = (lastJsonIndexDiagnostic == null
