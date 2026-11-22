@@ -274,6 +274,8 @@ public class MainActivity extends Activity {
     private String currentPlaybackUrl = "";
     private String currentPlaybackFallbackUrl = "";
     private boolean smartTubeFallbackAttempted = false;
+    private final Handler sleepTimerHandler = new Handler(Looper.getMainLooper());
+    private Runnable sleepTimerRunnable;
     private final Handler playbackProgressHandler = new Handler(Looper.getMainLooper());
     private final Handler startupBufferHandler = new Handler(Looper.getMainLooper());
     private Runnable pendingStartupPlayback;
@@ -5690,7 +5692,7 @@ public class MainActivity extends Activity {
                 "⏩  سرعة التشغيل (" + speed + ")",
                 "▣  أبعاد الصورة",
                 "🔁  تكرار الفيديو (" + repeat + ")",
-                "⏪  مدة التقديم والترجيع"
+                "⏪  مدة التقديم والترجيع",\n                "⏰  مؤقت النوم"
         };
         new AlertDialog.Builder(this)
                 .setTitle("إعدادات المشغل")
@@ -5703,7 +5705,7 @@ public class MainActivity extends Activity {
                         case 4: showPlaybackSpeedDialog(); break;
                         case 5: showPlaybackResizeDialog(); break;
                         case 6: cyclePlaybackRepeatMode(); break;
-                        case 7: showSeekIncrementDialog(); break;
+                        case 7: showSeekIncrementDialog(); break;\n                        case 8: showSleepTimerDialog(); break;
                     }
                 })
                 .setNegativeButton("إغلاق", null)
@@ -5983,6 +5985,41 @@ public class MainActivity extends Activity {
                     if (playerView != null) playerView.setResizeMode(modes[which]);
                     getPlayerSettingsPrefs().edit().putInt("resize_mode", modes[which]).apply();
                     dialog.dismiss();
+                })
+                .setNegativeButton("إغلاق", null)
+                .show();
+    }
+
+    private void showSleepTimerDialog() {
+        final long[] minutes = {15, 30, 45, 60, 90, 120, 0};
+        final String[] labels = {
+                "15 دقيقة", "30 دقيقة", "45 دقيقة", "ساعة واحدة",
+                "ساعة ونصف", "ساعتان", "إلغاء مؤقت النوم"
+        };
+        new AlertDialog.Builder(this)
+                .setTitle("مؤقت النوم")
+                .setItems(labels, (dialog, which) -> {
+                    sleepTimerHandler.removeCallbacks(sleepTimerRunnable == null
+                            ? () -> { } : sleepTimerRunnable);
+                    sleepTimerRunnable = null;
+                    if (minutes[which] == 0) {
+                        Toast.makeText(this, "تم إلغاء مؤقت النوم", Toast.LENGTH_SHORT).show();
+                        return;
+                    }
+                    final long delayMs = minutes[which] * 60_000L;
+                    sleepTimerRunnable = () -> {
+                        if (player != null) {
+                            player.pause();
+                            if (playerView != null && playerView.getVisibility() == View.VISIBLE) {
+                                showPlayerController();
+                            }
+                        }
+                        sleepTimerRunnable = null;
+                        Toast.makeText(this, "انتهى مؤقت النوم وتم إيقاف التشغيل", Toast.LENGTH_LONG).show();
+                    };
+                    sleepTimerHandler.postDelayed(sleepTimerRunnable, delayMs);
+                    Toast.makeText(this, "سيتم إيقاف التشغيل بعد " + labels[which],
+                            Toast.LENGTH_SHORT).show();
                 })
                 .setNegativeButton("إغلاق", null)
                 .show();
@@ -6611,7 +6648,7 @@ public class MainActivity extends Activity {
     @Override
     protected void onDestroy() {
         backPressHandler.removeCallbacks(resetBrowserBackPress);
-        playbackProgressHandler.removeCallbacks(playbackProgressRunnable);
+        playbackProgressHandler.removeCallbacks(playbackProgressRunnable);\n        if (sleepTimerRunnable != null) sleepTimerHandler.removeCallbacks(sleepTimerRunnable);
         if (pendingStartupPlayback != null) startupBufferHandler.removeCallbacks(pendingStartupPlayback);
         synchronized (playerLock) {
             savePlaybackPositionLocked();
