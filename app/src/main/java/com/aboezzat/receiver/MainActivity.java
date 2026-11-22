@@ -1480,7 +1480,7 @@ public class MainActivity extends Activity {
             playerSettingsControlButton = playerView.findViewById(R.id.abo_player_settings);
             playerRepeatControlButton = playerView.findViewById(R.id.abo_player_repeat);
             if (playerSubtitleControlButton != null) {
-                playerSubtitleControlButton.setOnClickListener(v -> searchAndApplyArabicSubtitle());
+                playerSubtitleControlButton.setOnClickListener(v -> showSubtitleOptionsDialog());
             }
             if (playerDownloadControlButton != null) {
                 playerDownloadControlButton.setOnClickListener(v -> showCurrentPlaybackDownloadOptions());
@@ -6013,7 +6013,37 @@ public class MainActivity extends Activity {
                 .show();
     }
 
-    // Arabic subtitles are searched only after the user presses the on-screen button.
+        private void showSubtitleOptionsDialog() {
+        if (player == null || currentPlaybackUrl == null || currentPlaybackUrl.trim().isEmpty()) {
+            Toast.makeText(this, "لا يوجد فيديو يعمل حاليًا", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        String[] options = {
+                "اختيار مسار ترجمة مدمج",
+                "البحث عن ترجمة عربية",
+                "إيقاف الترجمة"
+        };
+        new AlertDialog.Builder(this)
+                .setTitle("الترجمة")
+                .setItems(options, (dialog, which) -> {
+                    if (which == 0) {
+                        showPlaybackTrackDialog(C.TRACK_TYPE_TEXT);
+                    } else if (which == 1) {
+                        searchAndApplyArabicSubtitle();
+                    } else {
+                        TrackSelectionParameters.Builder builder =
+                                player.getTrackSelectionParameters().buildUpon()
+                                        .clearOverridesOfType(C.TRACK_TYPE_TEXT)
+                                        .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true);
+                        player.setTrackSelectionParameters(builder.build());
+                        Toast.makeText(this, "تم إيقاف الترجمة", Toast.LENGTH_SHORT).show();
+                    }
+                })
+                .setNegativeButton("إلغاء", null)
+                .show();
+    }
+
+// Arabic subtitles are searched only after the user presses the on-screen button.
     // Guest API access is provided by subtitles.website; availability/rate limits depend on that service.
     private void searchAndApplyArabicSubtitle() {
         final String videoUrl = currentPlaybackUrl;
