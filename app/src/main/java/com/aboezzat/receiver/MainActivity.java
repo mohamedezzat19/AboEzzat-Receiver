@@ -1485,7 +1485,7 @@ public class MainActivity extends Activity {
         LinearLayout playerActionRow = new LinearLayout(this);
         playerActionRow.setOrientation(LinearLayout.HORIZONTAL);
         playerActionRow.setLayoutDirection(View.LAYOUT_DIRECTION_RTL);
-        playerActionRow.setGravity(Gravity.CENTER_VERTICAL | Gravity.END);
+        playerActionRow.setGravity(Gravity.CENTER_VERTICAL | Gravity.RIGHT);
         playerActionRow.setClipChildren(false);
         playerActionRow.setClipToPadding(false);
         playerActionRow.setBackgroundColor(Color.TRANSPARENT);
@@ -1506,7 +1506,7 @@ public class MainActivity extends Activity {
 
         FrameLayout.LayoutParams actionRowParams = new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT, playerActionSize,
-                Gravity.BOTTOM | Gravity.END);
+                Gravity.BOTTOM | Gravity.RIGHT);
         actionRowParams.setMargins(0, 0, dp(isTelevisionDevice() ? 24 : 12),
                 dp(isTelevisionDevice() ? 12 : 8));
         root.addView(playerActionRow, actionRowParams);
