@@ -5692,7 +5692,8 @@ public class MainActivity extends Activity {
                 "⏩  سرعة التشغيل (" + speed + ")",
                 "▣  أبعاد الصورة",
                 "🔁  تكرار الفيديو (" + repeat + ")",
-                "⏪  مدة التقديم والترجيع",\n                "⏰  مؤقت النوم"
+                "⏪  مدة التقديم والترجيع",
+                "⏰  مؤقت النوم"
         };
         new AlertDialog.Builder(this)
                 .setTitle("إعدادات المشغل")
@@ -5705,7 +5706,8 @@ public class MainActivity extends Activity {
                         case 4: showPlaybackSpeedDialog(); break;
                         case 5: showPlaybackResizeDialog(); break;
                         case 6: cyclePlaybackRepeatMode(); break;
-                        case 7: showSeekIncrementDialog(); break;\n                        case 8: showSleepTimerDialog(); break;
+                        case 7: showSeekIncrementDialog(); break;
+                        case 8: showSleepTimerDialog(); break;
                     }
                 })
                 .setNegativeButton("إغلاق", null)
