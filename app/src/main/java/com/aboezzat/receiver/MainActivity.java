@@ -2739,6 +2739,17 @@ public class MainActivity extends Activity {
                             }
                         }
                     }
+                    // A directly shared JSON index may rely on cookies already stored
+                    // for that exact URL by the Receiver browser. Reuse only the
+                    // matching CookieManager cookie; never forward cookies cross-origin.
+                    if (directJsonIndexInput && connection.getRequestProperty("Cookie") == null) {
+                        String storedCookie = CookieManager.getInstance().getCookie(pageUrl);
+                        if (storedCookie != null && !storedCookie.isEmpty()
+                                && storedCookie.length() <= 8192
+                                && !storedCookie.contains("\r") && !storedCookie.contains("\n")) {
+                            connection.setRequestProperty("Cookie", storedCookie);
+                        }
+                    }
                     int status = connection.getResponseCode();
                     String responseType = connection.getContentType();
                     if (jsonIndexRequest) {
