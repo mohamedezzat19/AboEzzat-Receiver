@@ -6650,7 +6650,8 @@ public class MainActivity extends Activity {
     @Override
     protected void onDestroy() {
         backPressHandler.removeCallbacks(resetBrowserBackPress);
-        playbackProgressHandler.removeCallbacks(playbackProgressRunnable);\n        if (sleepTimerRunnable != null) sleepTimerHandler.removeCallbacks(sleepTimerRunnable);
+        playbackProgressHandler.removeCallbacks(playbackProgressRunnable);
+        if (sleepTimerRunnable != null) sleepTimerHandler.removeCallbacks(sleepTimerRunnable);
         if (pendingStartupPlayback != null) startupBufferHandler.removeCallbacks(pendingStartupPlayback);
         synchronized (playerLock) {
             savePlaybackPositionLocked();
