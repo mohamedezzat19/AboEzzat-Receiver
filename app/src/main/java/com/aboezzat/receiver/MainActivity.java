@@ -165,6 +165,9 @@ public class MainActivity extends Activity {
     private TextView browserHomeButton;
     private TextView playerSettingsButton;
     private TextView playerDownloadButton;
+    private TextView playerSubtitleControlButton;
+    private TextView playerDownloadControlButton;
+    private TextView playerSettingsControlButton;
     private final Handler imageControlsHandler = new Handler(Looper.getMainLooper());
     private final Runnable hideImageControlsRunnable = () -> setImageControlsVisible(false);
     private boolean imageControlsVisible = false;
@@ -1471,6 +1474,18 @@ public class MainActivity extends Activity {
                 nativeSettings.setFocusable(false);
                 nativeSettings.setClickable(false);
             }
+            playerSubtitleControlButton = playerView.findViewById(R.id.abo_player_subtitle);
+            playerDownloadControlButton = playerView.findViewById(R.id.abo_player_download);
+            playerSettingsControlButton = playerView.findViewById(R.id.abo_player_settings);
+            if (playerSubtitleControlButton != null) {
+                playerSubtitleControlButton.setOnClickListener(v -> searchAndApplyArabicSubtitle());
+            }
+            if (playerDownloadControlButton != null) {
+                playerDownloadControlButton.setOnClickListener(v -> showCurrentPlaybackDownloadOptions());
+            }
+            if (playerSettingsControlButton != null) {
+                playerSettingsControlButton.setOnClickListener(v -> showPlaybackSettingsDialog());
+            }
         });
         playerView.setControllerVisibilityListener((PlayerView.ControllerVisibilityListener) visibility -> {
             boolean controlsVisible = visibility == View.VISIBLE
@@ -1487,12 +1502,15 @@ public class MainActivity extends Activity {
                 if (settingsHomeButton != null) settingsHomeButton.setVisibility(View.GONE);
                 if (browserHomeButton != null) browserHomeButton.setVisibility(View.GONE);
             }
-            if (playerSubtitleButton != null) {
-                playerSubtitleButton.setVisibility(controlsVisible && currentPlaybackHasVideo
+            // Video controls live together below the seek bar inside the controller.
+            // The old floating overlays stay hidden during video playback.
+            if (playerSubtitleButton != null) playerSubtitleButton.setVisibility(View.GONE);
+            if (playerSettingsButton != null) playerSettingsButton.setVisibility(View.GONE);
+            if (playerDownloadButton != null) playerDownloadButton.setVisibility(View.GONE);
+            if (playerSubtitleControlButton != null) {
+                playerSubtitleControlButton.setVisibility(controlsVisible && currentPlaybackHasVideo
                         ? View.VISIBLE : View.GONE);
             }
-            if (playerSettingsButton != null) playerSettingsButton.setVisibility(controlsVisible ? View.VISIBLE : View.GONE);
-            if (playerDownloadButton != null) playerDownloadButton.setVisibility(controlsVisible ? View.VISIBLE : View.GONE);
         });
         // Give every native controller button the same remote-focus treatment.
         playerView.post(this::stylePlayerControllerFocus);
@@ -5816,11 +5834,11 @@ public class MainActivity extends Activity {
             if (playPause != null) {
                 playPause.setFocusable(true);
                 playPause.setFocusableInTouchMode(true);
-                int topActionId = playerSettingsButton == null ? View.NO_ID : playerSettingsButton.getId();
+                int topActionId = playerSettingsControlButton == null ? View.NO_ID : playerSettingsControlButton.getId();
                 playPause.setNextFocusUpId(topActionId);
-                if (playerSettingsButton != null) playerSettingsButton.setNextFocusDownId(playPause.getId());
-                if (playerDownloadButton != null) playerDownloadButton.setNextFocusDownId(playPause.getId());
-                if (playerSubtitleButton != null) playerSubtitleButton.setNextFocusDownId(playPause.getId());
+                if (playerSettingsControlButton != null) playerSettingsControlButton.setNextFocusDownId(playPause.getId());
+                if (playerDownloadControlButton != null) playerDownloadControlButton.setNextFocusDownId(playPause.getId());
+                if (playerSubtitleControlButton != null) playerSubtitleControlButton.setNextFocusDownId(playPause.getId());
                 playPause.requestFocus();
             } else {
                 playerView.requestFocus();
