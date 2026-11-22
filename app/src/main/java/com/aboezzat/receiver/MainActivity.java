@@ -1137,8 +1137,15 @@ public class MainActivity extends Activity {
 
     private void keepPersistentBrandBadgeOnTop() {
         if (persistentBrandBadge != null && root != null) {
-            persistentBrandBadge.setVisibility(View.VISIBLE);
-            persistentBrandBadge.bringToFront();
+            // During video playback, the portrait follows the native player controls.
+            // Outside video playback it remains visible as before.
+            boolean videoPlayerActive = playerView != null
+                    && playerView.getVisibility() == View.VISIBLE;
+            persistentBrandBadge.setVisibility(
+                    !videoPlayerActive || playerControllerVisible ? View.VISIBLE : View.GONE);
+            if (persistentBrandBadge.getVisibility() == View.VISIBLE) {
+                persistentBrandBadge.bringToFront();
+            }
         }
     }
 
@@ -1570,6 +1577,7 @@ public class MainActivity extends Activity {
             boolean controlsVisible = visibility == View.VISIBLE
                     && playerView != null && playerView.getVisibility() == View.VISIBLE;
             playerControllerVisible = controlsVisible;
+            keepPersistentBrandBadgeOnTop();
             if (controlsVisible) {
                 schedulePlayerControllerAutoHide();
             } else {
