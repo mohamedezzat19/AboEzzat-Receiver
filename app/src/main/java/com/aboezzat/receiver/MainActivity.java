@@ -2259,10 +2259,61 @@ public class MainActivity extends Activity {
             } else {
                 out.append("; JSON=scalar");
             }
+            StringBuilder shape = new StringBuilder();
+            appendJsonShape(root, "", shape, 0, new int[] {0});
+            if (shape.length() > 0) out.append("; shape=").append(shape);
         } catch (Exception ignored) {
             out.append("; JSON=invalid-or-non-json");
         }
         return out.toString();
+    }
+
+    // Report only JSON field paths and value types, never values. This reveals
+    // unfamiliar track/index schemas without exposing signed URLs, tokens or IPs.
+    private void appendJsonShape(Object node, String path, StringBuilder out,
+            int depth, int[] count) {
+        if (node == null || depth > 4 || count[0] >= 24) return;
+        if (node instanceof JSONObject) {
+            JSONObject object = (JSONObject) node;
+            java.util.Iterator<String> keys = object.keys();
+            while (keys.hasNext() && count[0] < 24) {
+                String key = keys.next();
+                String safeKey = key == null ? "field"
+                        : key.replaceAll("[^A-Za-z0-9_-]", "");
+                if (safeKey.isEmpty()) safeKey = "field";
+                Object value = object.opt(key);
+                String childPath = path.isEmpty() ? safeKey : path + "." + safeKey;
+                String type = value instanceof JSONObject ? "object"
+                        : value instanceof org.json.JSONArray ? "array"
+                        : value instanceof String ? "string"
+                        : value instanceof Number ? "number"
+                        : value instanceof Boolean ? "boolean" : "null";
+                if (out.length() > 0) out.append(",");
+                out.append(childPath).append(":").append(type);
+                count[0]++;
+                if (value instanceof JSONObject || value instanceof org.json.JSONArray) {
+                    appendJsonShape(value, childPath, out, depth + 1, count);
+                }
+            }
+        } else if (node instanceof org.json.JSONArray) {
+            org.json.JSONArray array = (org.json.JSONArray) node;
+            int limit = Math.min(array.length(), 3);
+            for (int i = 0; i < limit && count[0] < 24; i++) {
+                Object value = array.opt(i);
+                String childPath = path + "[]";
+                String type = value instanceof JSONObject ? "object"
+                        : value instanceof org.json.JSONArray ? "array"
+                        : value instanceof String ? "string"
+                        : value instanceof Number ? "number"
+                        : value instanceof Boolean ? "boolean" : "null";
+                if (out.length() > 0) out.append(",");
+                out.append(childPath).append(":").append(type);
+                count[0]++;
+                if (value instanceof JSONObject || value instanceof org.json.JSONArray) {
+                    appendJsonShape(value, childPath, out, depth + 1, count);
+                }
+            }
+        }
     }
 
     private boolean isSameOrigin(String firstUrl, String secondUrl) {
@@ -2579,8 +2630,19 @@ public class MainActivity extends Activity {
         android.content.SharedPreferences settings =
                 getSharedPreferences("receiver_settings", MODE_PRIVATE);
         boolean useCobalt = settings.getBoolean("receiver_engine_cobalt", true);
-        boolean usePage = settings.getBoolean("receiver_engine_page", true);
+        boolean jsonIndexInput = false;
+        try {
+            String inputPath = new URL(pageUrl).getPath();
+            jsonIndexInput = inputPath != null
+                    && inputPath.toLowerCase(Locale.ROOT).endsWith(".json");
+        } catch (Exception ignored) { }
+        // A direct JSON index is not an ordinary page. Always run the structural
+        // page/JSON parser for it, even if the user disabled generic page extraction.
+        boolean usePage = settings.getBoolean("receiver_engine_page", true) || jsonIndexInput;
         boolean useSocial = settings.getBoolean("receiver_engine_social", true);
+        if (jsonIndexInput) {
+            lastJsonIndexDiagnostic = "JSON index resolver: enabled for direct .json URL";
+        }
         String configured = settings.getString("cobalt_endpoint", "").trim();
         java.util.ArrayList<String> endpoints = new java.util.ArrayList<>();
         if (useCobalt && !configured.isEmpty()) {
@@ -2748,6 +2810,13 @@ public class MainActivity extends Activity {
                         }
                     }
                 } catch (Exception e) {
+                    if (jsonIndexInput) {
+                        // Keep diagnostics useful without recording exception messages,
+                        // which can contain signed URLs or other request details.
+                        lastJsonIndexDiagnostic = (lastJsonIndexDiagnostic == null
+                                ? "" : lastJsonIndexDiagnostic)
+                                + "; request-error=" + e.getClass().getSimpleName();
+                    }
                     Log.w(TAG, "Parallel page extraction failed", e);
                 } finally {
                     if (connection != null) connection.disconnect();
