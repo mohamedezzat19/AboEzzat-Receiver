@@ -5479,7 +5479,6 @@ public class MainActivity extends Activity {
                     });
                     player.setVolume(muted ? 0.0f : lastNonZeroVolume);
                     playerView.setPlayer(player);
-                    wireTransportButtons();
                 }
 
                 savePlaybackPositionLocked();
@@ -5889,32 +5888,6 @@ public class MainActivity extends Activity {
     private void stylePlayerControllerFocus() {
         if (playerView == null) return;
         stylePlayerControllerFocusRecursive(playerView);
-    }
-
-    // Rebind transport actions after Media3 attaches its custom controller.
-    private void wireTransportButtons() {
-        if (playerView == null) return;
-        View rewind = playerView.findViewById(androidx.media3.ui.R.id.exo_rew);
-        View play = playerView.findViewById(androidx.media3.ui.R.id.exo_play);
-        View pause = playerView.findViewById(androidx.media3.ui.R.id.exo_pause);
-        View forward = playerView.findViewById(androidx.media3.ui.R.id.exo_ffwd);
-
-        if (rewind != null) rewind.setOnClickListener(v -> {
-            ExoPlayer current = player;
-            if (current != null) current.seekBack();
-        });
-        if (play != null) play.setOnClickListener(v -> {
-            ExoPlayer current = player;
-            if (current != null) current.play();
-        });
-        if (pause != null) pause.setOnClickListener(v -> {
-            ExoPlayer current = player;
-            if (current != null) current.pause();
-        });
-        if (forward != null) forward.setOnClickListener(v -> {
-            ExoPlayer current = player;
-            if (current != null) current.seekForward();
-        });
     }
 
     private void stylePlayerControllerFocusRecursive(View view) {
@@ -6647,7 +6620,6 @@ public class MainActivity extends Activity {
                             .build();
                     player.setVolume(muted ? 0.0f : lastNonZeroVolume);
                     playerView.setPlayer(player);
-                    wireTransportButtons();
                 }
                 savePlaybackPositionLocked();
                 player.stop();
