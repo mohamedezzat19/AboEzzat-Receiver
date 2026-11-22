@@ -806,13 +806,6 @@ public class MainActivity extends Activity {
         StringBuilder out = new StringBuilder();
         String action = intent.getAction();
         out.append("action=").append(action == null ? "unknown" : action);
-        android.net.Uri referrer = intent.getReferrer();
-        if (referrer != null) {
-            out.append("; referrer-scheme=").append(referrer.getScheme() == null ? "unknown" : referrer.getScheme());
-            if ("android-app".equalsIgnoreCase(referrer.getScheme()) && referrer.getHost() != null) {
-                out.append("; referrer-app=").append(referrer.getHost().replaceAll("[^A-Za-z0-9._-]", ""));
-            }
-        }
         android.os.Bundle extras = intent.getExtras();
         if (extras != null) {
             java.util.ArrayList<String> shapes = new java.util.ArrayList<>();
