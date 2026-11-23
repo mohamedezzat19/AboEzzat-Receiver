@@ -1508,7 +1508,7 @@ public class MainActivity extends Activity {
         LinearLayout.LayoutParams spinnerParams = new LinearLayout.LayoutParams(dp(38), dp(38));
         spinnerParams.gravity = Gravity.CENTER_HORIZONTAL;
         bufferingCard.addView(bufferingSpinner, spinnerParams);
-        playerBufferingText = makeText("جاري تحميل الفيديو...", 17, Color.WHITE, true);
+        playerBufferingText = makeText("جاري التحميل...", 17, Color.WHITE, true);
         playerBufferingText.setGravity(Gravity.CENTER);
         LinearLayout.LayoutParams bufferingTextParams = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
@@ -5999,9 +5999,9 @@ public class MainActivity extends Activity {
         tikTokFfmpegPlaybackStarted = false;
         tikTokFfmpegFailureRecorded = false;
         extractionStatus = "preparing";
-        playbackStatusMessage = "جاري تجهيز بث TikTok LIVE بمحرك FFmpeg...";
+        playbackStatusMessage = "جاري التحميل...";
         if (playerBufferingText != null) {
-            playerBufferingText.setText("جاري تحليل بث TikTok وتجهيز الصورة...");
+            playerBufferingText.setText("جاري التحميل...");
         }
         setPlayerBufferingVisible(true);
 
