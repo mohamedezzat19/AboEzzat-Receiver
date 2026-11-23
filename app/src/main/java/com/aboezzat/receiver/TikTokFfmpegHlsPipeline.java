@@ -210,10 +210,9 @@ final class TikTokFfmpegHlsPipeline {
     }
 
     private void handleCompleted(FFmpegSession completed) {
-        if (completed == null) return;
+        if (completed == null || stopped || failureSent) return;
         returnCode = String.valueOf(completed.getReturnCode());
         boolean success = ReturnCode.isSuccess(completed.getReturnCode());
-        if (stopped) return;
 
         if (!success) {
             fail("FFmpeg ended with a non-success return code.");
@@ -223,7 +222,11 @@ final class TikTokFfmpegHlsPipeline {
             fail("FFmpeg ended before producing a playable HLS segment.");
             return;
         }
-        playlistReady = true;
+        if (!playlistReady) {
+            playlistReady = true;
+            state = "HLS playlist and first segment ready before input ended";
+            if (listener != null) listener.onPlaylistReady(playlistFile);
+        }
         state = "FFmpeg input ended; final HLS playlist retained";
         closeBridge();
         if (listener != null) listener.onFinished(buildDiagnostic());
