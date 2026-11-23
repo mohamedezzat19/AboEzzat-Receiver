@@ -2196,6 +2196,25 @@ public class MainActivity extends Activity {
         }
     }
 
+    // A signed TikTok webapp-prime MP4 is already the final media resource.
+    // Never replace it with a second extraction of the source post page.
+    private boolean isTikTokSignedMp4CdnUrl(String value) {
+        if (value == null || value.trim().isEmpty()) return false;
+        try {
+            Uri uri = Uri.parse(value.trim());
+            String host = uri.getHost() == null ? "" : uri.getHost().toLowerCase(Locale.ROOT);
+            String path = uri.getPath() == null ? "" : uri.getPath().toLowerCase(Locale.ROOT);
+            String query = uri.getEncodedQuery() == null ? "" : uri.getEncodedQuery().toLowerCase(Locale.ROOT);
+            boolean tiktokHost = host.equals("tiktok.com") || host.endsWith(".tiktok.com")
+                    || host.equals("tiktokcdn.com") || host.endsWith(".tiktokcdn.com");
+            return "https".equalsIgnoreCase(uri.getScheme()) && tiktokHost
+                    && path.contains("/video/tos/")
+                    && query.contains("mime_type=video_mp4");
+        } catch (Exception ignored) {
+            return false;
+        }
+    }
+
     private boolean isTikTokLiveCdnVideoUrl(String value) {
         if (value == null || value.trim().isEmpty()) return false;
         try {
@@ -4654,6 +4673,7 @@ public class MainActivity extends Activity {
         // behavior only for standard TikTok video CDN URLs.
         if (hasMedia && !hasAudio && isTikTokCdnVideoUrl(mediaUrl)
                 && !isTikTokLiveCdnVideoUrl(mediaUrl)
+                && !isTikTokSignedMp4CdnUrl(mediaUrl)
                 && isTikTokSourcePageUrl(sourceUrl)) {
             resolveSharedVideoToStream(sourceUrl);
             return;
