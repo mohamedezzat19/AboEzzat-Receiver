@@ -439,7 +439,7 @@ public class MainActivity extends Activity {
         String intentShape = entry.optString("incoming_intent", "");
         if (!intentShape.isEmpty()) report.append("Incoming intent: ").append(intentShape).append("\n");
         String technical = entry.optString("technical_diagnostic", "");
-        if (!technical.isEmpty()) report.append("Technical diagnostic:\\n").append(technical).append("\\n");
+        if (!technical.isEmpty()) report.append("Technical diagnostic:\n").append(technical).append("\n");
         if (!resolved.isEmpty()) {
             report.append("Resolved URL: ").append(includeFullUrls ? resolved : redactSensitiveUrl(resolved)).append("\n");
         }
@@ -5556,6 +5556,35 @@ public class MainActivity extends Activity {
             if ("cookie".equals(key)) { cookie = !value.isEmpty(); cookieLength = value.length(); }
             secFetch |= key.startsWith("sec-fetch-") && !value.isEmpty();
         }
+        try {
+            android.net.ConnectivityManager cm =
+                    (android.net.ConnectivityManager) getSystemService(CONNECTIVITY_SERVICE);
+            android.net.Network active = cm == null ? null : cm.getActiveNetwork();
+            android.net.NetworkCapabilities caps = active == null || cm == null
+                    ? null : cm.getNetworkCapabilities(active);
+            detail.append("\\n- Network: ");
+            if (caps == null) {
+                detail.append("no active network capabilities");
+            } else {
+                detail.append("internet=").append(caps.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET))
+                        .append(", validated=").append(caps.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_VALIDATED))
+                        .append(", wifi=").append(caps.hasTransport(android.net.NetworkCapabilities.TRANSPORT_WIFI))
+                        .append(", cellular=").append(caps.hasTransport(android.net.NetworkCapabilities.TRANSPORT_CELLULAR))
+                        .append(", metered=").append(cm.isActiveNetworkMetered());
+            }
+        } catch (Exception networkError) {
+            detail.append("\\n- Network: diagnostic unavailable (")
+                    .append(networkError.getClass().getSimpleName()).append(")");
+        }
+        try {
+            android.net.Uri mediaUri = android.net.Uri.parse(currentPlaybackUrl == null ? "" : currentPlaybackUrl);
+            detail.append("\\n- Media target: scheme=").append(mediaUri.getScheme())
+                    .append(", host=").append(mediaUri.getHost())
+                    .append(", path=").append(mediaUri.getLastPathSegment())
+                    .append(" (query values omitted)");
+        } catch (Exception ignored) {
+            detail.append("\\n- Media target: URL parse failed");
+        }
         detail.append("\\n- Incoming headers: count=").append(headers.size())
                 .append(", UA=").append(ua).append(", Referer=").append(referer)
                 .append(", Origin=").append(origin).append(", Cookie=").append(cookie)
@@ -6185,7 +6214,7 @@ public class MainActivity extends Activity {
                     recordReceiverFailure("مهلة بدء تشغيل TikTok FLV بواسطة VLC",
                             originalIncomingMediaUrl == null || originalIncomingMediaUrl.isEmpty()
                                     ? currentPlaybackUrl : originalIncomingMediaUrl,
-                            currentPlaybackUrl, playbackStatusMessage + "\\n" + buildTikTokVlcFailureDiagnostic());
+                            currentPlaybackUrl, playbackStatusMessage + "\n" + buildTikTokVlcFailureDiagnostic());
                     stopVlcPlayback();
                     new AlertDialog.Builder(MainActivity.this)
                             .setTitle("VLC لم يبدأ تشغيل البث")
