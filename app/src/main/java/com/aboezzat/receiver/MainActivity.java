@@ -217,6 +217,10 @@ public class MainActivity extends Activity {
     private LibVLC vlcInstance;
     private volatile TikTokVlcHttpBridge tikTokVlcHttpBridge;
     private volatile String vlcTransportDiagnostic = "not started";
+    private volatile TikTokFfmpegHlsPipeline tikTokFfmpegHlsPipeline;
+    private volatile long tikTokFfmpegPlaybackAttemptToken = 0L;
+    private volatile boolean tikTokFfmpegPlaybackStarted = false;
+    private volatile boolean tikTokFfmpegFailureRecorded = false;
     private MediaPlayer vlcMediaPlayer;
     private VLCVideoLayout vlcVideoLayout;
     private volatile boolean isVlcPlaybackActive = false;
@@ -5115,6 +5119,7 @@ public class MainActivity extends Activity {
     }
 
     private void stopCurrentPlayer() {
+        stopTikTokFfmpegPipeline();
         stopVlcPlayback();
         synchronized (playerLock) {
             if (player != null) {
@@ -5786,14 +5791,12 @@ public class MainActivity extends Activity {
         playerView.setFocusableInTouchMode(true);
         playerView.requestFocus();
 
-        // TikTok LIVE FLV is routed through LibVLC/FFmpeg, the same demux family
-        // used by desktop VLC. All other media keeps the existing Media3 path.
-        if (isTikTokCdnVideoUrl(playbackUrl)
-                && playbackUrl.toLowerCase(Locale.ROOT).contains(".flv")) {
-            if (startTikTokFlvWithVlc(playbackUrl)) return;
-        } else {
-            stopVlcPlayback();
-        }
+        // TikTok LIVE FLV is remuxed by the bundled FFmpeg engine into a rolling
+        // local HLS playlist. All other media keeps the existing Media3 path.
+        boolean tikTokFlvPlayback = isTikTokLiveCdnVideoUrl(playbackUrl)
+                && playbackUrl.toLowerCase(Locale.ROOT).contains(".flv");
+        stopTikTokFfmpegPipeline();
+        stopVlcPlayback();
 
         try {
             synchronized (playerLock) {
@@ -5812,7 +5815,13 @@ public class MainActivity extends Activity {
                             if (isPlaying) {
                                 setPlayerBufferingVisible(false);
                                 extractionStatus = "playing";
-                                playbackStatusMessage = "بدأ تشغيل الفيديو على شاشة Receiver.";
+                                if (isTikTokLiveCdnVideoUrl(currentPlaybackUrl)
+                                        && currentPlaybackUrl.toLowerCase(Locale.ROOT).contains(".flv")) {
+                                    tikTokFfmpegPlaybackStarted = true;
+                                    playbackStatusMessage = "TikTok LIVE يعمل عبر FFmpeg/HLS.";
+                                } else {
+                                    playbackStatusMessage = "بدأ تشغيل الفيديو على شاشة Receiver.";
+                                }
                                 persistExtractionState();
                             }
                         }
@@ -5831,7 +5840,14 @@ public class MainActivity extends Activity {
                         @Override
                         public void onPlayerError(androidx.media3.common.PlaybackException error) {
                             String detail = getPlaybackFailureDiagnostic(error);
-                            if (isTikTokCdnVideoUrl(currentPlaybackUrl)) {
+                            if (isTikTokLiveCdnVideoUrl(currentPlaybackUrl)
+                                    && currentPlaybackUrl.toLowerCase(Locale.ROOT).contains(".flv")) {
+                                TikTokFfmpegHlsPipeline pipeline = tikTokFfmpegHlsPipeline;
+                                detail += "\n" + (pipeline == null
+                                        ? "TikTok FFmpeg/HLS pipeline is no longer active."
+                                        : pipeline.getDiagnostic());
+                                tikTokFfmpegFailureRecorded = true;
+                            } else if (isTikTokCdnVideoUrl(currentPlaybackUrl)) {
                                 detail += "\n" + getTikTokRequestHeaderDiagnostic();
                                 detail += "\n" + getTikTokCdnResponseDiagnostic();
                             }
@@ -5907,58 +5923,62 @@ public class MainActivity extends Activity {
                 player.stop();
                 player.clearMediaItems();
 
-                if (audioUrl != null
-                        && !audioUrl.trim().isEmpty()) {
-
-                    DefaultMediaSourceFactory factory = createMediaSourceFactory(requestHeaders);
-
-                    MediaSource videoSource =
-                            factory.createMediaSource(
-                                    createPlaybackMediaItem(playbackUrl)
-                            );
-
-                    MediaSource audioSource =
-                            factory.createMediaSource(
-                                    MediaItem.fromUri(audioUrl)
-                            );
-
-                    MergingMediaSource merged =
-                            new MergingMediaSource(
-                                    true,
-                                    videoSource,
-                                    audioSource
-                            );
-
-                    player.setMediaSource(merged);
-
+                if (tikTokFlvPlayback) {
+                    startTikTokFfmpegHlsPipeline(playbackUrl, effectiveHeaders);
                 } else {
-                    player.setMediaSource(createMediaSourceFactory(requestHeaders)
-                            .createMediaSource(createPlaybackMediaItem(playbackUrl)));
-                }
+                    if (audioUrl != null
+                            && !audioUrl.trim().isEmpty()) {
 
-                player.prepare();
-                long savedPosition = playbackPrefs == null ? 0L
-                        : playbackPrefs.getLong("position_" + playbackUrl.hashCode(), 0L);
-                if (savedPosition > 5000L) {
-                    player.seekTo(savedPosition);
-                    Toast.makeText(MainActivity.this, "تم استئناف التشغيل من آخر موضع محفوظ", Toast.LENGTH_SHORT).show();
-                }
-                // Only original YouTube shares receive the deeper startup buffer.
-                // Direct MP4/HLS and other fast streams start as soon as Media3 is ready.
-                boolean youtubeSource = isYouTubeUrl(currentPlaybackFallbackUrl)
-                        || isYouTubeUrl(playbackUrl);
-                if (youtubeSource) {
-                    startAfterAdaptiveBuffer(playbackUrl);
-                } else {
-                    if (pendingStartupPlayback != null) {
-                        startupBufferHandler.removeCallbacks(pendingStartupPlayback);
-                        pendingStartupPlayback = null;
+                        DefaultMediaSourceFactory factory = createMediaSourceFactory(requestHeaders);
+
+                        MediaSource videoSource =
+                                factory.createMediaSource(
+                                        createPlaybackMediaItem(playbackUrl)
+                                );
+
+                        MediaSource audioSource =
+                                factory.createMediaSource(
+                                        MediaItem.fromUri(audioUrl)
+                                );
+
+                        MergingMediaSource merged =
+                                new MergingMediaSource(
+                                        true,
+                                        videoSource,
+                                        audioSource
+                                );
+
+                        player.setMediaSource(merged);
+
+                    } else {
+                        player.setMediaSource(createMediaSourceFactory(requestHeaders)
+                                .createMediaSource(createPlaybackMediaItem(playbackUrl)));
                     }
-                    player.play();
-                }
-                if (isDashManifestUrl(playbackUrl)) {
-                    final String diagnosticUrl = playbackUrl;
-                    new Handler(Looper.getMainLooper()).postDelayed(() -> showDashPlaybackDiagnostic(diagnosticUrl), 15000L);
+
+                    player.prepare();
+                    long savedPosition = playbackPrefs == null ? 0L
+                            : playbackPrefs.getLong("position_" + playbackUrl.hashCode(), 0L);
+                    if (savedPosition > 5000L) {
+                        player.seekTo(savedPosition);
+                        Toast.makeText(MainActivity.this, "تم استئناف التشغيل من آخر موضع محفوظ", Toast.LENGTH_SHORT).show();
+                    }
+                    // Only original YouTube shares receive the deeper startup buffer.
+                    // Direct MP4/HLS and other fast streams start as soon as Media3 is ready.
+                    boolean youtubeSource = isYouTubeUrl(currentPlaybackFallbackUrl)
+                            || isYouTubeUrl(playbackUrl);
+                    if (youtubeSource) {
+                        startAfterAdaptiveBuffer(playbackUrl);
+                    } else {
+                        if (pendingStartupPlayback != null) {
+                            startupBufferHandler.removeCallbacks(pendingStartupPlayback);
+                            pendingStartupPlayback = null;
+                        }
+                        player.play();
+                    }
+                    if (isDashManifestUrl(playbackUrl)) {
+                        final String diagnosticUrl = playbackUrl;
+                        new Handler(Looper.getMainLooper()).postDelayed(() -> showDashPlaybackDiagnostic(diagnosticUrl), 15000L);
+                    }
                 }
             }
             // Keep the screen clean when a newly received video starts.
@@ -6068,6 +6088,122 @@ public class MainActivity extends Activity {
             boolean show = visible && playbackVisible;
             playerBufferingOverlay.setVisibility(show ? View.VISIBLE : View.GONE);
         });
+    }
+
+    private void startTikTokFfmpegHlsPipeline(String sourceUrl,
+                                               java.util.Map<String, String> headers) {
+        stopTikTokFfmpegPipeline();
+        final long attemptToken = tikTokFfmpegPlaybackAttemptToken;
+        tikTokFfmpegPlaybackStarted = false;
+        tikTokFfmpegFailureRecorded = false;
+        extractionStatus = "preparing";
+        playbackStatusMessage = "جاري تجهيز بث TikTok LIVE بمحرك FFmpeg...";
+        if (playerBufferingText != null) {
+            playerBufferingText.setText("جاري تحليل بث TikTok وتجهيز الصورة...");
+        }
+        setPlayerBufferingVisible(true);
+
+        final TikTokFfmpegHlsPipeline pipeline = new TikTokFfmpegHlsPipeline(
+                this, sourceUrl, headers, new TikTokFfmpegHlsPipeline.Listener() {
+            @Override
+            public void onPlaylistReady(File playlist) {
+                if (attemptToken != tikTokFfmpegPlaybackAttemptToken
+                        || tikTokFfmpegHlsPipeline != pipeline
+                        || !sourceUrl.equals(currentPlaybackUrl)
+                        || player == null) return;
+                try {
+                    synchronized (playerLock) {
+                        if (player == null) return;
+                        String localPlaylist = Uri.fromFile(playlist).toString();
+                        player.setMediaItem(createPlaybackMediaItem(localPlaylist));
+                        player.prepare();
+                        player.play();
+                    }
+                    playbackStatusMessage = "تم تجهيز TikTok LIVE؛ جاري تشغيل HLS المحلي.";
+                    persistExtractionState();
+                    new Handler(Looper.getMainLooper()).postDelayed(() -> {
+                        if (attemptToken != tikTokFfmpegPlaybackAttemptToken
+                                || !sourceUrl.equals(currentPlaybackUrl)
+                                || tikTokFfmpegPlaybackStarted
+                                || tikTokFfmpegFailureRecorded
+                                || player == null || !player.getPlayWhenReady()) return;
+                        int state = player.getPlaybackState();
+                        if (state == Player.STATE_READY && player.isPlaying()) return;
+                        TikTokFfmpegHlsPipeline active = tikTokFfmpegHlsPipeline;
+                        String detail = (active == null ? "TikTok FFmpeg/HLS pipeline unavailable."
+                                : active.getDiagnostic())
+                                + "\nMedia3 state=" + state
+                                + ", isLoading=" + player.isLoading()
+                                + ", playWhenReady=" + player.getPlayWhenReady();
+                        failTikTokFfmpegPlayback(sourceUrl, detail, attemptToken);
+                    }, 30000L);
+                } catch (Exception error) {
+                    String detail = pipeline.getDiagnostic()
+                            + "\nMedia3 setup error: " + error.getClass().getSimpleName();
+                    failTikTokFfmpegPlayback(sourceUrl, detail, attemptToken);
+                }
+            }
+
+            @Override
+            public void onFailure(String diagnostic) {
+                failTikTokFfmpegPlayback(sourceUrl, diagnostic, attemptToken);
+            }
+
+            @Override
+            public void onFinished(String diagnostic) {
+                if (attemptToken != tikTokFfmpegPlaybackAttemptToken
+                        || !sourceUrl.equals(currentPlaybackUrl)) return;
+                playbackStatusMessage = "انتهى مصدر بث TikTok LIVE.";
+                persistExtractionState();
+                Log.i(TAG, "TikTok FFmpeg/HLS input finished.");
+            }
+        });
+        tikTokFfmpegHlsPipeline = pipeline;
+        try {
+            pipeline.start();
+        } catch (Exception error) {
+            failTikTokFfmpegPlayback(sourceUrl,
+                    pipeline.getDiagnostic() + "\nPipeline start error: "
+                            + error.getClass().getSimpleName(), attemptToken);
+        }
+    }
+
+    private void failTikTokFfmpegPlayback(String sourceUrl, String diagnostic,
+                                          long attemptToken) {
+        if (attemptToken != tikTokFfmpegPlaybackAttemptToken
+                || !sourceUrl.equals(currentPlaybackUrl)
+                || tikTokFfmpegFailureRecorded) return;
+        tikTokFfmpegFailureRecorded = true;
+        extractionStatus = "error";
+        playbackStatusMessage = "فشل تشغيل TikTok LIVE عبر FFmpeg/HLS.";
+        persistExtractionState();
+        setPlayerBufferingVisible(false);
+        recordReceiverFailure("تشغيل TikTok LIVE عبر FFmpeg/HLS",
+                originalIncomingMediaUrl == null || originalIncomingMediaUrl.isEmpty()
+                        ? sourceUrl : originalIncomingMediaUrl,
+                sourceUrl, diagnostic);
+        Log.e(TAG, "TikTok FFmpeg/HLS playback failed: "
+                + diagnostic.replace('\n', ' '));
+        String message = diagnostic == null ? "لا يتوفر تشخيص إضافي."
+                : diagnostic.length() > 4200 ? diagnostic.substring(0, 4200) : diagnostic;
+        if (!isFinishing() && !isDestroyed()) {
+            new AlertDialog.Builder(MainActivity.this)
+                    .setTitle("تعذر تشغيل TikTok LIVE")
+                    .setMessage("فشل تجهيز أو تشغيل البث. تم حفظ التشخيص الكامل في سجل الروابط الفاشلة.\n\n"
+                            + message)
+                    .setPositiveButton("موافق", null)
+                    .show();
+        }
+    }
+
+    private void stopTikTokFfmpegPipeline() {
+        tikTokFfmpegPlaybackAttemptToken++;
+        tikTokFfmpegPlaybackStarted = false;
+        TikTokFfmpegHlsPipeline pipeline = tikTokFfmpegHlsPipeline;
+        tikTokFfmpegHlsPipeline = null;
+        if (pipeline != null) {
+            try { pipeline.stop(); } catch (Exception ignored) { }
+        }
     }
 
     private boolean startTikTokFlvWithVlc(String url) {
@@ -7340,6 +7476,7 @@ public class MainActivity extends Activity {
     }
 
     private void playAudioAlongsideImage(String audioUrl) {
+        stopTikTokFfmpegPipeline();
         stopVlcPlayback();
         currentPlaybackUrl = audioUrl;
         if (settingsHomeButton != null) settingsHomeButton.setVisibility(View.GONE);
@@ -7636,6 +7773,7 @@ public class MainActivity extends Activity {
                 player = null;
             }
         }
+        stopTikTokFfmpegPipeline();
         releaseVlcPlayback();
 
         super.onDestroy();
