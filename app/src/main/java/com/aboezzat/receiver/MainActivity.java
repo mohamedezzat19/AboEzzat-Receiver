@@ -59,6 +59,11 @@ import androidx.media3.exoplayer.source.MergingMediaSource;
 import androidx.media3.exoplayer.source.MediaSource;
 import androidx.media3.ui.PlayerView;
 
+import org.videolan.libvlc.LibVLC;
+import org.videolan.libvlc.Media;
+import org.videolan.libvlc.MediaPlayer;
+import org.videolan.libvlc.util.VLCVideoLayout;
+
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
@@ -208,6 +213,11 @@ public class MainActivity extends Activity {
     private boolean imageDragging = false;
     private ProgressBar imageLoading;
     private ExoPlayer player;
+    // TikTok FLV uses LibVLC's FFmpeg/avformat demuxer, matching the VLC playback path.
+    private LibVLC vlcInstance;
+    private MediaPlayer vlcMediaPlayer;
+    private VLCVideoLayout vlcVideoLayout;
+    private volatile boolean isVlcPlaybackActive = false;
     // Keep the selected level separately from mute state.
     private float lastNonZeroVolume = 1.0f;
     private boolean muted = false;
@@ -1476,6 +1486,19 @@ public class MainActivity extends Activity {
         playerView.setBackgroundColor(Color.BLACK);
 
         root.addView(playerView, new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT
+        ));
+
+        // Keep VLC's video surface in the same playback layer; ordinary formats
+        // continue to use Media3 and its existing controls.
+        vlcVideoLayout = new VLCVideoLayout(this);
+        vlcVideoLayout.setVisibility(View.GONE);
+        vlcVideoLayout.setBackgroundColor(Color.BLACK);
+        vlcVideoLayout.setFocusable(true);
+        vlcVideoLayout.setFocusableInTouchMode(true);
+        vlcVideoLayout.setOnClickListener(v -> togglePlaybackFromRemote());
+        root.addView(vlcVideoLayout, root.indexOfChild(playerView), new FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT,
                 FrameLayout.LayoutParams.MATCH_PARENT
         ));
@@ -4806,8 +4829,9 @@ public class MainActivity extends Activity {
 
         // Consistent hardware-remote controls while the native ExoPlayer surface is active.
         if (event.getAction() == android.view.KeyEvent.ACTION_DOWN
-                && playerView != null && playerView.getVisibility() == View.VISIBLE
-                && currentPlaybackHasVideo && player != null) {
+                && ((isVlcPlaybackActive && vlcMediaPlayer != null)
+                || (playerView != null && playerView.getVisibility() == View.VISIBLE
+                && currentPlaybackHasVideo && player != null))) {
             int key = event.getKeyCode();
             if (key == android.view.KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE) {
                 togglePlaybackFromRemote();
@@ -4909,6 +4933,37 @@ public class MainActivity extends Activity {
                     long seekMs = Long.parseLong(command.substring("dlna_seek:".length()));
                     if (player != null) player.seekTo(Math.max(0L, seekMs));
                 } catch (Exception ignored) { }
+                return;
+            }
+
+            if (isVlcPlaybackActive && vlcMediaPlayer != null) {
+                switch (command) {
+                    case "dlna_play":
+                    case "play_pause":
+                        if (!vlcMediaPlayer.isPlaying()) vlcMediaPlayer.play();
+                        else if ("play_pause".equals(command)) vlcMediaPlayer.pause();
+                        break;
+                    case "dlna_pause":
+                        vlcMediaPlayer.pause();
+                        break;
+                    case "dlna_stop":
+                    case "stop":
+                        showWelcome();
+                        break;
+                    case "previous":
+                        playQueueRelative(-1);
+                        break;
+                    case "next":
+                        playQueueRelative(1);
+                        break;
+                    case "rw":
+                    case "ff":
+                        // TikTok LIVE is a non-seekable live stream; ignore seek commands.
+                        break;
+                    default:
+                        Log.w(TAG, "Unsupported VLC remote command: " + command);
+                        break;
+                }
                 return;
             }
 
@@ -5044,6 +5099,7 @@ public class MainActivity extends Activity {
     }
 
     private void stopCurrentPlayer() {
+        stopVlcPlayback();
         synchronized (playerLock) {
             if (player != null) {
                 if (pendingStartupPlayback != null) {
@@ -5642,6 +5698,15 @@ public class MainActivity extends Activity {
         playerView.setFocusableInTouchMode(true);
         playerView.requestFocus();
 
+        // TikTok LIVE FLV is routed through LibVLC/FFmpeg, the same demux family
+        // used by desktop VLC. All other media keeps the existing Media3 path.
+        if (isTikTokCdnVideoUrl(playbackUrl)
+                && playbackUrl.toLowerCase(Locale.ROOT).contains(".flv")) {
+            if (startTikTokFlvWithVlc(playbackUrl, effectiveHeaders)) return;
+        } else {
+            stopVlcPlayback();
+        }
+
         try {
             synchronized (playerLock) {
                 if (player == null) {
@@ -5910,9 +5975,138 @@ public class MainActivity extends Activity {
     private void setPlayerBufferingVisible(boolean visible) {
         runOnUiThread(() -> {
             if (playerBufferingOverlay == null || playerView == null) return;
-            boolean show = visible && playerView.getVisibility() == View.VISIBLE;
+            boolean playbackVisible = playerView.getVisibility() == View.VISIBLE
+                    || (vlcVideoLayout != null && vlcVideoLayout.getVisibility() == View.VISIBLE);
+            boolean show = visible && playbackVisible;
             playerBufferingOverlay.setVisibility(show ? View.VISIBLE : View.GONE);
         });
+    }
+
+    private String getVlcHeader(java.util.Map<String, String> headers, String wanted) {
+        if (headers == null || wanted == null) return "";
+        for (java.util.Map.Entry<String, String> entry : headers.entrySet()) {
+            if (entry.getKey() != null && wanted.equalsIgnoreCase(entry.getKey())
+                    && entry.getValue() != null) return entry.getValue().trim();
+        }
+        return "";
+    }
+
+    private boolean startTikTokFlvWithVlc(String url, java.util.Map<String, String> headers) {
+        Media media = null;
+        try {
+            synchronized (playerLock) {
+                if (player != null) {
+                    savePlaybackPositionLocked();
+                    player.stop();
+                    player.clearMediaItems();
+                }
+                if (vlcInstance == null) {
+                    java.util.ArrayList<String> options = new java.util.ArrayList<>();
+                    options.add("--no-video-title-show");
+                    options.add("--network-caching=1500");
+                    options.add("--live-caching=1500");
+                    vlcInstance = new LibVLC(this, options);
+                }
+                if (vlcMediaPlayer == null) {
+                    vlcMediaPlayer = new MediaPlayer(vlcInstance);
+                    vlcMediaPlayer.setEventListener(event -> {
+                        final int eventType = event.type;
+                        runOnUiThread(() -> {
+                            if (!isVlcPlaybackActive) return;
+                            if (eventType == MediaPlayer.Event.Opening
+                                    || eventType == MediaPlayer.Event.Buffering) {
+                                setPlayerBufferingVisible(true);
+                            } else if (eventType == MediaPlayer.Event.Playing) {
+                                setPlayerBufferingVisible(false);
+                                extractionStatus = "playing";
+                                playbackStatusMessage = "TikTok LIVE يعمل بمحرك VLC/FFmpeg.";
+                                persistExtractionState();
+                                Log.i(TAG, "TikTok FLV playback started with LibVLC avformat");
+                            } else if (eventType == MediaPlayer.Event.EncounteredError) {
+                                setPlayerBufferingVisible(false);
+                                extractionStatus = "error";
+                                playbackStatusMessage = "فشل محرك VLC في قراءة بث TikTok FLV.";
+                                recordReceiverFailure("تشغيل TikTok FLV",
+                                        originalIncomingMediaUrl == null || originalIncomingMediaUrl.isEmpty()
+                                                ? currentPlaybackUrl : originalIncomingMediaUrl,
+                                        currentPlaybackUrl, playbackStatusMessage);
+                                persistExtractionState();
+                                new AlertDialog.Builder(MainActivity.this)
+                                        .setTitle("فشل تشغيل TikTok بواسطة VLC")
+                                        .setMessage("محرك VLC/FFmpeg لم يتمكن من قراءة البث. الرابط لم يتم تغييره.")
+                                        .setPositiveButton("موافق", null)
+                                        .show();
+                            } else if (eventType == MediaPlayer.Event.EndReached
+                                    || eventType == MediaPlayer.Event.Stopped) {
+                                setPlayerBufferingVisible(false);
+                            }
+                        });
+                    });
+                    vlcMediaPlayer.attachViews(vlcVideoLayout, null, false, false);
+                    vlcMediaPlayer.setVideoScale(MediaPlayer.ScaleType.SURFACE_BEST_FIT);
+                } else if (!vlcMediaPlayer.getVLCVout().areViewsAttached()) {
+                    vlcMediaPlayer.attachViews(vlcVideoLayout, null, false, false);
+                }
+
+                media = new Media(vlcInstance, Uri.parse(url));
+                // Force VLC's FFmpeg/libavformat demuxer for FLV, rather than Media3's extractor.
+                media.addOption(":demux=avformat");
+                media.addOption(":network-caching=1500");
+                media.addOption(":live-caching=1500");
+                media.addOption(":http-continuous");
+                String userAgent = getVlcHeader(headers, "User-Agent");
+                String referer = getVlcHeader(headers, "Referer");
+                if (!userAgent.isEmpty()) media.addOption(":http-user-agent=" + userAgent);
+                if (!referer.isEmpty()) media.addOption(":http-referrer=" + referer);
+
+                vlcMediaPlayer.setMedia(media);
+                media.release();
+                media = null;
+                vlcMediaPlayer.setVolume(muted ? 0 : Math.round(lastNonZeroVolume * 100f));
+                isVlcPlaybackActive = true;
+                playerView.setVisibility(View.GONE);
+                vlcVideoLayout.setVisibility(View.VISIBLE);
+                vlcVideoLayout.requestFocus();
+                if (playerBufferingText != null) playerBufferingText.setText("جاري تشغيل TikTok بمحرك VLC...");
+                setPlayerBufferingVisible(true);
+                vlcMediaPlayer.play();
+                Log.i(TAG, "TikTok FLV routed to LibVLC/avformat; UA="
+                        + (!userAgent.isEmpty()) + ", Referer=" + (!referer.isEmpty()));
+            }
+            return true;
+        } catch (Exception error) {
+            if (media != null) {
+                try { media.release(); } catch (Exception ignored) { }
+            }
+            isVlcPlaybackActive = false;
+            if (vlcVideoLayout != null) vlcVideoLayout.setVisibility(View.GONE);
+            Log.e(TAG, "Could not start LibVLC for TikTok FLV", error);
+            Toast.makeText(this, "تعذر تهيئة محرك VLC؛ سنجرب مشغل Receiver المعتاد.", Toast.LENGTH_LONG).show();
+            return false;
+        }
+    }
+
+    private void stopVlcPlayback() {
+        isVlcPlaybackActive = false;
+        setPlayerBufferingVisible(false);
+        if (vlcMediaPlayer != null) {
+            try { vlcMediaPlayer.stop(); } catch (Exception ignored) { }
+        }
+        if (vlcVideoLayout != null) vlcVideoLayout.setVisibility(View.GONE);
+    }
+
+    private void releaseVlcPlayback() {
+        isVlcPlaybackActive = false;
+        if (vlcMediaPlayer != null) {
+            try { vlcMediaPlayer.stop(); } catch (Exception ignored) { }
+            try { vlcMediaPlayer.detachViews(); } catch (Exception ignored) { }
+            try { vlcMediaPlayer.release(); } catch (Exception ignored) { }
+            vlcMediaPlayer = null;
+        }
+        if (vlcInstance != null) {
+            try { vlcInstance.release(); } catch (Exception ignored) { }
+            vlcInstance = null;
+        }
     }
 
     private SharedPreferences getPlayerSettingsPrefs() {
@@ -6211,6 +6405,11 @@ public class MainActivity extends Activity {
     }
 
     private void togglePlaybackFromRemote() {
+        if (isVlcPlaybackActive && vlcMediaPlayer != null) {
+            if (vlcMediaPlayer.isPlaying()) vlcMediaPlayer.pause();
+            else vlcMediaPlayer.play();
+            return;
+        }
         if (player == null) return;
         synchronized (playerLock) {
             if (player.isPlaying()) player.pause();
@@ -6957,6 +7156,7 @@ public class MainActivity extends Activity {
     }
 
     private void playAudioAlongsideImage(String audioUrl) {
+        stopVlcPlayback();
         currentPlaybackUrl = audioUrl;
         if (settingsHomeButton != null) settingsHomeButton.setVisibility(View.GONE);
         if (browserHomeButton != null) browserHomeButton.setVisibility(View.GONE);
@@ -7252,6 +7452,7 @@ public class MainActivity extends Activity {
                 player = null;
             }
         }
+        releaseVlcPlayback();
 
         super.onDestroy();
     }
