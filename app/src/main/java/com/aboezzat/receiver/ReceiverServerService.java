@@ -349,7 +349,9 @@ public class ReceiverServerService extends Service {
                     JSONObject suppliedHeaders = payload.optJSONObject("headers");
                     JSONObject safeHeaders = new JSONObject();
                     if (suppliedHeaders != null) {
-                        String[] allowed = {"user-agent", "referer", "origin", "accept", "accept-language", "cookie"};
+                        String[] allowed = {"user-agent", "referer", "origin", "accept", "accept-language", "cookie",
+                                "sec-fetch-site", "sec-fetch-mode", "sec-fetch-dest",
+                                "sec-ch-ua", "sec-ch-ua-mobile", "sec-ch-ua-platform", "priority"};
                         for (String key : allowed) {
                             String value = suppliedHeaders.optString(key, "");
                             int max = "cookie".equals(key) ? 8192 : 2048;
