@@ -5627,7 +5627,7 @@ public class MainActivity extends Activity {
                         : Math.max(0L, System.currentTimeMillis() - vlcAttemptStartedAtMs))
                 .append("\n- Video output count: ").append(vlcLastVoutCount)
                 .append("\n- Track events: ").append(vlcTrackEvents)
-                .append("\\n- Bounded HTTP probe: ").append(vlcHttpProbeDiagnostic)
+                .append("\n- Bounded HTTP probe: ").append(vlcHttpProbeDiagnostic)
                 .append(", duration_ms=").append(vlcHttpProbeDurationMs)
                 .append("\n- Event history: ")
                 .append(vlcEventHistory.isEmpty() ? "none" : vlcEventHistory);
@@ -6307,7 +6307,7 @@ public class MainActivity extends Activity {
                     recordReceiverFailure("مهلة بدء تشغيل TikTok FLV بواسطة VLC",
                             originalIncomingMediaUrl == null || originalIncomingMediaUrl.isEmpty()
                                     ? currentPlaybackUrl : originalIncomingMediaUrl,
-                            currentPlaybackUrl, playbackStatusMessage + "\n" + buildTikTokVlcFailureDiagnostic());
+                            currentPlaybackUrl, playbackStatusMessage);
                     stopVlcPlayback();
                     new AlertDialog.Builder(MainActivity.this)
                             .setTitle("VLC لم يبدأ تشغيل البث")
