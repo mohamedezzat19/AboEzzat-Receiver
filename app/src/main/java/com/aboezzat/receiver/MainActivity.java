@@ -2123,13 +2123,14 @@ public class MainActivity extends Activity {
             String host = uri.getHost() == null ? "" : uri.getHost().toLowerCase(Locale.ROOT);
             String path = uri.getPath() == null ? "" : uri.getPath().toLowerCase(Locale.ROOT);
 
-            // Standard TikTok video CDN URLs use /video/tos/, while TikTok LIVE
-            // uses separate pull-* hosts and /stage/stream-*.flv or .m3u8 paths.
+            // Standard TikTok video CDN URLs use /video/tos/. LIVE streams
+            // may use either /stage/stream-* or /game/stream-* paths.
             boolean standardTikTokVideo = (host.equals("tiktok.com") || host.endsWith(".tiktok.com"))
                     && path.contains("/video/tos/");
+            boolean liveStreamPath = path.contains("/stage/stream-") || path.contains("/game/stream-");
             boolean tiktokLiveCdn = (host.equals("tiktokcdn.com") || host.endsWith(".tiktokcdn.com"))
                     && host.startsWith("pull-")
-                    && path.contains("/stage/stream-")
+                    && liveStreamPath
                     && (path.endsWith(".flv") || path.endsWith(".m3u8"));
             return standardTikTokVideo || tiktokLiveCdn;
         } catch (Exception ignored) {
@@ -2143,9 +2144,10 @@ public class MainActivity extends Activity {
             Uri uri = Uri.parse(value.trim());
             String host = uri.getHost() == null ? "" : uri.getHost().toLowerCase(Locale.ROOT);
             String path = uri.getPath() == null ? "" : uri.getPath().toLowerCase(Locale.ROOT);
+            boolean liveStreamPath = path.contains("/stage/stream-") || path.contains("/game/stream-");
             return (host.equals("tiktokcdn.com") || host.endsWith(".tiktokcdn.com"))
                     && host.startsWith("pull-")
-                    && path.contains("/stage/stream-")
+                    && liveStreamPath
                     && (path.endsWith(".flv") || path.endsWith(".m3u8"));
         } catch (Exception ignored) {
             return false;
