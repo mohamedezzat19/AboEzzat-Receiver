@@ -870,6 +870,7 @@ public class MainActivity extends Activity {
             String command = intent.getStringExtra(ReceiverServerService.EXTRA_COMMAND);
             String incomingUrl = intent.getStringExtra(ReceiverServerService.EXTRA_URL);
             String incomingAudio = intent.getStringExtra(ReceiverServerService.EXTRA_AUDIO);
+            String incomingSourceUrl = intent.getStringExtra(ReceiverServerService.EXTRA_SOURCE_URL);
             String dlnaMetadata = intent.getStringExtra(ReceiverServerService.EXTRA_METADATA);
             // Internal remote-control/status commands arrive through the same Activity
             // action as media requests. Do not let them overwrite the last real share
@@ -919,7 +920,7 @@ public class MainActivity extends Activity {
                 handleRemoteCommand(command.trim());
             } else {
                 clearPendingServerMedia();
-                queueIncomingMedia(incomingUrl, incomingAudio, incomingHeaders);
+                queueIncomingMedia(incomingUrl, incomingAudio, incomingHeaders, incomingSourceUrl);
             }
             return;
         }
@@ -962,6 +963,7 @@ public class MainActivity extends Activity {
         SharedPreferences pending = getSharedPreferences("AboEzzatReceiverPending", MODE_PRIVATE);
         String pendingUrl = pending.getString("url", "");
         String pendingAudio = pending.getString("audio", "");
+        String pendingSourceUrl = pending.getString("source_url", "");
         long receivedAt = pending.getLong("received_at", 0L);
         if (System.currentTimeMillis() - receivedAt <= 10 * 60 * 1000L
                 && (!pendingUrl.trim().isEmpty() || !pendingAudio.trim().isEmpty())) {
@@ -990,7 +992,7 @@ public class MainActivity extends Activity {
                 Log.w(TAG, "Could not restore saved playback headers");
             }
             clearPendingServerMedia();
-            queueIncomingMedia(pendingUrl, pendingAudio, pendingHeaders);
+            queueIncomingMedia(pendingUrl, pendingAudio, pendingHeaders, pendingSourceUrl);
         } else if (receivedAt != 0L) {
             clearPendingServerMedia();
         }
@@ -1000,6 +1002,7 @@ public class MainActivity extends Activity {
         getSharedPreferences("AboEzzatReceiverPending", MODE_PRIVATE).edit()
                 .remove("url")
                 .remove("audio")
+                .remove("source_url")
                 .remove("headers")
                 .remove("received_at")
                 .apply();
