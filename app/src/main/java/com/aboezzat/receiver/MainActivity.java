@@ -6565,7 +6565,53 @@ public class MainActivity extends Activity {
 
     private DefaultMediaSourceFactory createMediaSourceFactory(java.util.Map<String, String> requestHeaders) {
         DefaultHttpDataSource.Factory httpFactory = new DefaultHttpDataSource.Factory()
-                .setConnectTimeoutMs(15000).setReadTimeoutMs(30000);
+                .setConnectTimeoutMs(15000).setReadTimeoutMs(30000)
+                .setTransferListener(new androidx.media3.datasource.TransferListener() {
+                    @Override
+                    public void onTransferInitializing(androidx.media3.datasource.DataSource source,
+                                                       androidx.media3.datasource.DataSpec dataSpec,
+                                                       boolean isNetwork) {}
+
+                    @Override
+                    public void onTransferStart(androidx.media3.datasource.DataSource source,
+                                                androidx.media3.datasource.DataSpec dataSpec,
+                                                boolean isNetwork) {
+                        if (!isTikTokCdnVideoUrl(dataSpec.uri.toString())) return;
+                        String responseUrl = source.getUri() == null ? "" : source.getUri().toString();
+                        StringBuilder response = new StringBuilder("TikTok CDN response: url=")
+                                .append(redactSensitiveUrl(responseUrl));
+                        if (source instanceof androidx.media3.datasource.HttpDataSource) {
+                            java.util.Map<String, java.util.List<String>> headers =
+                                    ((androidx.media3.datasource.HttpDataSource) source).getResponseHeaders();
+                            if (headers != null) {
+                                for (java.util.Map.Entry<String, java.util.List<String>> entry : headers.entrySet()) {
+                                    String key = entry.getKey() == null ? "" : entry.getKey().toLowerCase(Locale.ROOT);
+                                    if (!("content-type".equals(key) || "content-length".equals(key)
+                                            || "server".equals(key) || "accept-ranges".equals(key)
+                                            || "content-range".equals(key) || "cache-control".equals(key))) continue;
+                                    String value = entry.getValue() == null ? "" : String.join(", ", entry.getValue());
+                                    if (value.length() > 160) value = value.substring(0, 160);
+                                    response.append(" / ").append(key).append("=").append(value);
+                                }
+                            }
+                        }
+                        Log.i(TAG, response.toString());
+                    }
+
+                    @Override
+                    public void onBytesTransferred(androidx.media3.datasource.DataSource source,
+                                                   androidx.media3.datasource.DataSpec dataSpec,
+                                                   boolean isNetwork, int bytesTransferred) {
+                        if (isTikTokCdnVideoUrl(dataSpec.uri.toString()) && bytesTransferred > 0) {
+                            Log.d(TAG, "TikTok CDN bytes received=" + bytesTransferred);
+                        }
+                    }
+
+                    @Override
+                    public void onTransferEnd(androidx.media3.datasource.DataSource source,
+                                              androidx.media3.datasource.DataSpec dataSpec,
+                                              boolean isNetwork) {}
+                });
         if (requestHeaders != null && !requestHeaders.isEmpty()) {
             java.util.Map<String, String> safe = new java.util.LinkedHashMap<>();
             for (java.util.Map.Entry<String, String> entry : requestHeaders.entrySet()) {
@@ -6578,7 +6624,7 @@ public class MainActivity extends Activity {
                         || "priority".equals(key))
                         && entry.getValue() != null
                         && entry.getValue().length() <= ("cookie".equals(key) ? 8192 : 2048)
-                        && !entry.getValue().contains("\\r") && !entry.getValue().contains("\n")) {
+                        && !entry.getValue().contains("\\r") && !entry.getValue().contains("\\n")) {
                     safe.put(entry.getKey(), entry.getValue());
                 }
             }
