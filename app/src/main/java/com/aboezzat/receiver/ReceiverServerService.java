@@ -39,6 +39,7 @@ public class ReceiverServerService extends Service {
     public static final String EXTRA_URL = "server_url";
     public static final String EXTRA_METADATA = "server_metadata";
     public static final String EXTRA_AUDIO = "server_audio";
+    public static final String EXTRA_SOURCE_URL = "server_source_url";
     public static final String EXTRA_COMMAND = "server_command";
 
     private static final int DEFAULT_PORT = 8081;
@@ -303,6 +304,7 @@ public class ReceiverServerService extends Service {
     private void handleRequest(Socket client) {
         String mediaUrl = null;
         String audioUrl = null;
+        String sourceUrl = null;
         String command = null;
         boolean invalidMediaUrl = false;
         JSONObject incomingHeaders = new JSONObject();
@@ -346,6 +348,7 @@ public class ReceiverServerService extends Service {
                     // /play POST requests may carry a separate DASH audio-only track.
                     // Preserve it exactly like the legacy GET ?audio=... path.
                     audioUrl = payload.optString("audio", "");
+                    sourceUrl = payload.optString("sourceUrl", "");
                     JSONObject suppliedHeaders = payload.optJSONObject("headers");
                     JSONObject safeHeaders = new JSONObject();
                     if (suppliedHeaders != null) {
@@ -373,10 +376,12 @@ public class ReceiverServerService extends Service {
                     String value = URLDecoder.decode(item[1], "UTF-8");
                     if ("url".equals(key) || "video".equals(key)) mediaUrl = value;
                     else if ("audio".equals(key)) audioUrl = value;
+                    else if ("sourceUrl".equals(key)) sourceUrl = value;
                     else if ("command".equals(key)) command = value;
                 }
             }
 
+            if (sourceUrl != null && !sourceUrl.trim().isEmpty() && !isHttpUrl(sourceUrl)) sourceUrl = null;
             invalidMediaUrl = invalidMediaUrl || (mediaUrl != null && !mediaUrl.trim().isEmpty()
                     && !isHttpUrl(mediaUrl))
                     || (audioUrl != null && !audioUrl.trim().isEmpty() && !isHttpUrl(audioUrl));
@@ -425,6 +430,7 @@ public class ReceiverServerService extends Service {
             getSharedPreferences("AboEzzatReceiverPending", MODE_PRIVATE).edit()
                     .putString("url", mediaUrl == null ? "" : mediaUrl)
                     .putString("audio", audioUrl == null ? "" : audioUrl)
+                    .putString("source_url", sourceUrl == null ? "" : sourceUrl)
                     .putString("headers", incomingHeaders.toString())
                     .putLong("received_at", System.currentTimeMillis())
                     .apply();
@@ -434,6 +440,7 @@ public class ReceiverServerService extends Service {
         request.setAction(ACTION_SERVER_REQUEST);
         request.putExtra(EXTRA_URL, mediaUrl);
         request.putExtra(EXTRA_AUDIO, audioUrl);
+        request.putExtra(EXTRA_SOURCE_URL, sourceUrl);
         request.putExtra(EXTRA_COMMAND, command);
         request.putExtra("server_headers", incomingHeaders.toString());
         request.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK
