@@ -356,7 +356,7 @@ public class ReceiverServerService extends Service {
                             String value = suppliedHeaders.optString(key, "");
                             int max = "cookie".equals(key) ? 8192 : 2048;
                             if (!value.isEmpty() && value.length() <= max
-                                    && !value.contains("\\r") && !value.contains("\\n")) {
+                                    && !value.contains("\r") && !value.contains("\n")) {
                                 safeHeaders.put(key, value);
                             }
                         }
