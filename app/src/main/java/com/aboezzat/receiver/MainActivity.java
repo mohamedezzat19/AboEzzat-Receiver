@@ -216,6 +216,7 @@ public class MainActivity extends Activity {
     // TikTok FLV uses LibVLC's FFmpeg/avformat demuxer, matching the VLC playback path.
     private LibVLC vlcInstance;
     private volatile TikTokVlcHttpBridge tikTokVlcHttpBridge;
+    private volatile String vlcTransportDiagnostic = "not started";
     private MediaPlayer vlcMediaPlayer;
     private VLCVideoLayout vlcVideoLayout;
     private volatile boolean isVlcPlaybackActive = false;
@@ -5540,8 +5541,9 @@ public class MainActivity extends Activity {
                         : Math.max(0L, System.currentTimeMillis() - vlcAttemptStartedAtMs))
                 .append("\n- Video output count: ").append(vlcLastVoutCount)
                 .append("\n- Track events: ").append(vlcTrackEvents)
+                .append("\n- Transport path: ").append(vlcTransportDiagnostic)
                 .append("\n- Local HTTP bridge: ").append(tikTokVlcHttpBridge == null
-                        ? "not running" : tikTokVlcHttpBridge.getDiagnostic())
+                        ? "not used" : tikTokVlcHttpBridge.getDiagnostic())
                 .append("\n- Event history: ")
                 .append(vlcEventHistory.isEmpty() ? "none" : vlcEventHistory);
 
@@ -6160,11 +6162,39 @@ public class MainActivity extends Activity {
 
                 if (vlcMediaPlayer.isPlaying()) vlcMediaPlayer.stop();
                 stopTikTokVlcHttpBridge();
-                TikTokVlcHttpBridge bridge = new TikTokVlcHttpBridge(url, currentPlaybackHeaders);
-                tikTokVlcHttpBridge = bridge;
-                String localStreamUrl = bridge.start();
-                media = new Media(vlcInstance, Uri.parse(localStreamUrl));
-                // The loopback URL is synthetic, so do not rely on extension/MIME probing.
+                java.util.Map<String, String> requestHeaders = currentPlaybackHeaders == null
+                        ? java.util.Collections.emptyMap() : currentPlaybackHeaders;
+                String cookieValue = null;
+                String refererValue = null;
+                for (java.util.Map.Entry<String, String> header : requestHeaders.entrySet()) {
+                    if (header.getKey() == null) continue;
+                    if ("cookie".equalsIgnoreCase(header.getKey())) cookieValue = header.getValue();
+                    if ("referer".equalsIgnoreCase(header.getKey())) refererValue = header.getValue();
+                }
+
+                if (cookieValue != null && !cookieValue.trim().isEmpty()) {
+                    // Cookie-bearing sessions still use the isolated bridge so the cookie
+                    // is sent only to the original TikTok CDN host.
+                    TikTokVlcHttpBridge bridge = new TikTokVlcHttpBridge(url, requestHeaders);
+                    tikTokVlcHttpBridge = bridge;
+                    String localStreamUrl = bridge.start();
+                    media = new Media(vlcInstance, Uri.parse(localStreamUrl));
+                    vlcTransportDiagnostic = "loopback HTTP bridge (session cookie present; value hidden)";
+                } else {
+                    // With no cookie to inject, let LibVLC open the signed CDN URL itself.
+                    // This matches the direct URL path used by the VLC app and avoids
+                    // changing an indefinite live response into a loopback HTTP response.
+                    tikTokVlcHttpBridge = null;
+                    media = new Media(vlcInstance, Uri.parse(url));
+                    media.addOption(":http-user-agent=VLC/3.6.5 LibVLC/3.6.5");
+                    if (refererValue != null && !refererValue.trim().isEmpty()
+                            && refererValue.length() <= 2048
+                            && refererValue.indexOf('\\r') < 0 && refererValue.indexOf('\\n') < 0) {
+                        media.addOption(":http-referrer=" + refererValue);
+                    }
+                    vlcTransportDiagnostic = "direct HTTPS to TikTok CDN (no session cookie; Referer "
+                            + (refererValue == null || refererValue.isEmpty() ? "absent" : "forwarded") + ")";
+                }
                 // Force LibVLC's FFmpeg demuxer and explicitly select the FLV container.
                 media.addOption(":demux=avformat");
                 media.addOption(":avformat-format=flv");
