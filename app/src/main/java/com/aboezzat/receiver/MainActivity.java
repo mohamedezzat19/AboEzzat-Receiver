@@ -6164,7 +6164,10 @@ public class MainActivity extends Activity {
                 tikTokVlcHttpBridge = bridge;
                 String localStreamUrl = bridge.start();
                 media = new Media(vlcInstance, Uri.parse(localStreamUrl));
-                // Automatic FLV demux selection; the bridge supplies CDN headers and bytes.
+                // The loopback URL is synthetic, so do not rely on extension/MIME probing.
+                // Force LibVLC's FFmpeg demuxer and explicitly select the FLV container.
+                media.addOption(":demux=avformat");
+                media.addOption(":avformat-format=flv");
                 media.addOption(":network-caching=1500");
                 media.addOption(":live-caching=1500");
                 media.addOption(":http-continuous");
