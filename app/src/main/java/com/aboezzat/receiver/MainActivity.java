@@ -6079,9 +6079,10 @@ public class MainActivity extends Activity {
     private void stopVlcPlayback() {
         isVlcPlaybackActive = false;
         setPlayerBufferingVisible(false);
-        if (vlcMediaPlayer != null) {
-            try { vlcMediaPlayer.stop(); } catch (Exception ignored) { }
-        }
+        // LibVLC is created only for TikTok FLV. Fully release its native player
+        // and instance when leaving that stream so ordinary playback keeps no
+        // extra VLC decoder/network threads or native memory resident.
+        releaseVlcPlayback();
         if (vlcVideoLayout != null) vlcVideoLayout.setVisibility(View.GONE);
     }
 
