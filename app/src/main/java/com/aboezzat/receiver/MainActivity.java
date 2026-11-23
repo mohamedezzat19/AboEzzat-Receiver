@@ -5847,6 +5847,7 @@ public class MainActivity extends Activity {
                                         ? "TikTok FFmpeg/HLS pipeline is no longer active."
                                         : pipeline.getDiagnostic());
                                 tikTokFfmpegFailureRecorded = true;
+                                if (pipeline != null) pipeline.stop();
                             } else if (isTikTokCdnVideoUrl(currentPlaybackUrl)) {
                                 detail += "\n" + getTikTokRequestHeaderDiagnostic();
                                 detail += "\n" + getTikTokCdnResponseDiagnostic();
@@ -6005,7 +6006,8 @@ public class MainActivity extends Activity {
 
             // Some providers expose a manifest at an extension-less URL and
             // identify its format only through MIME/format query parameters.
-            boolean hlsManifest = lowerUrl.contains("application/vnd.apple.mpegurl")
+            boolean hlsManifest = lowerPath.endsWith(".m3u8")
+                    || lowerUrl.contains("application/vnd.apple.mpegurl")
                     || lowerUrl.contains("application/x-mpegurl")
                     || lowerUrl.contains("format=m3u8")
                     || lowerUrl.contains("playlist.m3u8")
@@ -6182,6 +6184,8 @@ public class MainActivity extends Activity {
                 originalIncomingMediaUrl == null || originalIncomingMediaUrl.isEmpty()
                         ? sourceUrl : originalIncomingMediaUrl,
                 sourceUrl, diagnostic);
+        TikTokFfmpegHlsPipeline activePipeline = tikTokFfmpegHlsPipeline;
+        if (activePipeline != null) activePipeline.stop();
         Log.e(TAG, "TikTok FFmpeg/HLS playback failed: "
                 + diagnostic.replace('\n', ' '));
         String message = diagnostic == null ? "لا يتوفر تشخيص إضافي."
