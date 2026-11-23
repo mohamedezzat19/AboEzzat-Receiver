@@ -109,6 +109,10 @@ public class MainActivity extends Activity {
     private String lastTikTokCdnResponseDiagnostic = "";
     private long lastTikTokCdnBytesReceived = 0L;
     private String lastTikTokCdnInitialBytes = "not captured";
+    private boolean lastTikTokCdnTransferEnded = false;
+    private boolean lastTikTokCdnReachedEof = false;
+    private long lastTikTokCdnTransferStartMs = 0L;
+    private long lastTikTokCdnTransferDurationMs = -1L;
 
     private FrameLayout root;
     private LinearLayout welcomeScreen;
@@ -5456,6 +5460,9 @@ public class MainActivity extends Activity {
                 return "TikTok CDN response: no HTTP response captured";
             }
             return lastTikTokCdnResponseDiagnostic + " / bytes_received=" + lastTikTokCdnBytesReceived
+                    + " / transfer_ended=" + lastTikTokCdnTransferEnded
+                    + " / eof_reached=" + lastTikTokCdnReachedEof
+                    + " / transfer_duration_ms=" + lastTikTokCdnTransferDurationMs
                     + " / first_bytes_hex=" + lastTikTokCdnInitialBytes;
         }
     }
@@ -6647,7 +6654,9 @@ public class MainActivity extends Activity {
                                     String key = entry.getKey() == null ? "" : entry.getKey().toLowerCase(Locale.ROOT);
                                     if (!("content-type".equals(key) || "content-length".equals(key)
                                             || "server".equals(key) || "accept-ranges".equals(key)
-                                            || "content-range".equals(key) || "cache-control".equals(key))) continue;
+                                            || "content-range".equals(key) || "content-encoding".equals(key)
+                                            || "transfer-encoding".equals(key) || "cache-control".equals(key)
+                                            || "connection".equals(key))) continue;
                                     String value = entry.getValue() == null ? "" : String.join(", ", entry.getValue());
                                     if (value.length() > 160) value = value.substring(0, 160);
                                     response.append(" / ").append(key).append("=").append(value);
@@ -6658,6 +6667,10 @@ public class MainActivity extends Activity {
                             lastTikTokCdnResponseDiagnostic = response.toString();
                             lastTikTokCdnBytesReceived = 0L;
                             lastTikTokCdnInitialBytes = "not captured";
+                            lastTikTokCdnTransferEnded = false;
+                            lastTikTokCdnReachedEof = false;
+                            lastTikTokCdnTransferStartMs = System.currentTimeMillis();
+                            lastTikTokCdnTransferDurationMs = -1L;
                         }
                         Log.i(TAG, response.toString());
                     }
@@ -6677,7 +6690,17 @@ public class MainActivity extends Activity {
                     @Override
                     public void onTransferEnd(androidx.media3.datasource.DataSource source,
                                               androidx.media3.datasource.DataSpec dataSpec,
-                                              boolean isNetwork) {}
+                                              boolean isNetwork) {
+                        if (isTikTokCdnVideoUrl(dataSpec.uri.toString())) {
+                            synchronized (tikTokCdnDiagnosticLock) {
+                                lastTikTokCdnTransferEnded = true;
+                                if (lastTikTokCdnTransferStartMs > 0L) {
+                                    lastTikTokCdnTransferDurationMs =
+                                            Math.max(0L, System.currentTimeMillis() - lastTikTokCdnTransferStartMs);
+                                }
+                            }
+                        }
+                    }
                 });
         if (requestHeaders != null && !requestHeaders.isEmpty()) {
             java.util.Map<String, String> safe = new java.util.LinkedHashMap<>();
@@ -6732,6 +6755,11 @@ public class MainActivity extends Activity {
                 @Override
                 public int read(byte[] buffer, int offset, int length) throws java.io.IOException {
                     int count = upstream.read(buffer, offset, length);
+                    if (captureTikTok && count == androidx.media3.common.C.RESULT_END_OF_INPUT) {
+                        synchronized (tikTokCdnDiagnosticLock) {
+                            lastTikTokCdnReachedEof = true;
+                        }
+                    }
                     if (captureTikTok && count > 0 && capturedByteCount < 16) {
                         int take = Math.min(16 - capturedByteCount, count);
                         for (int i = 0; i < take; i++) {
