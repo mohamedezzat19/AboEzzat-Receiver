@@ -221,6 +221,10 @@ public class MainActivity extends Activity {
     private volatile boolean vlcPlaybackHasStarted = false;
     private volatile String vlcLastEventDiagnostic = "لم تصل أي إشارة من VLC بعد.";
     private volatile float vlcLastBufferingPercent = -1f;
+    private volatile String vlcEventHistory = "";
+    private volatile int vlcLastVoutCount = -1;
+    private volatile String vlcTrackEvents = "لم يتم رصد مسارات بعد.";
+    private volatile long vlcAttemptStartedAtMs = 0L;
     private long vlcPlaybackAttemptToken = 0L;
     // Keep the selected level separately from mute state.
     private float lastNonZeroVolume = 1.0f;
@@ -396,6 +400,9 @@ public class MainActivity extends Activity {
             entry.put("resolved_url", resolvedUrl == null ? "" : resolvedUrl);
             entry.put("reason", reason == null ? "" : reason);
             entry.put("incoming_intent", lastIncomingIntentDiagnostic == null ? "" : lastIncomingIntentDiagnostic);
+            if (phase != null && phase.toLowerCase(Locale.ROOT).contains("tiktok")) {
+                entry.put("technical_diagnostic", buildTikTokVlcFailureDiagnostic());
+            }
             entry.put("version", getPackageManager().getPackageInfo(getPackageName(), 0).versionName);
             next.put(entry);
             for (int i = 0; i < old.length() && next.length() < MAX_FAILED_MEDIA_LOG_ENTRIES; i++) {
@@ -431,6 +438,8 @@ public class MainActivity extends Activity {
                 .append("Requested URL: ").append(includeFullUrls ? requested : redactSensitiveUrl(requested)).append("\n");
         String intentShape = entry.optString("incoming_intent", "");
         if (!intentShape.isEmpty()) report.append("Incoming intent: ").append(intentShape).append("\n");
+        String technical = entry.optString("technical_diagnostic", "");
+        if (!technical.isEmpty()) report.append("Technical diagnostic:\\n").append(technical).append("\\n");
         if (!resolved.isEmpty()) {
             report.append("Resolved URL: ").append(includeFullUrls ? resolved : redactSensitiveUrl(resolved)).append("\n");
         }
@@ -5518,6 +5527,47 @@ public class MainActivity extends Activity {
         queueIncomingMedia(url, null);
     }
 
+    private String buildTikTokVlcFailureDiagnostic() {
+        StringBuilder detail = new StringBuilder();
+        detail.append("TikTok VLC diagnostic:")
+                .append("\\n- Last event: ").append(vlcLastEventDiagnostic)
+                .append("\\n- Buffering percent: ")
+                .append(vlcLastBufferingPercent < 0 ? "not reported"
+                        : String.format(Locale.ROOT, "%.1f%%", vlcLastBufferingPercent))
+                .append("\\n- Startup elapsed ms: ")
+                .append(vlcAttemptStartedAtMs <= 0 ? "unknown"
+                        : Math.max(0L, System.currentTimeMillis() - vlcAttemptStartedAtMs))
+                .append("\\n- Video output count: ").append(vlcLastVoutCount)
+                .append("\\n- Track events: ").append(vlcTrackEvents)
+                .append("\\n- Event history: ")
+                .append(vlcEventHistory.isEmpty() ? "none" : vlcEventHistory);
+
+        java.util.Map<String, String> headers = currentPlaybackHeaders;
+        if (headers == null) headers = java.util.Collections.emptyMap();
+        boolean ua = false, referer = false, origin = false, cookie = false;
+        boolean secFetch = false;
+        int cookieLength = 0;
+        for (java.util.Map.Entry<String, String> item : headers.entrySet()) {
+            String key = item.getKey() == null ? "" : item.getKey().toLowerCase(Locale.ROOT);
+            String value = item.getValue() == null ? "" : item.getValue();
+            ua |= "user-agent".equals(key) && !value.isEmpty();
+            referer |= "referer".equals(key) && !value.isEmpty();
+            origin |= "origin".equals(key) && !value.isEmpty();
+            if ("cookie".equals(key)) { cookie = !value.isEmpty(); cookieLength = value.length(); }
+            secFetch |= key.startsWith("sec-fetch-") && !value.isEmpty();
+        }
+        detail.append("\\n- Incoming headers: count=").append(headers.size())
+                .append(", UA=").append(ua).append(", Referer=").append(referer)
+                .append(", Origin=").append(origin).append(", Cookie=").append(cookie)
+                .append(" (").append(cookieLength).append(" chars), Sec-Fetch=").append(secFetch)
+                .append("\\n- VLC outgoing User-Agent: VLC/3.6.5 LibVLC/3.6.5")
+                .append("\\n- VLC outgoing Referer: ")
+                .append(referer ? "forwarded when valid" : "not available")
+                .append("\\n- Cookie forwarding: not enabled in current VLC path (value never logged)")
+                .append("\\n- CDN probe: LibVLC direct path; Media3 transfer counters do not represent VLC socket traffic");
+        return detail.toString();
+    }
+
     private String getTikTokCdnResponseDiagnostic() {
         synchronized (tikTokCdnDiagnosticLock) {
             if (lastTikTokCdnResponseDiagnostic == null || lastTikTokCdnResponseDiagnostic.isEmpty()) {
@@ -6009,6 +6059,11 @@ public class MainActivity extends Activity {
                         final int eventType = event.type;
                         runOnUiThread(() -> {
                             if (!isVlcPlaybackActive) return;
+                            String eventLabel = "event=" + eventType;
+                            if (vlcEventHistory.length() < 1800) {
+                                vlcEventHistory = vlcEventHistory.isEmpty() ? eventLabel
+                                        : vlcEventHistory + " -> " + eventLabel;
+                            }
                             if (eventType == MediaPlayer.Event.Opening) {
                                 vlcLastEventDiagnostic = "VLC بدأ فتح اتصال البث (Opening).";
                                 Log.i(TAG, "TikTok FLV VLC event: Opening");
@@ -6021,11 +6076,13 @@ public class MainActivity extends Activity {
                                         + String.format(Locale.ROOT, "%.1f%%", vlcLastBufferingPercent));
                                 setPlayerBufferingVisible(true);
                             } else if (eventType == MediaPlayer.Event.Vout) {
+                                vlcLastVoutCount = event.getVoutCount();
                                 vlcLastEventDiagnostic = "VLC جهّز مخرج الفيديو؛ عدد مخارج الصورة: "
                                         + event.getVoutCount() + ".";
                                 Log.i(TAG, "TikTok FLV VLC event: Vout count=" + event.getVoutCount());
                             } else if (eventType == MediaPlayer.Event.ESAdded
                                     || eventType == MediaPlayer.Event.ESSelected) {
+                                vlcTrackEvents = "type=" + event.getEsChangedType() + ", id=" + event.getEsChangedID();
                                 vlcLastEventDiagnostic = "VLC اكتشف مسار وسائط؛ نوع المسار="
                                         + event.getEsChangedType() + "، رقم المسار=" + event.getEsChangedID() + ".";
                                 Log.i(TAG, "TikTok FLV VLC track event: type="
@@ -6105,6 +6162,10 @@ public class MainActivity extends Activity {
                 vlcPlaybackHasStarted = false;
                 vlcLastEventDiagnostic = "تم إرسال أمر play إلى VLC، في انتظار أول إشارة.";
                 vlcLastBufferingPercent = -1f;
+                vlcEventHistory = "";
+                vlcLastVoutCount = -1;
+                vlcTrackEvents = "لم يتم رصد مسارات بعد.";
+                vlcAttemptStartedAtMs = System.currentTimeMillis();
                 final long vlcAttemptToken = ++vlcPlaybackAttemptToken;
                 playerView.setVisibility(View.GONE);
                 vlcVideoLayout.setVisibility(View.VISIBLE);
@@ -6124,7 +6185,7 @@ public class MainActivity extends Activity {
                     recordReceiverFailure("مهلة بدء تشغيل TikTok FLV بواسطة VLC",
                             originalIncomingMediaUrl == null || originalIncomingMediaUrl.isEmpty()
                                     ? currentPlaybackUrl : originalIncomingMediaUrl,
-                            currentPlaybackUrl, playbackStatusMessage);
+                            currentPlaybackUrl, playbackStatusMessage + "\\n" + buildTikTokVlcFailureDiagnostic());
                     stopVlcPlayback();
                     new AlertDialog.Builder(MainActivity.this)
                             .setTitle("VLC لم يبدأ تشغيل البث")
