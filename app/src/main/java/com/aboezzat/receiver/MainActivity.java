@@ -6662,6 +6662,10 @@ public class MainActivity extends Activity {
             final androidx.media3.datasource.DataSource upstream = upstreamFactory.createDataSource();
             return new androidx.media3.datasource.DataSource() {
                 private boolean captureTikTok;
+                // A DataSource may return only a few bytes per read. Accumulate across
+                // reads so the diagnostic always contains the complete first 16 bytes.
+                private final StringBuilder capturedHex = new StringBuilder();
+                private int capturedByteCount;
 
                 @Override
                 public void addTransferListener(androidx.media3.datasource.TransferListener listener) {
@@ -6671,6 +6675,8 @@ public class MainActivity extends Activity {
                 @Override
                 public long open(androidx.media3.datasource.DataSpec dataSpec) throws java.io.IOException {
                     captureTikTok = isTikTokCdnVideoUrl(dataSpec.uri.toString());
+                    capturedHex.setLength(0);
+                    capturedByteCount = 0;
                     if (captureTikTok) {
                         synchronized (tikTokCdnDiagnosticLock) {
                             lastTikTokCdnInitialBytes = "waiting";
@@ -6682,18 +6688,16 @@ public class MainActivity extends Activity {
                 @Override
                 public int read(byte[] buffer, int offset, int length) throws java.io.IOException {
                     int count = upstream.read(buffer, offset, length);
-                    if (captureTikTok && count > 0) {
+                    if (captureTikTok && count > 0 && capturedByteCount < 16) {
+                        int take = Math.min(16 - capturedByteCount, count);
+                        for (int i = 0; i < take; i++) {
+                            if (capturedHex.length() > 0) capturedHex.append(' ');
+                            capturedHex.append(String.format(Locale.ROOT, "%02X",
+                                    buffer[offset + i] & 0xFF));
+                        }
+                        capturedByteCount += take;
                         synchronized (tikTokCdnDiagnosticLock) {
-                            if ("waiting".equals(lastTikTokCdnInitialBytes)
-                                    || "not captured".equals(lastTikTokCdnInitialBytes)) {
-                                StringBuilder hex = new StringBuilder();
-                                int take = Math.min(16, count);
-                                for (int i = 0; i < take; i++) {
-                                    if (i > 0) hex.append(' ');
-                                    hex.append(String.format(Locale.ROOT, "%02X", buffer[offset + i] & 0xFF));
-                                }
-                                lastTikTokCdnInitialBytes = hex.toString();
-                            }
+                            lastTikTokCdnInitialBytes = capturedHex.toString();
                         }
                     }
                     return count;
