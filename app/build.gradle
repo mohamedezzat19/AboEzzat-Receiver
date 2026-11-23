@@ -41,6 +41,14 @@ android {
         }
     }
 
+    packaging {
+        jniLibs {
+            // FFmpegKit and LibVLC both bundle the Android C++ runtime.
+            // Package one shared runtime instead of failing native merge.
+            pickFirsts += ['**/libc++_shared.so']
+        }
+    }
+
     buildTypes {
         release {
             minifyEnabled false
