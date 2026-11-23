@@ -5703,7 +5703,7 @@ public class MainActivity extends Activity {
         // used by desktop VLC. All other media keeps the existing Media3 path.
         if (isTikTokCdnVideoUrl(playbackUrl)
                 && playbackUrl.toLowerCase(Locale.ROOT).contains(".flv")) {
-            if (startTikTokFlvWithVlc(playbackUrl, effectiveHeaders)) return;
+            if (startTikTokFlvWithVlc(playbackUrl)) return;
         } else {
             stopVlcPlayback();
         }
@@ -5983,16 +5983,7 @@ public class MainActivity extends Activity {
         });
     }
 
-    private String getVlcHeader(java.util.Map<String, String> headers, String wanted) {
-        if (headers == null || wanted == null) return "";
-        for (java.util.Map.Entry<String, String> entry : headers.entrySet()) {
-            if (entry.getKey() != null && wanted.equalsIgnoreCase(entry.getKey())
-                    && entry.getValue() != null) return entry.getValue().trim();
-        }
-        return "";
-    }
-
-    private boolean startTikTokFlvWithVlc(String url, java.util.Map<String, String> headers) {
+    private boolean startTikTokFlvWithVlc(String url) {
         Media media = null;
         try {
             synchronized (playerLock) {
@@ -6056,10 +6047,8 @@ public class MainActivity extends Activity {
                 media.addOption(":network-caching=1500");
                 media.addOption(":live-caching=1500");
                 media.addOption(":http-continuous");
-                String userAgent = getVlcHeader(headers, "User-Agent");
-                String referer = getVlcHeader(headers, "Referer");
-                if (!userAgent.isEmpty()) media.addOption(":http-user-agent=" + userAgent);
-                if (!referer.isEmpty()) media.addOption(":http-referrer=" + referer);
+                // Do not inject Cast/WebView headers here. The user's VLC test succeeds
+                // with the URL alone, so let LibVLC use its own native HTTP defaults.
 
                 vlcMediaPlayer.setMedia(media);
                 media.release();
@@ -6072,8 +6061,7 @@ public class MainActivity extends Activity {
                 if (playerBufferingText != null) playerBufferingText.setText("جاري تشغيل TikTok بمحرك VLC...");
                 setPlayerBufferingVisible(true);
                 vlcMediaPlayer.play();
-                Log.i(TAG, "TikTok FLV routed to LibVLC/avformat; UA="
-                        + (!userAgent.isEmpty()) + ", Referer=" + (!referer.isEmpty()));
+                Log.i(TAG, "TikTok FLV routed to LibVLC/avformat using the VLC native HTTP defaults");
             }
             return true;
         } catch (Exception error) {
