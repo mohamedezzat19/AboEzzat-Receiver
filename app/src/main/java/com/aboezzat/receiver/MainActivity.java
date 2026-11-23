@@ -105,6 +105,9 @@ public class MainActivity extends Activity {
     private volatile String playbackStatusMessage = "";
     private volatile String originalIncomingMediaUrl = "";
     private volatile java.util.Map<String, String> pendingPlaybackHeaders = java.util.Collections.emptyMap();
+    private final Object tikTokCdnDiagnosticLock = new Object();
+    private String lastTikTokCdnResponseDiagnostic = "";
+    private long lastTikTokCdnBytesReceived = 0L;
 
     private FrameLayout root;
     private LinearLayout welcomeScreen;
@@ -337,7 +340,7 @@ public class MainActivity extends Activity {
             Uri.Builder builder = uri.buildUpon().clearQuery();
             java.util.Set<String> sensitive = new java.util.HashSet<>(java.util.Arrays.asList(
                     "token", "access_token", "auth", "authorization", "key", "api_key",
-                    "apikey", "signature", "sig", "session", "sessionid", "password",
+                    "apikey", "signature", "sig", "sign", "expire", "expires", "_session_id", "session_id", "abr_pts", "session", "sessionid", "password",
                     "passwd", "secret", "jwt", "expiresig"));
             for (String name : uri.getQueryParameterNames()) {
                 String lower = name.toLowerCase(Locale.ROOT);
@@ -5402,6 +5405,15 @@ public class MainActivity extends Activity {
         queueIncomingMedia(url, null);
     }
 
+    private String getTikTokCdnResponseDiagnostic() {
+        synchronized (tikTokCdnDiagnosticLock) {
+            if (lastTikTokCdnResponseDiagnostic == null || lastTikTokCdnResponseDiagnostic.isEmpty()) {
+                return "TikTok CDN response: no HTTP response captured";
+            }
+            return lastTikTokCdnResponseDiagnostic + " / bytes_received=" + lastTikTokCdnBytesReceived;
+        }
+    }
+
     private String getTikTokRequestHeaderDiagnostic() {
         java.util.Map<String, String> headers = currentPlaybackHeaders;
         if (headers == null) headers = java.util.Collections.emptyMap();
@@ -5609,6 +5621,7 @@ public class MainActivity extends Activity {
                             String detail = getPlaybackFailureDiagnostic(error);
                             if (isTikTokCdnVideoUrl(currentPlaybackUrl)) {
                                 detail += "\n" + getTikTokRequestHeaderDiagnostic();
+                                detail += "\n" + getTikTokCdnResponseDiagnostic();
                             }
                             extractionStatus = "error";
                             playbackStatusMessage = "فشل تشغيل الفيديو: " + detail;
@@ -6595,6 +6608,10 @@ public class MainActivity extends Activity {
                                 }
                             }
                         }
+                        synchronized (tikTokCdnDiagnosticLock) {
+                            lastTikTokCdnResponseDiagnostic = response.toString();
+                            lastTikTokCdnBytesReceived = 0L;
+                        }
                         Log.i(TAG, response.toString());
                     }
 
@@ -6603,6 +6620,9 @@ public class MainActivity extends Activity {
                                                    androidx.media3.datasource.DataSpec dataSpec,
                                                    boolean isNetwork, int bytesTransferred) {
                         if (isTikTokCdnVideoUrl(dataSpec.uri.toString()) && bytesTransferred > 0) {
+                            synchronized (tikTokCdnDiagnosticLock) {
+                                lastTikTokCdnBytesReceived += bytesTransferred;
+                            }
                             Log.d(TAG, "TikTok CDN bytes received=" + bytesTransferred);
                         }
                     }
