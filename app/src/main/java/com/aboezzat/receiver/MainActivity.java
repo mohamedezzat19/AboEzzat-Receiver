@@ -4932,7 +4932,7 @@ public class MainActivity extends Activity {
             if ("dlna_seek".equals(command.substring(0, Math.min(command.length(), 9)))) {
                 try {
                     long seekMs = Long.parseLong(command.substring("dlna_seek:".length()));
-                    if (player != null) player.seekTo(Math.max(0L, seekMs));
+                    if (!isVlcPlaybackActive && player != null) player.seekTo(Math.max(0L, seekMs));
                 } catch (Exception ignored) { }
                 return;
             }
@@ -6049,6 +6049,7 @@ public class MainActivity extends Activity {
                     vlcMediaPlayer.attachViews(vlcVideoLayout, null, false, false);
                 }
 
+                if (vlcMediaPlayer.isPlaying()) vlcMediaPlayer.stop();
                 media = new Media(vlcInstance, Uri.parse(url));
                 // Force VLC's FFmpeg/libavformat demuxer for FLV, rather than Media3's extractor.
                 media.addOption(":demux=avformat");
@@ -6436,7 +6437,7 @@ public class MainActivity extends Activity {
     }
 
     private void seekByConfiguredIncrement(int direction) {
-        if (player == null) return;
+        if (isVlcPlaybackActive || player == null) return;
         synchronized (playerLock) {
             long increment = player.getSeekForwardIncrement();
             long duration = player.getDuration();
