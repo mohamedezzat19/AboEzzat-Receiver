@@ -5530,16 +5530,16 @@ public class MainActivity extends Activity {
     private String buildTikTokVlcFailureDiagnostic() {
         StringBuilder detail = new StringBuilder();
         detail.append("TikTok VLC diagnostic:")
-                .append("\\n- Last event: ").append(vlcLastEventDiagnostic)
-                .append("\\n- Buffering percent: ")
+                .append("\n- Last event: ").append(vlcLastEventDiagnostic)
+                .append("\n- Buffering percent: ")
                 .append(vlcLastBufferingPercent < 0 ? "not reported"
                         : String.format(Locale.ROOT, "%.1f%%", vlcLastBufferingPercent))
-                .append("\\n- Startup elapsed ms: ")
+                .append("\n- Startup elapsed ms: ")
                 .append(vlcAttemptStartedAtMs <= 0 ? "unknown"
                         : Math.max(0L, System.currentTimeMillis() - vlcAttemptStartedAtMs))
-                .append("\\n- Video output count: ").append(vlcLastVoutCount)
-                .append("\\n- Track events: ").append(vlcTrackEvents)
-                .append("\\n- Event history: ")
+                .append("\n- Video output count: ").append(vlcLastVoutCount)
+                .append("\n- Track events: ").append(vlcTrackEvents)
+                .append("\n- Event history: ")
                 .append(vlcEventHistory.isEmpty() ? "none" : vlcEventHistory);
 
         java.util.Map<String, String> headers = currentPlaybackHeaders;
@@ -5562,7 +5562,7 @@ public class MainActivity extends Activity {
             android.net.Network active = cm == null ? null : cm.getActiveNetwork();
             android.net.NetworkCapabilities caps = active == null || cm == null
                     ? null : cm.getNetworkCapabilities(active);
-            detail.append("\\n- Network: ");
+            detail.append("\n- Network: ");
             if (caps == null) {
                 detail.append("no active network capabilities");
             } else {
@@ -5573,27 +5573,27 @@ public class MainActivity extends Activity {
                         .append(", metered=").append(cm.isActiveNetworkMetered());
             }
         } catch (Exception networkError) {
-            detail.append("\\n- Network: diagnostic unavailable (")
+            detail.append("\n- Network: diagnostic unavailable (")
                     .append(networkError.getClass().getSimpleName()).append(")");
         }
         try {
             android.net.Uri mediaUri = android.net.Uri.parse(currentPlaybackUrl == null ? "" : currentPlaybackUrl);
-            detail.append("\\n- Media target: scheme=").append(mediaUri.getScheme())
+            detail.append("\n- Media target: scheme=").append(mediaUri.getScheme())
                     .append(", host=").append(mediaUri.getHost())
                     .append(", path=").append(mediaUri.getLastPathSegment())
                     .append(" (query values omitted)");
         } catch (Exception ignored) {
-            detail.append("\\n- Media target: URL parse failed");
+            detail.append("\n- Media target: URL parse failed");
         }
-        detail.append("\\n- Incoming headers: count=").append(headers.size())
+        detail.append("\n- Incoming headers: count=").append(headers.size())
                 .append(", UA=").append(ua).append(", Referer=").append(referer)
                 .append(", Origin=").append(origin).append(", Cookie=").append(cookie)
                 .append(" (").append(cookieLength).append(" chars), Sec-Fetch=").append(secFetch)
-                .append("\\n- VLC outgoing User-Agent: VLC/3.6.5 LibVLC/3.6.5")
-                .append("\\n- VLC outgoing Referer: ")
+                .append("\n- VLC outgoing User-Agent: VLC/3.6.5 LibVLC/3.6.5")
+                .append("\n- VLC outgoing Referer: ")
                 .append(referer ? "forwarded when valid" : "not available")
-                .append("\\n- Cookie forwarding: not enabled in current VLC path (value never logged)")
-                .append("\\n- CDN probe: LibVLC direct path; Media3 transfer counters do not represent VLC socket traffic");
+                .append("\n- Cookie forwarding: not enabled in current VLC path (value never logged)")
+                .append("\n- CDN probe: LibVLC direct path; Media3 transfer counters do not represent VLC socket traffic");
         return detail.toString();
     }
 
