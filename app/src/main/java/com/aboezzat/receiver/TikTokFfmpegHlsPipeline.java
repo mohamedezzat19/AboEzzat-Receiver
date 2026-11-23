@@ -17,7 +17,6 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashMap;
-import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
 
@@ -337,7 +336,7 @@ final class TikTokFfmpegHlsPipeline {
 
     private void appendLog(String message) {
         if (message == null || message.trim().isEmpty()) return;
-        String safe = message.replaceAll("https?://[^\\s'\\"<>]+", "[URL]");
+        String safe = message.replaceAll("https?://\\S+", "[URL]");
         safe = safe.replaceAll("(?i)(set-cookie|cookie)\\s*[:=]\\s*[^\\r\\n]+",
                 "$1: [REDACTED]");
         if (safe.length() > 500) safe = safe.substring(0, 500);
