@@ -59,10 +59,6 @@ import androidx.media3.exoplayer.source.MergingMediaSource;
 import androidx.media3.exoplayer.source.MediaSource;
 import androidx.media3.ui.PlayerView;
 
-import org.videolan.libvlc.LibVLC;
-import org.videolan.libvlc.Media;
-import org.videolan.libvlc.MediaPlayer;
-import org.videolan.libvlc.util.VLCVideoLayout;
 
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
@@ -213,25 +209,11 @@ public class MainActivity extends Activity {
     private boolean imageDragging = false;
     private ProgressBar imageLoading;
     private ExoPlayer player;
-    // TikTok FLV uses LibVLC's FFmpeg/avformat demuxer, matching the VLC playback path.
-    private LibVLC vlcInstance;
-    private volatile TikTokVlcHttpBridge tikTokVlcHttpBridge;
-    private volatile String vlcTransportDiagnostic = "not started";
     private volatile TikTokFfmpegHlsPipeline tikTokFfmpegHlsPipeline;
     private volatile long tikTokFfmpegPlaybackAttemptToken = 0L;
     private volatile boolean tikTokFfmpegPlaybackStarted = false;
     private volatile boolean tikTokFfmpegFailureRecorded = false;
-    private MediaPlayer vlcMediaPlayer;
-    private VLCVideoLayout vlcVideoLayout;
-    private volatile boolean isVlcPlaybackActive = false;
-    private volatile boolean vlcPlaybackHasStarted = false;
-    private volatile String vlcLastEventDiagnostic = "لم تصل أي إشارة من VLC بعد.";
-    private volatile float vlcLastBufferingPercent = -1f;
-    private volatile String vlcEventHistory = "";
-    private volatile int vlcLastVoutCount = -1;
-    private volatile String vlcTrackEvents = "لم يتم رصد مسارات بعد.";
-    private volatile long vlcAttemptStartedAtMs = 0L;
-    private long vlcPlaybackAttemptToken = 0L;
+    private volatile boolean externalVlcFallbackLaunched = false;
     // Keep the selected level separately from mute state.
     private float lastNonZeroVolume = 1.0f;
     private boolean muted = false;
@@ -407,7 +389,7 @@ public class MainActivity extends Activity {
             entry.put("reason", reason == null ? "" : reason);
             entry.put("incoming_intent", lastIncomingIntentDiagnostic == null ? "" : lastIncomingIntentDiagnostic);
             if (phase != null && phase.toLowerCase(Locale.ROOT).contains("tiktok")) {
-                entry.put("technical_diagnostic", buildTikTokVlcFailureDiagnostic());
+                entry.put("technical_diagnostic", buildTikTokFailureDiagnostic());
             }
             entry.put("version", getPackageManager().getPackageInfo(getPackageName(), 0).versionName);
             next.put(entry);
@@ -1505,19 +1487,6 @@ public class MainActivity extends Activity {
         playerView.setBackgroundColor(Color.BLACK);
 
         root.addView(playerView, new FrameLayout.LayoutParams(
-                FrameLayout.LayoutParams.MATCH_PARENT,
-                FrameLayout.LayoutParams.MATCH_PARENT
-        ));
-
-        // Keep VLC's video surface in the same playback layer; ordinary formats
-        // continue to use Media3 and its existing controls.
-        vlcVideoLayout = new VLCVideoLayout(this);
-        vlcVideoLayout.setVisibility(View.GONE);
-        vlcVideoLayout.setBackgroundColor(Color.BLACK);
-        vlcVideoLayout.setFocusable(true);
-        vlcVideoLayout.setFocusableInTouchMode(true);
-        vlcVideoLayout.setOnClickListener(v -> togglePlaybackFromRemote());
-        root.addView(vlcVideoLayout, root.indexOfChild(playerView), new FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT,
                 FrameLayout.LayoutParams.MATCH_PARENT
         ));
@@ -3165,11 +3134,6 @@ public class MainActivity extends Activity {
                     if (receiverStatusText != null) {
                         receiverStatusText.setText("نجح " + bestEngine + "؛ جارٍ تشغيل أفضل رابط متاح");
                     }
-                    if (isSwiftDataDramaLiveUrl(pageUrl)
-                            && bestUrl.toLowerCase(Locale.ROOT).contains(".m3u8")
-                            && tryOpenDramaLiveInVlc(bestUrl)) {
-                        return;
-                    }
                     if (isTikTokSourcePageUrl(pageUrl)) {
                         playContent(bestUrl, null, pendingPlaybackHeaders);
                     } else {
@@ -3200,43 +3164,115 @@ public class MainActivity extends Activity {
         return 0;
     }
 
-    private void showExtractionFailureFallback(String pageUrl) {
-        // Some senders provide the YouTube page as mediaUrl but omit sourceUrl.
-        // Preserve that original page URL so the SmartTube fallback is not skipped.
-        if (!isYouTubeUrl(currentPlaybackFallbackUrl) && isYouTubeUrl(pageUrl)) {
-            currentPlaybackFallbackUrl = pageUrl;
+    private static final String VLC_PACKAGE = "org.videolan.vlc";
+
+    private boolean isAmazonFireTvOrFireDevice() {
+        String manufacturer = android.os.Build.MANUFACTURER == null ? "" : android.os.Build.MANUFACTURER;
+        String brand = android.os.Build.BRAND == null ? "" : android.os.Build.BRAND;
+        String model = android.os.Build.MODEL == null ? "" : android.os.Build.MODEL;
+        String product = android.os.Build.PRODUCT == null ? "" : android.os.Build.PRODUCT;
+        String device = android.os.Build.DEVICE == null ? "" : android.os.Build.DEVICE;
+        String identity = (manufacturer + " " + brand + " " + model + " " + product + " " + device)
+                .toLowerCase(Locale.ROOT);
+        return identity.contains("amazon") || identity.contains("aft")
+                || identity.contains("firetv") || identity.contains("fire tv");
+    }
+
+    private boolean isVlcInstalled() {
+        try {
+            getPackageManager().getPackageInfo(VLC_PACKAGE, 0);
+            return true;
+        } catch (Exception ignored) {
+            return false;
         }
-        if (isYouTubeUrl(currentPlaybackFallbackUrl)) {
-            if (tryOpenSmartTubeFallback(currentPlaybackFallbackUrl)) {
-                extractionStatus = "smarttube_fallback";
-                playbackStatusMessage = "تعذر استخراج رابط مباشر؛ تم تحويل رابط YouTube الأصلي إلى SmartTube.";
+    }
+
+    private void openVlcStoreListing() {
+        boolean amazonDevice = isAmazonFireTvOrFireDevice();
+        String storeUri = amazonDevice
+                ? "amzn://apps/android?p=" + VLC_PACKAGE
+                : "market://details?id=" + VLC_PACKAGE;
+        String webUri = amazonDevice
+                ? "https://www.amazon.com/gp/mas/dl/android?p=" + VLC_PACKAGE
+                : "https://play.google.com/store/apps/details?id=" + VLC_PACKAGE;
+        try {
+            startActivity(new android.content.Intent(android.content.Intent.ACTION_VIEW, Uri.parse(storeUri)));
+            playbackStatusMessage = amazonDevice
+                    ? "VLC غير مثبت؛ تم فتح متجر Amazon Appstore لتنزيله."
+                    : "VLC غير مثبت؛ تم فتح Google Play لتنزيله.";
+            extractionStatus = "vlc_install_requested";
+            persistExtractionState();
+            return;
+        } catch (Exception storeError) {
+            Log.w(TAG, "Could not open the device app store for VLC; opening the official store page.");
+        }
+        try {
+            startActivity(new android.content.Intent(android.content.Intent.ACTION_VIEW, Uri.parse(webUri)));
+            playbackStatusMessage = "VLC غير مثبت؛ تم فتح صفحة التنزيل الرسمية.";
+            extractionStatus = "vlc_install_requested";
+            persistExtractionState();
+        } catch (Exception webError) {
+            playbackStatusMessage = "VLC غير مثبت، وتعذر فتح متجر التطبيقات أو صفحة التنزيل.";
+            extractionStatus = "vlc_unavailable";
+            persistExtractionState();
+            Toast.makeText(this, playbackStatusMessage, Toast.LENGTH_LONG).show();
+        }
+    }
+
+    /** Automatically hands failed media to the separately installed VLC app. */
+    private void launchExternalVlcFallback(String mediaUrl, String failureReason) {
+        if (externalVlcFallbackLaunched || isFinishing() || isDestroyed()) return;
+        externalVlcFallbackLaunched = true;
+        String targetUrl = mediaUrl;
+        if (!isHttpUrl(targetUrl)) targetUrl = originalIncomingMediaUrl;
+        if (!isHttpUrl(targetUrl)) targetUrl = currentPlaybackFallbackUrl;
+
+        if (!isVlcInstalled()) {
+            Log.i(TAG, "VLC app is not installed; routing to the device's app store.");
+            openVlcStoreListing();
+            return;
+        }
+        if (isHttpUrl(targetUrl)) {
+            try {
+                android.content.Intent intent = new android.content.Intent(
+                        android.content.Intent.ACTION_VIEW, Uri.parse(targetUrl));
+                intent.setClassName(VLC_PACKAGE, VLC_PACKAGE + ".StartActivity");
+                intent.putExtra("title", "AboEzzat Receiver");
+                startActivity(intent);
+                extractionStatus = "external_vlc_fallback";
+                playbackStatusMessage = "تعذر تشغيل الفيديو داخل الريسيفر؛ تم تحويله تلقائيًا إلى تطبيق VLC.";
+                persistExtractionState();
+                Log.i(TAG, "Automatically handed failed media to the installed VLC app.");
+                return;
+            } catch (Exception explicitError) {
+                Log.w(TAG, "VLC explicit playback activity failed; trying package-scoped VIEW.", explicitError);
+            }
+            try {
+                android.content.Intent intent = new android.content.Intent(
+                        android.content.Intent.ACTION_VIEW, Uri.parse(targetUrl));
+                intent.setPackage(VLC_PACKAGE);
+                intent.putExtra("title", "AboEzzat Receiver");
+                startActivity(intent);
+                extractionStatus = "external_vlc_fallback";
+                playbackStatusMessage = "تعذر تشغيل الفيديو داخل الريسيفر؛ تم تحويله تلقائيًا إلى تطبيق VLC.";
                 persistExtractionState();
                 return;
+            } catch (Exception packageError) {
+                Log.w(TAG, "Installed VLC could not accept the media URL; opening its store listing.");
             }
-            // No Android app chooser for YouTube. SmartTube is the only external fallback.
-            extractionStatus = "smarttube_unavailable";
-            playbackStatusMessage = "تعذر الاستخراج المباشر وSmartTube غير متاح؛ لم يتم فتح منتقي التطبيقات.";
-            persistExtractionState();
         }
-        // Do not report the initial "Receiver received the link" status as the
-        // failure reason. At this point every enabled resolver has finished without
-        // producing a direct playable stream.
-        playbackStatusMessage = "انتهت محركات استخراج الرابط دون العثور على رابط بث مباشر قابل للتشغيل من الصفحة.";
+        openVlcStoreListing();
+    }
+
+    private void showExtractionFailureFallback(String pageUrl) {
+        playbackStatusMessage = "تعذر استخراج رابط مباشر؛ جاري تحويل الرابط الأصلي إلى VLC.";
         if (pageUrl != null && pageUrl.toLowerCase(Locale.ROOT).contains(".json")
                 && lastJsonIndexDiagnostic != null && !lastJsonIndexDiagnostic.isEmpty()) {
             playbackStatusMessage += "\nتشخيص JSON: " + lastJsonIndexDiagnostic;
         }
         persistExtractionState();
         recordReceiverFailure("استخراج الرابط", pageUrl, "", playbackStatusMessage);
-        pendingBrowserUrl = pageUrl;
-        showWelcome();
-        if (browserShortcut != null) browserShortcut.setVisibility(View.VISIBLE);
-        if (receiverStatusText != null) {
-            receiverStatusText.setText("تعذر استخراج الفيديو. اضغط أيقونة المتصفح لو حابب تفتح صفحة الموقع.");
-        }
-        Toast.makeText(MainActivity.this,
-                "تعذر استخراج الفيديو. اضغط أيقونة المتصفح لو حابب تفتح صفحة الموقع.",
-                Toast.LENGTH_LONG).show();
+        launchExternalVlcFallback(pageUrl, playbackStatusMessage);
     }
 
     /**
@@ -4493,65 +4529,6 @@ public class MainActivity extends Activity {
         return null;
     }
 
-    // Supported live providers may expose an HLS playlist through /<type>/<id>/index.html.
-    // Prefer VLC for this recognized live endpoint; other media keeps using ExoPlayer.
-    private boolean isSwiftDataDramaLiveUrl(String url) {
-        if (!isHttpUrl(url)) return false;
-        try {
-            Uri uri = Uri.parse(url);
-            String host = uri.getHost();
-            String path = uri.getPath();
-            return host != null && path != null
-                    && path.toLowerCase(Locale.ROOT).matches("^/[^/]+/[^/]+/index\\.html$");
-        } catch (Exception e) {
-            return false;
-        }
-    }
-
-    private boolean tryOpenDramaLiveInVlc(String url) {
-        if (url == null || !isHttpUrl(url)
-                || !url.toLowerCase(Locale.ROOT).contains(".m3u8")) return false;
-        // VLC's exported StartActivity handles external VIEW intents and forwards
-        // network streams to its playback service. Use an explicit component first
-        // because some TV launchers do not resolve package-scoped MIME intents.
-        try {
-            android.content.Intent intent = new android.content.Intent(
-                    android.content.Intent.ACTION_VIEW, Uri.parse(url));
-            intent.setClassName("org.videolan.vlc", "org.videolan.vlc.StartActivity");
-            intent.setType("application/vnd.apple.mpegurl");
-            intent.putExtra("title", "Drama Live");
-            startActivity(intent);
-            extractionInProgress = false;
-            extractionAttemptCount = 0;
-            extractionStatus = "vlc_launch_requested";
-            playbackStatusMessage = "تم إرسال رابط البث المباشر إلى VLC.";
-            persistExtractionState();
-            Toast.makeText(this, "جاري إرسال البث المباشر إلى VLC…", Toast.LENGTH_LONG).show();
-            Log.i(TAG, "Requested VLC playback for extracted HLS playlist");
-            return true;
-        } catch (Exception e) {
-            Log.w(TAG, "Explicit VLC HLS launch failed; trying package VIEW intent", e);
-        }
-        try {
-            android.content.Intent intent = new android.content.Intent(
-                    android.content.Intent.ACTION_VIEW);
-            intent.setDataAndType(Uri.parse(url), "application/vnd.apple.mpegurl");
-            intent.setPackage("org.videolan.vlc");
-            intent.putExtra("title", "Drama Live");
-            startActivity(intent);
-            extractionInProgress = false;
-            extractionAttemptCount = 0;
-            extractionStatus = "vlc_launch_requested";
-            playbackStatusMessage = "تم إرسال رابط البث المباشر إلى VLC.";
-            persistExtractionState();
-            Toast.makeText(this, "جاري إرسال البث المباشر إلى VLC…", Toast.LENGTH_LONG).show();
-            return true;
-        } catch (Exception e) {
-            Log.w(TAG, "VLC is unavailable or rejected the extracted HLS playlist", e);
-            return false;
-        }
-    }
-
     // Raw whitespace is not valid inside an HTTP URL and some Drama Live
     // endpoints accidentally arrive with spaces inserted by the source app.
     // Remove literal ASCII whitespace only; preserve encoded values such as %20.
@@ -4590,6 +4567,7 @@ public class MainActivity extends Activity {
         mediaUrl = normalizeIncomingHttpUrl(mediaUrl);
         audioUrl = normalizeIncomingHttpUrl(audioUrl);
         sourceUrl = normalizeIncomingHttpUrl(sourceUrl);
+        externalVlcFallbackLaunched = false;
         extractionStatus = "preparing";
         playbackStatusMessage = "Receiver استلم الرابط؛ جاري تجهيز مشغّل الفيديو.";
         persistExtractionState();
@@ -4848,9 +4826,8 @@ public class MainActivity extends Activity {
 
         // Consistent hardware-remote controls while the native ExoPlayer surface is active.
         if (event.getAction() == android.view.KeyEvent.ACTION_DOWN
-                && ((isVlcPlaybackActive && vlcMediaPlayer != null)
-                || (playerView != null && playerView.getVisibility() == View.VISIBLE
-                && currentPlaybackHasVideo && player != null))) {
+                && playerView != null && playerView.getVisibility() == View.VISIBLE
+                && currentPlaybackHasVideo && player != null) {
             int key = event.getKeyCode();
             if (key == android.view.KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE) {
                 togglePlaybackFromRemote();
@@ -4861,9 +4838,8 @@ public class MainActivity extends Activity {
             if ((key == android.view.KeyEvent.KEYCODE_DPAD_CENTER
                     || key == android.view.KeyEvent.KEYCODE_ENTER
                     || key == android.view.KeyEvent.KEYCODE_NUMPAD_ENTER)
-                    && (isVlcPlaybackActive || !playerControllerVisible
-                    || getCurrentFocus() == null || getCurrentFocus() == playerView
-                    || getCurrentFocus() == vlcVideoLayout)) {
+                    && (!playerControllerVisible || getCurrentFocus() == null
+                    || getCurrentFocus() == playerView)) {
                 togglePlaybackFromRemote();
                 return true;
             }
@@ -4951,39 +4927,8 @@ public class MainActivity extends Activity {
             if ("dlna_seek".equals(command.substring(0, Math.min(command.length(), 9)))) {
                 try {
                     long seekMs = Long.parseLong(command.substring("dlna_seek:".length()));
-                    if (!isVlcPlaybackActive && player != null) player.seekTo(Math.max(0L, seekMs));
+                    if (player != null) player.seekTo(Math.max(0L, seekMs));
                 } catch (Exception ignored) { }
-                return;
-            }
-
-            if (isVlcPlaybackActive && vlcMediaPlayer != null) {
-                switch (command) {
-                    case "dlna_play":
-                    case "play_pause":
-                        if (!vlcMediaPlayer.isPlaying()) vlcMediaPlayer.play();
-                        else if ("play_pause".equals(command)) vlcMediaPlayer.pause();
-                        break;
-                    case "dlna_pause":
-                        vlcMediaPlayer.pause();
-                        break;
-                    case "dlna_stop":
-                    case "stop":
-                        showWelcome();
-                        break;
-                    case "previous":
-                        playQueueRelative(-1);
-                        break;
-                    case "next":
-                        playQueueRelative(1);
-                        break;
-                    case "rw":
-                    case "ff":
-                        // TikTok LIVE is a non-seekable live stream; ignore seek commands.
-                        break;
-                    default:
-                        Log.w(TAG, "Unsupported VLC remote command: " + command);
-                        break;
-                }
                 return;
             }
 
@@ -5120,7 +5065,7 @@ public class MainActivity extends Activity {
 
     private void stopCurrentPlayer() {
         stopTikTokFfmpegPipeline();
-        stopVlcPlayback();
+        
         synchronized (playerLock) {
             if (player != null) {
                 if (pendingStartupPlayback != null) {
@@ -5534,75 +5479,13 @@ public class MainActivity extends Activity {
         queueIncomingMedia(url, null);
     }
 
-    private String buildTikTokVlcFailureDiagnostic() {
-        StringBuilder detail = new StringBuilder();
-        detail.append("TikTok VLC diagnostic:")
-                .append("\n- Last event: ").append(vlcLastEventDiagnostic)
-                .append("\n- Buffering percent: ")
-                .append(vlcLastBufferingPercent < 0 ? "not reported"
-                        : String.format(Locale.ROOT, "%.1f%%", vlcLastBufferingPercent))
-                .append("\n- Startup elapsed ms: ")
-                .append(vlcAttemptStartedAtMs <= 0 ? "unknown"
-                        : Math.max(0L, System.currentTimeMillis() - vlcAttemptStartedAtMs))
-                .append("\n- Video output count: ").append(vlcLastVoutCount)
-                .append("\n- Track events: ").append(vlcTrackEvents)
-                .append("\n- Transport path: ").append(vlcTransportDiagnostic)
-                .append("\n- Local HTTP bridge: ").append(tikTokVlcHttpBridge == null
-                        ? "not used" : tikTokVlcHttpBridge.getDiagnostic())
-                .append("\n- Event history: ")
-                .append(vlcEventHistory.isEmpty() ? "none" : vlcEventHistory);
-
-        java.util.Map<String, String> headers = currentPlaybackHeaders;
-        if (headers == null) headers = java.util.Collections.emptyMap();
-        boolean ua = false, referer = false, origin = false, cookie = false;
-        boolean secFetch = false;
-        int cookieLength = 0;
-        for (java.util.Map.Entry<String, String> item : headers.entrySet()) {
-            String key = item.getKey() == null ? "" : item.getKey().toLowerCase(Locale.ROOT);
-            String value = item.getValue() == null ? "" : item.getValue();
-            ua |= "user-agent".equals(key) && !value.isEmpty();
-            referer |= "referer".equals(key) && !value.isEmpty();
-            origin |= "origin".equals(key) && !value.isEmpty();
-            if ("cookie".equals(key)) { cookie = !value.isEmpty(); cookieLength = value.length(); }
-            secFetch |= key.startsWith("sec-fetch-") && !value.isEmpty();
-        }
-        try {
-            android.net.ConnectivityManager cm =
-                    (android.net.ConnectivityManager) getSystemService(CONNECTIVITY_SERVICE);
-            android.net.Network active = cm == null ? null : cm.getActiveNetwork();
-            android.net.NetworkCapabilities caps = active == null || cm == null
-                    ? null : cm.getNetworkCapabilities(active);
-            detail.append("\n- Network: ");
-            if (caps == null) {
-                detail.append("no active network capabilities");
-            } else {
-                detail.append("internet=").append(caps.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET))
-                        .append(", validated=").append(caps.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_VALIDATED))
-                        .append(", wifi=").append(caps.hasTransport(android.net.NetworkCapabilities.TRANSPORT_WIFI))
-                        .append(", cellular=").append(caps.hasTransport(android.net.NetworkCapabilities.TRANSPORT_CELLULAR))
-                        .append(", metered=").append(cm.isActiveNetworkMetered());
-            }
-        } catch (Exception networkError) {
-            detail.append("\n- Network: diagnostic unavailable (")
-                    .append(networkError.getClass().getSimpleName()).append(")");
-        }
-        try {
-            android.net.Uri mediaUri = android.net.Uri.parse(currentPlaybackUrl == null ? "" : currentPlaybackUrl);
-            detail.append("\n- Media target: scheme=").append(mediaUri.getScheme())
-                    .append(", host=").append(mediaUri.getHost())
-                    .append(", path=").append(mediaUri.getLastPathSegment())
-                    .append(" (query values omitted)");
-        } catch (Exception ignored) {
-            detail.append("\n- Media target: URL parse failed");
-        }
-        detail.append("\n- Incoming headers: count=").append(headers.size())
-                .append(", UA=").append(ua).append(", Referer=").append(referer)
-                .append(", Origin=").append(origin).append(", Cookie=").append(cookie)
-                .append(" (").append(cookieLength).append(" chars), Sec-Fetch=").append(secFetch)
-                .append("\n- VLC outgoing User-Agent: VLC/3.6.5 LibVLC/3.6.5")
-                .append("\n- VLC outgoing Referer: ")
-                .append(referer ? "forwarded when valid" : "not available")
-                .append("\n- Cookie forwarding: handled by the loopback bridge; cookie value is never logged");
+    private String buildTikTokFailureDiagnostic() {
+        StringBuilder detail = new StringBuilder("TikTok playback diagnostic:");
+        TikTokFfmpegHlsPipeline pipeline = tikTokFfmpegHlsPipeline;
+        detail.append("\n- FFmpeg/HLS pipeline: ")
+                .append(pipeline == null ? "not active" : pipeline.getDiagnostic())
+                .append("\n- ").append(getTikTokRequestHeaderDiagnostic())
+                .append("\n- ").append(getTikTokCdnResponseDiagnostic());
         return detail.toString();
     }
 
@@ -5743,6 +5626,7 @@ public class MainActivity extends Activity {
         }
 
         smartTubeFallbackAttempted = false;
+        externalVlcFallbackLaunched = false;
         currentPlaybackUrl = playbackUrl;
         currentPlaybackHasVideo = mediaUrl != null && !mediaUrl.trim().isEmpty() && !isImageUrl(mediaUrl);
         currentPlaybackAudioUrl = audioUrl == null ? "" : audioUrl;
@@ -5796,7 +5680,7 @@ public class MainActivity extends Activity {
         boolean tikTokFlvPlayback = isTikTokLiveCdnVideoUrl(playbackUrl)
                 && playbackUrl.toLowerCase(Locale.ROOT).contains(".flv");
         stopTikTokFfmpegPipeline();
-        stopVlcPlayback();
+        
 
         try {
             synchronized (playerLock) {
@@ -5861,31 +5745,7 @@ public class MainActivity extends Activity {
                             persistExtractionState();
                             // Avoid logging full exceptions: signed CDN URLs may contain temporary tokens.
                             Log.e(TAG, "Media3 playback failed: " + detail);
-                            final String dialogDetail = detail;
-                            runOnUiThread(() -> {
-                                String fallbackUrl = currentPlaybackFallbackUrl;
-                                if (!currentPlaybackHasVideo || smartTubeFallbackAttempted
-                                        || !isYouTubeUrl(fallbackUrl)) {
-                                    if (isTikTokCdnVideoUrl(currentPlaybackUrl)) {
-                                        new AlertDialog.Builder(MainActivity.this)
-                                                .setTitle("تفاصيل فشل تشغيل TikTok")
-                                                .setMessage(dialogDetail)
-                                                .setPositiveButton("موافق", null)
-                                                .show();
-                                    } else {
-                                        Toast.makeText(MainActivity.this,
-                                                "فشل تشغيل الوسائط: " + dialogDetail,
-                                                Toast.LENGTH_LONG).show();
-                                    }
-                                    return;
-                                }
-                                smartTubeFallbackAttempted = true;
-                                if (!tryOpenSmartTubeFallback(fallbackUrl)) {
-                                    Toast.makeText(MainActivity.this,
-                                            "فشل تشغيل الفيديو، ولا يوجد تطبيق SmartTube متوافق مع الرابط.",
-                                            Toast.LENGTH_LONG).show();
-                                }
-                            });
+                            runOnUiThread(() -> launchExternalVlcFallback(currentPlaybackUrl, detail));
                         }
 
                         @Override
@@ -6088,8 +5948,7 @@ public class MainActivity extends Activity {
     private void setPlayerBufferingVisible(boolean visible) {
         runOnUiThread(() -> {
             if (playerBufferingOverlay == null || playerView == null) return;
-            boolean playbackVisible = playerView.getVisibility() == View.VISIBLE
-                    || (vlcVideoLayout != null && vlcVideoLayout.getVisibility() == View.VISIBLE);
+            boolean playbackVisible = playerView.getVisibility() == View.VISIBLE;
             boolean show = visible && playbackVisible;
             playerBufferingOverlay.setVisibility(show ? View.VISIBLE : View.GONE);
         });
@@ -6192,16 +6051,7 @@ public class MainActivity extends Activity {
         if (activePipeline != null) activePipeline.stop();
         Log.e(TAG, "TikTok FFmpeg/HLS playback failed: "
                 + diagnostic.replace('\n', ' '));
-        String message = diagnostic == null ? "لا يتوفر تشخيص إضافي."
-                : diagnostic.length() > 4200 ? diagnostic.substring(0, 4200) : diagnostic;
-        if (!isFinishing() && !isDestroyed()) {
-            new AlertDialog.Builder(MainActivity.this)
-                    .setTitle("تعذر تشغيل TikTok LIVE")
-                    .setMessage("فشل تجهيز أو تشغيل البث. تم حفظ التشخيص الكامل في سجل الروابط الفاشلة.\n\n"
-                            + message)
-                    .setPositiveButton("موافق", null)
-                    .show();
-        }
+        launchExternalVlcFallback(sourceUrl, "فشل تشغيل TikTok LIVE عبر FFmpeg/HLS: " + diagnostic);
     }
 
     private void stopTikTokFfmpegPipeline() {
@@ -6211,229 +6061,6 @@ public class MainActivity extends Activity {
         tikTokFfmpegHlsPipeline = null;
         if (pipeline != null) {
             try { pipeline.stop(); } catch (Exception ignored) { }
-        }
-    }
-
-    private boolean startTikTokFlvWithVlc(String url) {
-        Media media = null;
-        try {
-            synchronized (playerLock) {
-                if (player != null) {
-                    savePlaybackPositionLocked();
-                    player.stop();
-                    player.clearMediaItems();
-                }
-                if (vlcInstance == null) {
-                    java.util.ArrayList<String> options = new java.util.ArrayList<>();
-                    options.add("--no-video-title-show");
-                    options.add("--network-caching=1500");
-                    options.add("--live-caching=1500");
-                    vlcInstance = new LibVLC(this, options);
-                }
-                if (vlcMediaPlayer == null) {
-                    vlcMediaPlayer = new MediaPlayer(vlcInstance);
-                    vlcMediaPlayer.setEventListener(event -> {
-                        final int eventType = event.type;
-                        runOnUiThread(() -> {
-                            if (!isVlcPlaybackActive) return;
-                            String eventLabel = "event=" + eventType;
-                            if (vlcEventHistory.length() < 1800) {
-                                vlcEventHistory = vlcEventHistory.isEmpty() ? eventLabel
-                                        : vlcEventHistory + " -> " + eventLabel;
-                            }
-                            if (eventType == MediaPlayer.Event.Opening) {
-                                vlcLastEventDiagnostic = "VLC بدأ فتح اتصال البث (Opening).";
-                                Log.i(TAG, "TikTok FLV VLC event: Opening");
-                                setPlayerBufferingVisible(true);
-                            } else if (eventType == MediaPlayer.Event.Buffering) {
-                                vlcLastBufferingPercent = event.getBuffering();
-                                vlcLastEventDiagnostic = "VLC في مرحلة Buffering؛ نسبة التخزين المؤقت: "
-                                        + String.format(Locale.ROOT, "%.1f%%", vlcLastBufferingPercent) + ".";
-                                Log.i(TAG, "TikTok FLV VLC event: Buffering "
-                                        + String.format(Locale.ROOT, "%.1f%%", vlcLastBufferingPercent));
-                                setPlayerBufferingVisible(true);
-                            } else if (eventType == MediaPlayer.Event.Vout) {
-                                vlcLastVoutCount = event.getVoutCount();
-                                vlcLastEventDiagnostic = "VLC جهّز مخرج الفيديو؛ عدد مخارج الصورة: "
-                                        + event.getVoutCount() + ".";
-                                Log.i(TAG, "TikTok FLV VLC event: Vout count=" + event.getVoutCount());
-                            } else if (eventType == MediaPlayer.Event.ESAdded
-                                    || eventType == MediaPlayer.Event.ESSelected) {
-                                vlcTrackEvents = "type=" + event.getEsChangedType() + ", id=" + event.getEsChangedID();
-                                vlcLastEventDiagnostic = "VLC اكتشف مسار وسائط؛ نوع المسار="
-                                        + event.getEsChangedType() + "، رقم المسار=" + event.getEsChangedID() + ".";
-                                Log.i(TAG, "TikTok FLV VLC track event: type="
-                                        + event.getEsChangedType() + ", id=" + event.getEsChangedID());
-                            } else if (eventType == MediaPlayer.Event.Playing) {
-                                vlcLastEventDiagnostic = "VLC أرسل إشارة Playing.";
-                                vlcPlaybackHasStarted = true;
-                                setPlayerBufferingVisible(false);
-                                extractionStatus = "playing";
-                                playbackStatusMessage = "TikTok LIVE يعمل بمحرك VLC/FFmpeg.";
-                                persistExtractionState();
-                                Log.i(TAG, "TikTok FLV playback started with LibVLC");
-                            } else if (eventType == MediaPlayer.Event.EncounteredError) {
-                                vlcLastEventDiagnostic = "VLC أرسل EncounteredError أثناء فتح أو قراءة البث.";
-                                Log.e(TAG, "TikTok FLV VLC event: EncounteredError");
-                                setPlayerBufferingVisible(false);
-                                extractionStatus = "error";
-                                playbackStatusMessage = "VLC أرسل EncounteredError أثناء قراءة بث TikTok FLV.";
-                                recordReceiverFailure("تشغيل TikTok FLV",
-                                        originalIncomingMediaUrl == null || originalIncomingMediaUrl.isEmpty()
-                                                ? currentPlaybackUrl : originalIncomingMediaUrl,
-                                        currentPlaybackUrl, playbackStatusMessage + " " + vlcLastEventDiagnostic);
-                                stopVlcPlayback();
-                                persistExtractionState();
-                                new AlertDialog.Builder(MainActivity.this)
-                                        .setTitle("فشل تشغيل TikTok بواسطة VLC")
-                                        .setMessage("VLC أبلغ عن خطأ أثناء فتح البث أو قراءة بياناته. لم يتم تغيير الرابط.\n\nالتشخيص: " + vlcLastEventDiagnostic)
-                                        .setPositiveButton("موافق", null)
-                                        .show();
-                            } else if (eventType == MediaPlayer.Event.EndReached
-                                    || eventType == MediaPlayer.Event.Stopped) {
-                                vlcLastEventDiagnostic = eventType == MediaPlayer.Event.EndReached
-                                        ? "VLC أنهى البث (EndReached)." : "VLC أوقف التشغيل (Stopped).";
-                                Log.i(TAG, "TikTok FLV VLC event: " + vlcLastEventDiagnostic);
-                                setPlayerBufferingVisible(false);
-                            }
-                        });
-                    });
-                    vlcMediaPlayer.attachViews(vlcVideoLayout, null, false, false);
-                    vlcMediaPlayer.setVideoScale(MediaPlayer.ScaleType.SURFACE_BEST_FIT);
-                } else if (!vlcMediaPlayer.getVLCVout().areViewsAttached()) {
-                    vlcMediaPlayer.attachViews(vlcVideoLayout, null, false, false);
-                }
-
-                if (vlcMediaPlayer.isPlaying()) vlcMediaPlayer.stop();
-                stopTikTokVlcHttpBridge();
-                java.util.Map<String, String> requestHeaders = currentPlaybackHeaders == null
-                        ? java.util.Collections.emptyMap() : currentPlaybackHeaders;
-                String cookieValue = null;
-                String refererValue = null;
-                for (java.util.Map.Entry<String, String> header : requestHeaders.entrySet()) {
-                    if (header.getKey() == null) continue;
-                    if ("cookie".equalsIgnoreCase(header.getKey())) cookieValue = header.getValue();
-                    if ("referer".equalsIgnoreCase(header.getKey())) refererValue = header.getValue();
-                }
-
-                if (cookieValue != null && !cookieValue.trim().isEmpty()) {
-                    // Cookie-bearing sessions still use the isolated bridge so the cookie
-                    // is sent only to the original TikTok CDN host.
-                    TikTokVlcHttpBridge bridge = new TikTokVlcHttpBridge(url, requestHeaders);
-                    tikTokVlcHttpBridge = bridge;
-                    String localStreamUrl = bridge.start();
-                    media = new Media(vlcInstance, Uri.parse(localStreamUrl));
-                    vlcTransportDiagnostic = "loopback HTTP bridge (session cookie present; value hidden)";
-                } else {
-                    // With no cookie to inject, let LibVLC open the signed CDN URL itself.
-                    // This matches the direct URL path used by the VLC app and avoids
-                    // changing an indefinite live response into a loopback HTTP response.
-                    tikTokVlcHttpBridge = null;
-                    media = new Media(vlcInstance, Uri.parse(url));
-                    media.addOption(":http-user-agent=VLC/3.6.5 LibVLC/3.6.5");
-                    if (refererValue != null && !refererValue.trim().isEmpty()
-                            && refererValue.length() <= 2048
-                            && refererValue.indexOf('\r') < 0 && refererValue.indexOf('\n') < 0) {
-                        media.addOption(":http-referrer=" + refererValue);
-                    }
-                    vlcTransportDiagnostic = "direct HTTPS to TikTok CDN (no session cookie; Referer "
-                            + (refererValue == null || refererValue.isEmpty() ? "absent" : "forwarded") + ")";
-                }
-                // Force LibVLC's FFmpeg demuxer and explicitly select the FLV container.
-                media.addOption(":demux=avformat");
-                media.addOption(":avformat-format=flv");
-                media.addOption(":network-caching=1500");
-                media.addOption(":live-caching=1500");
-                media.addOption(":http-continuous");
-
-                vlcMediaPlayer.setMedia(media);
-                media.release();
-                media = null;
-                vlcMediaPlayer.setVolume(muted ? 0 : Math.round(lastNonZeroVolume * 100f));
-                isVlcPlaybackActive = true;
-                vlcPlaybackHasStarted = false;
-                vlcLastEventDiagnostic = "تم إرسال أمر play إلى VLC، في انتظار أول إشارة.";
-                vlcLastBufferingPercent = -1f;
-                vlcEventHistory = "";
-                vlcLastVoutCount = -1;
-                vlcTrackEvents = "لم يتم رصد مسارات بعد.";
-                vlcAttemptStartedAtMs = System.currentTimeMillis();
-                final long vlcAttemptToken = ++vlcPlaybackAttemptToken;
-                playerView.setVisibility(View.GONE);
-                vlcVideoLayout.setVisibility(View.VISIBLE);
-                vlcVideoLayout.requestFocus();
-                if (playerBufferingText != null) playerBufferingText.setText("جاري تشغيل TikTok بمحرك VLC...");
-                setPlayerBufferingVisible(true);
-                vlcMediaPlayer.play();
-                // Never leave the receiver showing an endless spinner if LibVLC stays
-                // in Opening/Buffering without raising EncounteredError.
-                new Handler(Looper.getMainLooper()).postDelayed(() -> {
-                    if (!isVlcPlaybackActive || vlcPlaybackAttemptToken != vlcAttemptToken
-                            || vlcPlaybackHasStarted) return;
-                    Log.e(TAG, "TikTok FLV VLC startup timeout after 25 seconds. Last event: " + vlcLastEventDiagnostic);
-                    extractionStatus = "error";
-                    playbackStatusMessage = "انتهت مهلة بدء تشغيل بث TikTok داخل VLC. آخر حالة: " + vlcLastEventDiagnostic;
-                    persistExtractionState();
-                    recordReceiverFailure("مهلة بدء تشغيل TikTok FLV بواسطة VLC",
-                            originalIncomingMediaUrl == null || originalIncomingMediaUrl.isEmpty()
-                                    ? currentPlaybackUrl : originalIncomingMediaUrl,
-                            currentPlaybackUrl, playbackStatusMessage);
-                    stopVlcPlayback();
-                    new AlertDialog.Builder(MainActivity.this)
-                            .setTitle("VLC لم يبدأ تشغيل البث")
-                            .setMessage("محرك VLC لم يصل إلى مرحلة التشغيل خلال 25 ثانية.\n\nآخر حالة رصدها التطبيق: " + vlcLastEventDiagnostic + "\n\nنسبة Buffering الأخيرة: " + (vlcLastBufferingPercent < 0 ? "غير متاحة" : String.format(Locale.ROOT, "%.1f%%", vlcLastBufferingPercent)) + "\n\nتم إيقاف المحاولة بدل ترك شاشة التحميل معلقة.")
-                            .setPositiveButton("موافق", null)
-                            .show();
-                }, 25000L);
-                Log.i(TAG, "TikTok FLV routed to LibVLC with automatic demux selection");
-            }
-            return true;
-        } catch (Exception error) {
-            if (media != null) {
-                try { media.release(); } catch (Exception ignored) { }
-            }
-            isVlcPlaybackActive = false;
-            stopTikTokVlcHttpBridge();
-            if (vlcVideoLayout != null) vlcVideoLayout.setVisibility(View.GONE);
-            Log.e(TAG, "Could not start LibVLC for TikTok FLV", error);
-            Toast.makeText(this, "تعذر تهيئة محرك VLC؛ سنجرب مشغل Receiver المعتاد.", Toast.LENGTH_LONG).show();
-            return false;
-        }
-    }
-
-    private void stopTikTokVlcHttpBridge() {
-        TikTokVlcHttpBridge bridge = tikTokVlcHttpBridge;
-        tikTokVlcHttpBridge = null;
-        if (bridge != null) {
-            try { bridge.close(); } catch (Exception ignored) { }
-        }
-    }
-
-    private void stopVlcPlayback() {
-        isVlcPlaybackActive = false;
-        stopTikTokVlcHttpBridge();
-        vlcPlaybackHasStarted = false;
-        vlcPlaybackAttemptToken++;
-        setPlayerBufferingVisible(false);
-        // LibVLC is created only for TikTok FLV. Fully release its native player
-        // and instance when leaving that stream so ordinary playback keeps no
-        // extra VLC decoder/network threads or native memory resident.
-        releaseVlcPlayback();
-        if (vlcVideoLayout != null) vlcVideoLayout.setVisibility(View.GONE);
-    }
-
-    private void releaseVlcPlayback() {
-        isVlcPlaybackActive = false;
-        stopTikTokVlcHttpBridge();
-        if (vlcMediaPlayer != null) {
-            try { vlcMediaPlayer.stop(); } catch (Exception ignored) { }
-            try { vlcMediaPlayer.detachViews(); } catch (Exception ignored) { }
-            try { vlcMediaPlayer.release(); } catch (Exception ignored) { }
-            vlcMediaPlayer = null;
-        }
-        if (vlcInstance != null) {
-            try { vlcInstance.release(); } catch (Exception ignored) { }
-            vlcInstance = null;
         }
     }
 
@@ -6732,12 +6359,6 @@ public class MainActivity extends Activity {
         });
     }
 
-    private void togglePlaybackFromRemote() {
-        if (isVlcPlaybackActive && vlcMediaPlayer != null) {
-            if (vlcMediaPlayer.isPlaying()) vlcMediaPlayer.pause();
-            else vlcMediaPlayer.play();
-            return;
-        }
         if (player == null) return;
         synchronized (playerLock) {
             if (player.isPlaying()) player.pause();
@@ -6763,7 +6384,7 @@ public class MainActivity extends Activity {
     }
 
     private void seekByConfiguredIncrement(int direction) {
-        if (isVlcPlaybackActive || player == null) return;
+        if (player == null) return;
         synchronized (playerLock) {
             long increment = player.getSeekForwardIncrement();
             long duration = player.getDuration();
@@ -7485,7 +7106,7 @@ public class MainActivity extends Activity {
 
     private void playAudioAlongsideImage(String audioUrl) {
         stopTikTokFfmpegPipeline();
-        stopVlcPlayback();
+        
         currentPlaybackUrl = audioUrl;
         if (settingsHomeButton != null) settingsHomeButton.setVisibility(View.GONE);
         if (browserHomeButton != null) browserHomeButton.setVisibility(View.GONE);
@@ -7782,7 +7403,7 @@ public class MainActivity extends Activity {
             }
         }
         stopTikTokFfmpegPipeline();
-        releaseVlcPlayback();
+        
 
         super.onDestroy();
     }
