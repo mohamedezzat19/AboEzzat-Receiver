@@ -220,6 +220,7 @@ public class MainActivity extends Activity {
     private volatile boolean isVlcPlaybackActive = false;
     private volatile boolean vlcPlaybackHasStarted = false;
     private volatile String vlcLastEventDiagnostic = "لم تصل أي إشارة من VLC بعد.";
+    private volatile float vlcLastBufferingPercent = -1f;
     private long vlcPlaybackAttemptToken = 0L;
     // Keep the selected level separately from mute state.
     private float lastNonZeroVolume = 1.0f;
@@ -6013,9 +6014,22 @@ public class MainActivity extends Activity {
                                 Log.i(TAG, "TikTok FLV VLC event: Opening");
                                 setPlayerBufferingVisible(true);
                             } else if (eventType == MediaPlayer.Event.Buffering) {
-                                vlcLastEventDiagnostic = "VLC متصل ويحاول تحميل بيانات البث (Buffering).";
-                                Log.i(TAG, "TikTok FLV VLC event: Buffering");
+                                vlcLastBufferingPercent = event.getBuffering();
+                                vlcLastEventDiagnostic = "VLC في مرحلة Buffering؛ نسبة التخزين المؤقت: "
+                                        + String.format(Locale.ROOT, "%.1f%%", vlcLastBufferingPercent) + ".";
+                                Log.i(TAG, "TikTok FLV VLC event: Buffering "
+                                        + String.format(Locale.ROOT, "%.1f%%", vlcLastBufferingPercent));
                                 setPlayerBufferingVisible(true);
+                            } else if (eventType == MediaPlayer.Event.Vout) {
+                                vlcLastEventDiagnostic = "VLC جهّز مخرج الفيديو؛ عدد مخارج الصورة: "
+                                        + event.getVoutCount() + ".";
+                                Log.i(TAG, "TikTok FLV VLC event: Vout count=" + event.getVoutCount());
+                            } else if (eventType == MediaPlayer.Event.ESAdded
+                                    || eventType == MediaPlayer.Event.ESSelected) {
+                                vlcLastEventDiagnostic = "VLC اكتشف مسار وسائط؛ نوع المسار="
+                                        + event.getEsChangedType() + "، رقم المسار=" + event.getEsChangedID() + ".";
+                                Log.i(TAG, "TikTok FLV VLC track event: type="
+                                        + event.getEsChangedType() + ", id=" + event.getEsChangedID());
                             } else if (eventType == MediaPlayer.Event.Playing) {
                                 vlcLastEventDiagnostic = "VLC أرسل إشارة Playing.";
                                 vlcPlaybackHasStarted = true;
@@ -6090,6 +6104,7 @@ public class MainActivity extends Activity {
                 isVlcPlaybackActive = true;
                 vlcPlaybackHasStarted = false;
                 vlcLastEventDiagnostic = "تم إرسال أمر play إلى VLC، في انتظار أول إشارة.";
+                vlcLastBufferingPercent = -1f;
                 final long vlcAttemptToken = ++vlcPlaybackAttemptToken;
                 playerView.setVisibility(View.GONE);
                 vlcVideoLayout.setVisibility(View.VISIBLE);
@@ -6113,7 +6128,7 @@ public class MainActivity extends Activity {
                     stopVlcPlayback();
                     new AlertDialog.Builder(MainActivity.this)
                             .setTitle("VLC لم يبدأ تشغيل البث")
-                            .setMessage("محرك VLC لم يصل إلى مرحلة التشغيل خلال 25 ثانية.\n\nآخر حالة رصدها التطبيق: " + vlcLastEventDiagnostic + "\n\nتم إيقاف المحاولة بدل ترك شاشة التحميل معلقة.")
+                            .setMessage("محرك VLC لم يصل إلى مرحلة التشغيل خلال 25 ثانية.\n\nآخر حالة رصدها التطبيق: " + vlcLastEventDiagnostic + "\n\nنسبة Buffering الأخيرة: " + (vlcLastBufferingPercent < 0 ? "غير متاحة" : String.format(Locale.ROOT, "%.1f%%", vlcLastBufferingPercent)) + "\n\nتم إيقاف المحاولة بدل ترك شاشة التحميل معلقة.")
                             .setPositiveButton("موافق", null)
                             .show();
                 }, 25000L);
