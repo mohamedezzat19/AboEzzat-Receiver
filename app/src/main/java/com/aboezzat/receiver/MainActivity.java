@@ -4842,8 +4842,9 @@ public class MainActivity extends Activity {
             if ((key == android.view.KeyEvent.KEYCODE_DPAD_CENTER
                     || key == android.view.KeyEvent.KEYCODE_ENTER
                     || key == android.view.KeyEvent.KEYCODE_NUMPAD_ENTER)
-                    && (!playerControllerVisible || getCurrentFocus() == null
-                    || getCurrentFocus() == playerView)) {
+                    && (isVlcPlaybackActive || !playerControllerVisible
+                    || getCurrentFocus() == null || getCurrentFocus() == playerView
+                    || getCurrentFocus() == vlcVideoLayout)) {
                 togglePlaybackFromRemote();
                 return true;
             }
