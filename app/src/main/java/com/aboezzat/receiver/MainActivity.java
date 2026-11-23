@@ -4571,10 +4571,12 @@ public class MainActivity extends Activity {
 
         if (incomingVideo) pendingVisualUrl = mediaUrl;
         if (incomingAudio) pendingAudioUrl = audioUrl;
-        if (headers != null && !headers.isEmpty()) {
-            pendingPlaybackHeaders = new java.util.LinkedHashMap<>(headers);
-        }
-        if (sourceUrl != null && !sourceUrl.trim().isEmpty()) pendingPlaybackSourceUrl = sourceUrl;
+        // Replace request context on every incoming item. Never let headers or a
+        // source page from a previous TikTok stream leak into a new playback.
+        pendingPlaybackHeaders = headers == null
+                ? new java.util.LinkedHashMap<>()
+                : new java.util.LinkedHashMap<>(headers);
+        pendingPlaybackSourceUrl = sourceUrl == null ? "" : sourceUrl;
 
         if (pendingPlayback != null) mediaHandler.removeCallbacks(pendingPlayback);
         pendingPlayback = this::dispatchPendingIncomingMedia;
