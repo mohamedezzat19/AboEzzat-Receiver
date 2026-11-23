@@ -6113,7 +6113,6 @@ public class MainActivity extends Activity {
             @Override
             public void onPlaylistReady(File playlist) {
                 if (attemptToken != tikTokFfmpegPlaybackAttemptToken
-                        || tikTokFfmpegHlsPipeline != pipeline
                         || !sourceUrl.equals(currentPlaybackUrl)
                         || player == null) return;
                 try {
@@ -6143,7 +6142,9 @@ public class MainActivity extends Activity {
                         failTikTokFfmpegPlayback(sourceUrl, detail, attemptToken);
                     }, 30000L);
                 } catch (Exception error) {
-                    String detail = pipeline.getDiagnostic()
+                    TikTokFfmpegHlsPipeline active = tikTokFfmpegHlsPipeline;
+                    String detail = (active == null ? "TikTok FFmpeg/HLS pipeline unavailable."
+                            : active.getDiagnostic())
                             + "\nMedia3 setup error: " + error.getClass().getSimpleName();
                     failTikTokFfmpegPlayback(sourceUrl, detail, attemptToken);
                 }
