@@ -897,10 +897,22 @@ public class MainActivity extends Activity {
                 JSONObject headerJson = new JSONObject(intent.getStringExtra("server_headers") == null
                         ? "{}" : intent.getStringExtra("server_headers"));
                 java.util.Iterator<String> keys = headerJson.keys();
+                String[] allowedHeaders = {"user-agent", "referer", "origin", "accept",
+                        "accept-language", "cookie", "sec-fetch-site", "sec-fetch-mode",
+                        "sec-fetch-dest", "sec-ch-ua", "sec-ch-ua-mobile",
+                        "sec-ch-ua-platform", "priority"};
+                java.util.Set<String> allowedHeaderSet = new java.util.HashSet<>(
+                        java.util.Arrays.asList(allowedHeaders));
                 while (keys.hasNext()) {
                     String key = keys.next();
+                    String normalizedKey = key == null ? "" : key.toLowerCase(Locale.ROOT);
                     String value = headerJson.optString(key, "");
-                    if (!value.isEmpty()) incomingHeaders.put(key, value);
+                    int maxLength = "cookie".equals(normalizedKey) ? 8192 : 2048;
+                    if (allowedHeaderSet.contains(normalizedKey) && !value.isEmpty()
+                            && value.length() <= maxLength
+                            && !value.contains("\r") && !value.contains("\n")) {
+                        incomingHeaders.put(normalizedKey, value);
+                    }
                 }
             } catch (Exception ignored) { }
             if (command != null && !command.trim().isEmpty()) {
