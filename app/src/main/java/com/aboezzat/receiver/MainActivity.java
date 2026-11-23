@@ -218,6 +218,8 @@ public class MainActivity extends Activity {
     private MediaPlayer vlcMediaPlayer;
     private VLCVideoLayout vlcVideoLayout;
     private volatile boolean isVlcPlaybackActive = false;
+    private volatile boolean vlcPlaybackHasStarted = false;
+    private long vlcPlaybackAttemptToken = 0L;
     // Keep the selected level separately from mute state.
     private float lastNonZeroVolume = 1.0f;
     private boolean muted = false;
@@ -6009,6 +6011,7 @@ public class MainActivity extends Activity {
                                     || eventType == MediaPlayer.Event.Buffering) {
                                 setPlayerBufferingVisible(true);
                             } else if (eventType == MediaPlayer.Event.Playing) {
+                                vlcPlaybackHasStarted = true;
                                 setPlayerBufferingVisible(false);
                                 extractionStatus = "playing";
                                 playbackStatusMessage = "TikTok LIVE يعمل بمحرك VLC/FFmpeg.";
@@ -6042,26 +6045,66 @@ public class MainActivity extends Activity {
 
                 if (vlcMediaPlayer.isPlaying()) vlcMediaPlayer.stop();
                 media = new Media(vlcInstance, Uri.parse(url));
-                // Force VLC's FFmpeg/libavformat demuxer for FLV, rather than Media3's extractor.
-                media.addOption(":demux=avformat");
+                // Match VLC's normal automatic demux selection. Do not force avformat:
+                // desktop VLC selects the FLV demuxer from the stream itself.
                 media.addOption(":network-caching=1500");
                 media.addOption(":live-caching=1500");
                 media.addOption(":http-continuous");
-                // Do not inject Cast/WebView headers here. The user's VLC test succeeds
-                // with the URL alone, so let LibVLC use its own native HTTP defaults.
+                // Forward the browser request identity captured by AboEzzat Cast.
+                // LibVLC exposes explicit options for User-Agent and Referer.
+                String vlcUserAgent = null;
+                String vlcReferer = null;
+                if (currentPlaybackHeaders != null) {
+                    for (java.util.Map.Entry<String, String> header : currentPlaybackHeaders.entrySet()) {
+                        if (header.getKey() == null || header.getValue() == null) continue;
+                        String key = header.getKey().toLowerCase(Locale.ROOT);
+                        String value = header.getValue();
+                        if (value.length() > 2048 || value.contains("\\r") || value.contains("\\n")) continue;
+                        if ("user-agent".equals(key)) vlcUserAgent = value;
+                        else if ("referer".equals(key)) vlcReferer = value;
+                    }
+                }
+                if (vlcUserAgent != null && !vlcUserAgent.isEmpty()) {
+                    media.addOption(":http-user-agent=" + vlcUserAgent);
+                }
+                if (vlcReferer != null && !vlcReferer.isEmpty()) {
+                    media.addOption(":http-referrer=" + vlcReferer);
+                }
 
                 vlcMediaPlayer.setMedia(media);
                 media.release();
                 media = null;
                 vlcMediaPlayer.setVolume(muted ? 0 : Math.round(lastNonZeroVolume * 100f));
                 isVlcPlaybackActive = true;
+                vlcPlaybackHasStarted = false;
+                final long vlcAttemptToken = ++vlcPlaybackAttemptToken;
                 playerView.setVisibility(View.GONE);
                 vlcVideoLayout.setVisibility(View.VISIBLE);
                 vlcVideoLayout.requestFocus();
                 if (playerBufferingText != null) playerBufferingText.setText("جاري تشغيل TikTok بمحرك VLC...");
                 setPlayerBufferingVisible(true);
                 vlcMediaPlayer.play();
-                Log.i(TAG, "TikTok FLV routed to LibVLC/avformat using the VLC native HTTP defaults");
+                // Never leave the receiver showing an endless spinner if LibVLC stays
+                // in Opening/Buffering without raising EncounteredError.
+                new Handler(Looper.getMainLooper()).postDelayed(() -> {
+                    if (!isVlcPlaybackActive || vlcPlaybackAttemptToken != vlcAttemptToken
+                            || vlcPlaybackHasStarted) return;
+                    Log.e(TAG, "TikTok FLV VLC startup timeout: no Playing event after 25 seconds");
+                    extractionStatus = "error";
+                    playbackStatusMessage = "انتهت مهلة بدء تشغيل بث TikTok داخل VLC دون وصول إشارة التشغيل.";
+                    persistExtractionState();
+                    recordReceiverFailure("مهلة بدء تشغيل TikTok FLV بواسطة VLC",
+                            originalIncomingMediaUrl == null || originalIncomingMediaUrl.isEmpty()
+                                    ? currentPlaybackUrl : originalIncomingMediaUrl,
+                            currentPlaybackUrl, playbackStatusMessage);
+                    stopVlcPlayback();
+                    new AlertDialog.Builder(MainActivity.this)
+                            .setTitle("VLC لم يبدأ تشغيل البث")
+                            .setMessage("محرك VLC لم يصل إلى مرحلة التشغيل خلال 25 ثانية. تم إيقاف محاولة التشغيل بدل ترك شاشة التحميل معلقة.")
+                            .setPositiveButton("موافق", null)
+                            .show();
+                }, 25000L);
+                Log.i(TAG, "TikTok FLV routed to LibVLC with automatic demux selection");
             }
             return true;
         } catch (Exception error) {
@@ -6078,6 +6121,8 @@ public class MainActivity extends Activity {
 
     private void stopVlcPlayback() {
         isVlcPlaybackActive = false;
+        vlcPlaybackHasStarted = false;
+        vlcPlaybackAttemptToken++;
         setPlayerBufferingVisible(false);
         // LibVLC is created only for TikTok FLV. Fully release its native player
         // and instance when leaving that stream so ordinary playback keeps no
