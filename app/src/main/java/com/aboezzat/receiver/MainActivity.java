@@ -3223,6 +3223,9 @@ public class MainActivity extends Activity {
     private void launchExternalVlcFallback(String mediaUrl, String failureReason) {
         if (externalVlcFallbackLaunched || isFinishing() || isDestroyed()) return;
         externalVlcFallbackLaunched = true;
+        if (failureReason != null && !failureReason.trim().isEmpty()) {
+            Log.i(TAG, "External VLC fallback reason: " + failureReason.replace('\n', ' '));
+        }
         String targetUrl = mediaUrl;
         if (!isHttpUrl(targetUrl)) targetUrl = originalIncomingMediaUrl;
         if (!isHttpUrl(targetUrl)) targetUrl = currentPlaybackFallbackUrl;
@@ -4567,6 +4570,7 @@ public class MainActivity extends Activity {
         mediaUrl = normalizeIncomingHttpUrl(mediaUrl);
         audioUrl = normalizeIncomingHttpUrl(audioUrl);
         sourceUrl = normalizeIncomingHttpUrl(sourceUrl);
+        String originalMediaCandidate = mediaUrl;
         externalVlcFallbackLaunched = false;
         extractionStatus = "preparing";
         playbackStatusMessage = "Receiver استلم الرابط؛ جاري تجهيز مشغّل الفيديو.";
@@ -4582,7 +4586,17 @@ public class MainActivity extends Activity {
             mediaUrl = null;
         }
         if ((mediaUrl == null || mediaUrl.trim().isEmpty())
-                && (audioUrl == null || audioUrl.trim().isEmpty())) return;
+                && (audioUrl == null || audioUrl.trim().isEmpty())) {
+            String failedSource = isHttpUrl(sourceUrl) ? sourceUrl
+                    : (isHttpUrl(originalMediaCandidate) ? originalMediaCandidate : "");
+            if (!failedSource.isEmpty()) {
+                originalIncomingMediaUrl = failedSource;
+                String reason = "تعذر تجهيز رابط الوسائط المستلم؛ جاري تحويل الرابط الأصلي إلى VLC.";
+                recordReceiverFailure("استخراج الرابط", failedSource, "", reason);
+                launchExternalVlcFallback(failedSource, reason);
+            }
+            return;
+        }
 
         boolean incomingVideo = mediaUrl != null && !mediaUrl.trim().isEmpty();
         boolean incomingAudio = audioUrl != null && !audioUrl.trim().isEmpty();
@@ -4650,9 +4664,13 @@ public class MainActivity extends Activity {
         if (!hasMedia && !hasAudio) {
             if ((originalMediaUrl != null && !originalMediaUrl.trim().isEmpty())
                     || (originalAudioUrl != null && !originalAudioUrl.trim().isEmpty())) {
-                recordReceiverFailure("استلام الرابط", originalIncomingMediaUrl, "",
-                        "الرابط المستلم لم يكن عنوان HTTP/HTTPS صالحًا أو لم يكن مدعومًا.");
-                Toast.makeText(this, "رابط غير مدعوم؛ استخدم رابط HTTP أو HTTPS صالحًا.", Toast.LENGTH_LONG).show();
+                String reason = "الرابط المستلم لم يكن عنوان HTTP/HTTPS صالحًا أو لم يكن مدعومًا.";
+                recordReceiverFailure("استلام الرابط", originalIncomingMediaUrl, "", reason);
+                if (isHttpUrl(originalIncomingMediaUrl)) {
+                    launchExternalVlcFallback(originalIncomingMediaUrl, reason);
+                } else {
+                    Toast.makeText(this, "رابط غير مدعوم؛ استخدم رابط HTTP أو HTTPS صالحًا.", Toast.LENGTH_LONG).show();
+                }
             }
             return;
         }
