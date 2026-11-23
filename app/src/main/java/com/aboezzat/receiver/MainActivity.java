@@ -982,7 +982,7 @@ public class MainActivity extends Activity {
                     int maxLength = "cookie".equals(normalizedKey) ? 8192 : 2048;
                     if (allowedHeaderSet.contains(normalizedKey) && !value.isEmpty()
                             && value.length() <= maxLength
-                            && !value.contains("\\r") && !value.contains("\\n")) {
+                            && !value.contains("\r") && !value.contains("\n")) {
                         pendingHeaders.put(normalizedKey, value);
                     }
                 }
