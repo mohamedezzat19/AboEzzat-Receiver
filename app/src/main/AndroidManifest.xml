@@ -3,6 +3,7 @@
     <queries>
         <package android:name="com.liskovsoft.smarttubetv.beta" />
         <package android:name="com.liskovsoft.smarttubetv" />
+        <package android:name="org.videolan.vlc" />
     </queries>
 
     <uses-permission android:name="android.permission.INTERNET" />
