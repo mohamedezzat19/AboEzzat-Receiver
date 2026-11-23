@@ -2776,7 +2776,7 @@ public class MainActivity extends Activity {
             extractionStatus = "youtube_page_rejected";
             playbackStatusMessage = "لم يصل رابط فيديو مباشر من Cast.";
             persistExtractionState();
-            if (!tryOpenSmartTubeFallback(pageUrl)) showExtractionFailureFallback(pageUrl);
+            showExtractionFailureFallback(pageUrl);
             return;
         }
         // Known IPTV providers expose the HLS manifest directly at
