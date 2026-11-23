@@ -221,7 +221,7 @@ final class TikTokFfmpegHlsPipeline {
         }
         state = "FFmpeg input ended; final HLS playlist retained";
         closeBridge();
-        if (listener != null) listener.onFinished(buildDiagnostic());
+        if (listener != null) listener.onFinished(getDiagnostic());
     }
 
     private void fail(String reason) {
