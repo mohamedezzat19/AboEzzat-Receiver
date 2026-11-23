@@ -6050,22 +6050,22 @@ public class MainActivity extends Activity {
                 media.addOption(":network-caching=1500");
                 media.addOption(":live-caching=1500");
                 media.addOption(":http-continuous");
-                // Forward the browser request identity captured by AboEzzat Cast.
-                // LibVLC exposes explicit options for User-Agent and Referer.
-                String vlcUserAgent = null;
+                // Match the native VLC for Android network identity instead of
+                // forwarding Cast's spoofed Windows WebView identity. LibVLC 3.x
+                // supports User-Agent and Referer as per-media HTTP options.
+                // The browser's desktop UA can cause TikTok CDN to serve a response
+                // that differs from the one accepted by the VLC Android application.
+                final String vlcAndroidUserAgent = "VLC/3.6.5 LibVLC/3.6.5";
+                media.addOption(":http-user-agent=" + vlcAndroidUserAgent);
                 String vlcReferer = null;
                 if (currentPlaybackHeaders != null) {
                     for (java.util.Map.Entry<String, String> header : currentPlaybackHeaders.entrySet()) {
                         if (header.getKey() == null || header.getValue() == null) continue;
                         String key = header.getKey().toLowerCase(Locale.ROOT);
                         String value = header.getValue();
-                        if (value.length() > 2048 || value.contains("\r") || value.contains("\n")) continue;
-                        if ("user-agent".equals(key)) vlcUserAgent = value;
-                        else if ("referer".equals(key)) vlcReferer = value;
+                        if (value.length() > 2048 || value.contains("\\r") || value.contains("\\n")) continue;
+                        if ("referer".equals(key)) vlcReferer = value;
                     }
-                }
-                if (vlcUserAgent != null && !vlcUserAgent.isEmpty()) {
-                    media.addOption(":http-user-agent=" + vlcUserAgent);
                 }
                 if (vlcReferer != null && !vlcReferer.isEmpty()) {
                     media.addOption(":http-referrer=" + vlcReferer);
