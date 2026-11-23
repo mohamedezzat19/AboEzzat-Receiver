@@ -965,8 +965,32 @@ public class MainActivity extends Activity {
         long receivedAt = pending.getLong("received_at", 0L);
         if (System.currentTimeMillis() - receivedAt <= 10 * 60 * 1000L
                 && (!pendingUrl.trim().isEmpty() || !pendingAudio.trim().isEmpty())) {
+            java.util.Map<String, String> pendingHeaders = new java.util.LinkedHashMap<>();
+            try {
+                JSONObject savedHeaders = new JSONObject(pending.getString("headers", "{}"));
+                java.util.Iterator<String> keys = savedHeaders.keys();
+                String[] allowedHeaders = {"user-agent", "referer", "origin", "accept",
+                        "accept-language", "cookie", "sec-fetch-site", "sec-fetch-mode",
+                        "sec-fetch-dest", "sec-ch-ua", "sec-ch-ua-mobile",
+                        "sec-ch-ua-platform", "priority"};
+                java.util.Set<String> allowedHeaderSet = new java.util.HashSet<>(
+                        java.util.Arrays.asList(allowedHeaders));
+                while (keys.hasNext()) {
+                    String key = keys.next();
+                    String normalizedKey = key == null ? "" : key.toLowerCase(Locale.ROOT);
+                    String value = savedHeaders.optString(key, "");
+                    int maxLength = "cookie".equals(normalizedKey) ? 8192 : 2048;
+                    if (allowedHeaderSet.contains(normalizedKey) && !value.isEmpty()
+                            && value.length() <= maxLength
+                            && !value.contains("\\r") && !value.contains("\\n")) {
+                        pendingHeaders.put(normalizedKey, value);
+                    }
+                }
+            } catch (Exception e) {
+                Log.w(TAG, "Could not restore saved playback headers");
+            }
             clearPendingServerMedia();
-            queueIncomingMedia(pendingUrl, pendingAudio);
+            queueIncomingMedia(pendingUrl, pendingAudio, pendingHeaders);
         } else if (receivedAt != 0L) {
             clearPendingServerMedia();
         }
@@ -976,6 +1000,7 @@ public class MainActivity extends Activity {
         getSharedPreferences("AboEzzatReceiverPending", MODE_PRIVATE).edit()
                 .remove("url")
                 .remove("audio")
+                .remove("headers")
                 .remove("received_at")
                 .apply();
     }
