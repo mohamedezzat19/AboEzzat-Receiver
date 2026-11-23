@@ -62,6 +62,7 @@ final class TikTokVlcHttpBridge implements Closeable {
     private String signature = "not captured";
     private boolean eofReached = false;
     private String readError = "none";
+    private String localTransferEncoding = "unknown";
     private long transferStartedAtMs = 0L;
 
     TikTokVlcHttpBridge(String mediaUrl, Map<String, String> headers) throws IOException {
@@ -245,9 +246,12 @@ final class TikTokVlcHttpBridge implements Closeable {
                     eofReached = false;
                     readError = "none";
                     transferStartedAtMs = System.currentTimeMillis();
+                    localTransferEncoding = "HEAD".equals(method) ? "none"
+                            : length >= 0L ? "content-length" : "chunked";
                 }
 
-                writeResponseHeaders(localOutput, code, response, length);
+                boolean chunkedResponse = !"HEAD".equals(method) && body != null && length < 0L;
+                writeResponseHeaders(localOutput, code, response, length, chunkedResponse);
                 localResponseStarted = true;
                 if ("HEAD".equals(method) || body == null) {
                     synchronized (this) { eofReached = true; }
@@ -264,9 +268,21 @@ final class TikTokVlcHttpBridge implements Closeable {
                         first.write(buffer, 0, Math.min(count, 16 - first.size()));
                         updateFirstBytes(first.toByteArray());
                     }
-                    localOutput.write(buffer, 0, count);
+                    if (chunkedResponse) {
+                        byte[] chunkHeader = (Integer.toHexString(count) + "\r\n")
+                                .getBytes(StandardCharsets.ISO_8859_1);
+                        localOutput.write(chunkHeader);
+                        localOutput.write(buffer, 0, count);
+                        localOutput.write("\r\n".getBytes(StandardCharsets.ISO_8859_1));
+                    } else {
+                        localOutput.write(buffer, 0, count);
+                    }
                     localOutput.flush();
                     synchronized (this) { bytesDelivered += count; }
+                }
+                if (chunkedResponse && !closed.get()) {
+                    localOutput.write("0\r\n\r\n".getBytes(StandardCharsets.ISO_8859_1));
+                    localOutput.flush();
                 }
                 synchronized (this) {
                     eofReached = !closed.get();
@@ -341,7 +357,7 @@ final class TikTokVlcHttpBridge implements Closeable {
     }
 
     private void writeResponseHeaders(OutputStream output, int code, Response response,
-                                      long length) throws IOException {
+                                      long length, boolean chunked) throws IOException {
         StringBuilder headers = new StringBuilder();
         headers.append("HTTP/1.1 ").append(code).append(' ').append(reasonPhrase(code)).append("\r\n");
         appendResponseHeader(headers, "Content-Type", response.header("Content-Type"));
@@ -349,6 +365,7 @@ final class TikTokVlcHttpBridge implements Closeable {
         appendResponseHeader(headers, "Accept-Ranges", response.header("Accept-Ranges"));
         appendResponseHeader(headers, "Cache-Control", response.header("Cache-Control"));
         if (length >= 0L) headers.append("Content-Length: ").append(length).append("\r\n");
+        else if (chunked) headers.append("Transfer-Encoding: chunked\r\n");
         headers.append("Connection: close\r\n\r\n");
         output.write(headers.toString().getBytes(StandardCharsets.ISO_8859_1));
         output.flush();
@@ -450,7 +467,8 @@ final class TikTokVlcHttpBridge implements Closeable {
                 + ", content_type=" + contentType + ", content_length=" + contentLength
                 + ", content_range=" + contentRange + ", accept_ranges=" + acceptRanges
                 + ", redirects=" + redirectCount + ", response_ms=" + responseTimeMs
-                + ", bytes_to_vlc=" + bytesDelivered + ", elapsed_ms=" + elapsed
+                + ", local_transfer_encoding=" + localTransferEncoding
+                + ", payload_bytes_written_to_local_socket=" + bytesDelivered + ", elapsed_ms=" + elapsed
                 + ", signature=" + signature + ", first_bytes_hex=" + firstBytesHex
                 + ", eof=" + eofReached + ", error=" + readError;
     }
