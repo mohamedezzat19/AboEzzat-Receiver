@@ -53,6 +53,7 @@ final class TikTokFfmpegHlsPipeline {
     private volatile String returnCode = "pending";
     private volatile long startedAtMs;
     private volatile String logTail = "";
+    private volatile String lastBridgeDiagnostic = "not used";
     private volatile TikTokVlcHttpBridge bridge;
     private Runnable playlistPoll;
 
@@ -79,15 +80,12 @@ final class TikTokFfmpegHlsPipeline {
         playlistFile = new File(outputDirectory, "live.m3u8");
         File segmentPattern = new File(outputDirectory, "segment_%06d.ts");
 
-        String inputUrl = sourceUrl;
         String cookie = headerValue("cookie");
-        if (cookie != null && !cookie.trim().isEmpty()) {
-            bridge = new TikTokVlcHttpBridge(sourceUrl, sourceHeaders);
-            inputUrl = bridge.start();
-            transport = "FFmpegKit via loopback bridge (session cookie present; value hidden)";
-        } else {
-            transport = "FFmpegKit direct HTTPS (no session cookie)";
-        }
+        bridge = new TikTokVlcHttpBridge(sourceUrl, sourceHeaders);
+        String inputUrl = bridge.start();
+        transport = cookie != null && !cookie.trim().isEmpty()
+                ? "OkHttp upstream + chunked loopback HTTP (session cookie present; value hidden)"
+                : "OkHttp upstream + chunked loopback HTTP (no session cookie)";
 
         ArrayList<String> args = new ArrayList<>();
         args.add("-hide_banner");
@@ -108,12 +106,6 @@ final class TikTokFfmpegHlsPipeline {
         if (safeHeader(userAgent, 2048)) {
             args.add("-user_agent");
             args.add(userAgent);
-        }
-
-        String headers = buildHttpHeaders();
-        if (!headers.isEmpty() && bridge == null) {
-            args.add("-headers");
-            args.add(headers);
         }
 
         args.add("-i");
@@ -270,6 +262,7 @@ final class TikTokFfmpegHlsPipeline {
                 .append("\n- Playlist bytes: ")
                 .append(playlistFile == null || !playlistFile.isFile() ? 0L : playlistFile.length())
                 .append("\n- HLS segments: ").append(countSegments())
+                .append("\n- Upstream bridge: ").append(currentBridgeDiagnostic())
                 .append("\n- Input headers: UA=").append(hasHeader("user-agent"))
                 .append(", Referer=").append(hasHeader("referer"))
                 .append(", Origin=").append(hasHeader("origin"))
@@ -352,10 +345,16 @@ final class TikTokFfmpegHlsPipeline {
         }
     }
 
+    private String currentBridgeDiagnostic() {
+        TikTokVlcHttpBridge current = bridge;
+        return current == null ? lastBridgeDiagnostic : current.getDiagnostic();
+    }
+
     private void closeBridge() {
         TikTokVlcHttpBridge current = bridge;
         bridge = null;
         if (current != null) {
+            try { lastBridgeDiagnostic = current.getDiagnostic(); } catch (Exception ignored) { }
             try { current.close(); } catch (Exception ignored) { }
         }
     }
