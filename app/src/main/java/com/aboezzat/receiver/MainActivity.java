@@ -225,6 +225,8 @@ public class MainActivity extends Activity {
     private volatile int vlcLastVoutCount = -1;
     private volatile String vlcTrackEvents = "لم يتم رصد مسارات بعد.";
     private volatile long vlcAttemptStartedAtMs = 0L;
+    private volatile String vlcHttpProbeDiagnostic = "لم يبدأ فحص HTTP بعد.";
+    private volatile long vlcHttpProbeDurationMs = -1L;
     private long vlcPlaybackAttemptToken = 0L;
     // Keep the selected level separately from mute state.
     private float lastNonZeroVolume = 1.0f;
@@ -5527,6 +5529,92 @@ public class MainActivity extends Activity {
         queueIncomingMedia(url, null);
     }
 
+    private void startTikTokVlcHttpProbe(final String mediaUrl,
+                                           final java.util.Map<String, String> sourceHeaders) {
+        vlcHttpProbeDiagnostic = "الفحص قيد التنفيذ.";
+        vlcHttpProbeDurationMs = -1L;
+        final java.util.Map<String, String> safeHeaders = sourceHeaders == null
+                ? java.util.Collections.emptyMap()
+                : new java.util.LinkedHashMap<>(sourceHeaders);
+        new Thread(() -> {
+            long started = android.os.SystemClock.elapsedRealtime();
+            HttpURLConnection connection = null;
+            String result;
+            try {
+                URL target = new URL(mediaUrl);
+                connection = (HttpURLConnection) target.openConnection();
+                connection.setRequestMethod("GET");
+                connection.setConnectTimeout(6000);
+                connection.setReadTimeout(6000);
+                connection.setInstanceFollowRedirects(true);
+                connection.setUseCaches(false);
+                connection.setRequestProperty("User-Agent", "VLC/3.6.5 LibVLC/3.6.5");
+                connection.setRequestProperty("Accept", "*/*");
+                connection.setRequestProperty("Accept-Encoding", "identity");
+                connection.setRequestProperty("Range", "bytes=0-1023");
+                for (java.util.Map.Entry<String, String> item : safeHeaders.entrySet()) {
+                    String key = item.getKey();
+                    String value = item.getValue();
+                    if (key == null || value == null || value.isEmpty()) continue;
+                    String lower = key.toLowerCase(Locale.ROOT);
+                    if (!"referer".equals(lower)) continue;
+                    if (value.length() <= 2048 && !value.contains("\\r") && !value.contains("\\n")) {
+                        connection.setRequestProperty("Referer", value);
+                    }
+                }
+                int status = connection.getResponseCode();
+                String contentType = connection.getContentType();
+                long contentLength = connection.getContentLengthLong();
+                String contentRange = connection.getHeaderField("Content-Range");
+                String acceptRanges = connection.getHeaderField("Accept-Ranges");
+                String server = connection.getHeaderField("Server");
+                String finalHost = connection.getURL() == null ? "unknown" : connection.getURL().getHost();
+                InputStream stream = status >= 400 ? connection.getErrorStream() : connection.getInputStream();
+                byte[] sample = new byte[1024];
+                int total = 0;
+                if (stream != null) {
+                    try {
+                        while (total < sample.length) {
+                            int count = stream.read(sample, total, sample.length - total);
+                            if (count < 0) break;
+                            if (count == 0) continue;
+                            total += count;
+                        }
+                    } finally {
+                        try { stream.close(); } catch (Exception ignored) { }
+                    }
+                }
+                StringBuilder hex = new StringBuilder();
+                for (int i = 0; i < Math.min(total, 16); i++) {
+                    if (i > 0) hex.append(' ');
+                    hex.append(String.format(Locale.ROOT, "%02X", sample[i] & 0xff));
+                }
+                String signature = total >= 3 && sample[0] == 'F' && sample[1] == 'L' && sample[2] == 'V'
+                        ? "FLV" : total >= 4 && sample[0] == 'I' && sample[1] == 'D'
+                        && sample[2] == '3' ? "ID3" : "unknown";
+                result = "HTTP status=" + status
+                        + ", final_host=" + finalHost
+                        + ", content_type=" + (contentType == null ? "unknown" : contentType)
+                        + ", content_length=" + contentLength
+                        + ", content_range=" + (contentRange == null ? "none" : contentRange)
+                        + ", accept_ranges=" + (acceptRanges == null ? "unknown" : acceptRanges)
+                        + ", server=" + (server == null ? "unknown" : server)
+                        + ", sample_bytes=" + total
+                        + ", signature=" + signature
+                        + ", first_bytes_hex=" + (hex.length() == 0 ? "none" : hex);
+            } catch (Exception error) {
+                result = "HTTP probe failed: " + error.getClass().getSimpleName()
+                        + (error.getMessage() == null ? "" : " (" + error.getMessage() + ")");
+            } finally {
+                if (connection != null) connection.disconnect();
+            }
+            vlcHttpProbeDurationMs = android.os.SystemClock.elapsedRealtime() - started;
+            vlcHttpProbeDiagnostic = result;
+            Log.i(TAG, "TikTok VLC bounded HTTP probe: " + result
+                    + ", duration_ms=" + vlcHttpProbeDurationMs);
+        }, "TikTok-VLC-HTTP-Probe").start();
+    }
+
     private String buildTikTokVlcFailureDiagnostic() {
         StringBuilder detail = new StringBuilder();
         detail.append("TikTok VLC diagnostic:")
@@ -5539,6 +5627,8 @@ public class MainActivity extends Activity {
                         : Math.max(0L, System.currentTimeMillis() - vlcAttemptStartedAtMs))
                 .append("\n- Video output count: ").append(vlcLastVoutCount)
                 .append("\n- Track events: ").append(vlcTrackEvents)
+                .append("\\n- Bounded HTTP probe: ").append(vlcHttpProbeDiagnostic)
+                .append(", duration_ms=").append(vlcHttpProbeDurationMs)
                 .append("\n- Event history: ")
                 .append(vlcEventHistory.isEmpty() ? "none" : vlcEventHistory);
 
@@ -6195,6 +6285,9 @@ public class MainActivity extends Activity {
                 vlcLastVoutCount = -1;
                 vlcTrackEvents = "لم يتم رصد مسارات بعد.";
                 vlcAttemptStartedAtMs = System.currentTimeMillis();
+                vlcHttpProbeDiagnostic = "الفحص قيد التنفيذ.";
+                vlcHttpProbeDurationMs = -1L;
+                startTikTokVlcHttpProbe(url, currentPlaybackHeaders);
                 final long vlcAttemptToken = ++vlcPlaybackAttemptToken;
                 playerView.setVisibility(View.GONE);
                 vlcVideoLayout.setVisibility(View.VISIBLE);
