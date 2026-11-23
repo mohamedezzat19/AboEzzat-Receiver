@@ -108,6 +108,7 @@ public class MainActivity extends Activity {
     private final Object tikTokCdnDiagnosticLock = new Object();
     private String lastTikTokCdnResponseDiagnostic = "";
     private long lastTikTokCdnBytesReceived = 0L;
+    private String lastTikTokCdnInitialBytes = "not captured";
 
     private FrameLayout root;
     private LinearLayout welcomeScreen;
@@ -5410,7 +5411,8 @@ public class MainActivity extends Activity {
             if (lastTikTokCdnResponseDiagnostic == null || lastTikTokCdnResponseDiagnostic.isEmpty()) {
                 return "TikTok CDN response: no HTTP response captured";
             }
-            return lastTikTokCdnResponseDiagnostic + " / bytes_received=" + lastTikTokCdnBytesReceived;
+            return lastTikTokCdnResponseDiagnostic + " / bytes_received=" + lastTikTokCdnBytesReceived
+                    + " / first_bytes_hex=" + lastTikTokCdnInitialBytes;
         }
     }
 
@@ -6611,6 +6613,7 @@ public class MainActivity extends Activity {
                         synchronized (tikTokCdnDiagnosticLock) {
                             lastTikTokCdnResponseDiagnostic = response.toString();
                             lastTikTokCdnBytesReceived = 0L;
+                            lastTikTokCdnInitialBytes = "not captured";
                         }
                         Log.i(TAG, response.toString());
                     }
@@ -6650,7 +6653,69 @@ public class MainActivity extends Activity {
             }
             httpFactory.setDefaultRequestProperties(safe);
         }
-        return new DefaultMediaSourceFactory(new DefaultDataSource.Factory(this, httpFactory));
+        androidx.media3.datasource.DataSource.Factory upstreamFactory =
+                new DefaultDataSource.Factory(this, httpFactory);
+        // Capture only the first 16 response bytes (hex), never the media payload.
+        // This distinguishes a genuine FLV signature ("46 4C 56") from an HTML/error
+        // body mislabeled by the CDN as video/x-flv.
+        androidx.media3.datasource.DataSource.Factory diagnosticFactory = () -> {
+            final androidx.media3.datasource.DataSource upstream = upstreamFactory.createDataSource();
+            return new androidx.media3.datasource.DataSource() {
+                private boolean captureTikTok;
+
+                @Override
+                public void addTransferListener(androidx.media3.datasource.TransferListener listener) {
+                    upstream.addTransferListener(listener);
+                }
+
+                @Override
+                public long open(androidx.media3.datasource.DataSpec dataSpec) throws java.io.IOException {
+                    captureTikTok = isTikTokCdnVideoUrl(dataSpec.uri.toString());
+                    if (captureTikTok) {
+                        synchronized (tikTokCdnDiagnosticLock) {
+                            lastTikTokCdnInitialBytes = "waiting";
+                        }
+                    }
+                    return upstream.open(dataSpec);
+                }
+
+                @Override
+                public int read(byte[] buffer, int offset, int length) throws java.io.IOException {
+                    int count = upstream.read(buffer, offset, length);
+                    if (captureTikTok && count > 0) {
+                        synchronized (tikTokCdnDiagnosticLock) {
+                            if ("waiting".equals(lastTikTokCdnInitialBytes)
+                                    || "not captured".equals(lastTikTokCdnInitialBytes)) {
+                                StringBuilder hex = new StringBuilder();
+                                int take = Math.min(16, count);
+                                for (int i = 0; i < take; i++) {
+                                    if (i > 0) hex.append(' ');
+                                    hex.append(String.format(Locale.ROOT, "%02X", buffer[offset + i] & 0xFF));
+                                }
+                                lastTikTokCdnInitialBytes = hex.toString();
+                            }
+                        }
+                    }
+                    return count;
+                }
+
+                @Override
+                public android.net.Uri getUri() {
+                    return upstream.getUri();
+                }
+
+                @Override
+                public java.util.Map<String, java.util.List<String>> getResponseHeaders() {
+                    return upstream.getResponseHeaders();
+                }
+
+                @Override
+                public void close() throws java.io.IOException {
+                    upstream.close();
+                }
+            };
+        };
+        return new DefaultMediaSourceFactory(diagnosticFactory);
     }
 
     // الصورة تظل ظاهرة بينما يشغّل ExoPlayer الصوت في الخلفية.
