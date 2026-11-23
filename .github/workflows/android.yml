@@ -103,17 +103,31 @@ jobs:
 
           mkdir -p "$RUNNER_TEMP/previous-apk-libs" "$RUNNER_TEMP/ffmpeg-base" "$GITHUB_WORKSPACE/app/libs"
           unzip -q "$RUNNER_TEMP/previous-release.apk" 'lib/armeabi-v7a/*' -d "$RUNNER_TEMP/previous-apk-libs"
-          test -s "$RUNNER_TEMP/previous-apk-libs/lib/armeabi-v7a/libavutil.so" || {
-            echo "::error::The last Receiver APK does not contain the required armeabi-v7a FFmpeg libraries."
-            exit 1
-          }
 
           curl -fL --retry 3 \
             https://repo.maven.apache.org/maven2/dev/ffmpegkit-maintained/ffmpeg-kit-full/8.1.9/ffmpeg-kit-full-8.1.9.aar \
             -o "$RUNNER_TEMP/ffmpeg-kit-full-8.1.9.aar"
           unzip -q "$RUNNER_TEMP/ffmpeg-kit-full-8.1.9.aar" -d "$RUNNER_TEMP/ffmpeg-base"
           mkdir -p "$RUNNER_TEMP/ffmpeg-base/jni/armeabi-v7a"
-          cp -a "$RUNNER_TEMP/previous-apk-libs/lib/armeabi-v7a/." "$RUNNER_TEMP/ffmpeg-base/jni/armeabi-v7a/"
+
+          # Reuse only the ARMv7 native libraries whose filenames are present in
+          # the FFmpegKit AAR's ARM64 directory. The previous APK also contained
+          # LibVLC, so copying its entire lib directory would silently keep VLC's
+          # native binaries inside the FFmpegKit AAR after removing the dependency.
+          for ARM64_LIB in "$RUNNER_TEMP"/ffmpeg-base/jni/arm64-v8a/*.so; do
+            LIB_NAME="$(basename "$ARM64_LIB")"
+            ARMV7_SOURCE="$RUNNER_TEMP/previous-apk-libs/lib/armeabi-v7a/$LIB_NAME"
+            if [[ ! -s "$ARMV7_SOURCE" ]]; then
+              echo "::error::The previous APK is missing required FFmpegKit ARMv7 library: $LIB_NAME"
+              exit 1
+            fi
+            cp "$ARMV7_SOURCE" "$RUNNER_TEMP/ffmpeg-base/jni/armeabi-v7a/$LIB_NAME"
+          done
+
+          test -s "$RUNNER_TEMP/ffmpeg-base/jni/armeabi-v7a/libavutil.so" || {
+            echo "::error::The FFmpegKit AAR is missing the required armeabi-v7a libavutil.so."
+            exit 1
+          }
 
           (cd "$RUNNER_TEMP/ffmpeg-base" && zip -q -r "$GITHUB_WORKSPACE/app/libs/ffmpeg-kit-full.aar" .)
           unzip -Z1 "$GITHUB_WORKSPACE/app/libs/ffmpeg-kit-full.aar" | grep -q "jni/armeabi-v7a/libavutil.so" || {
