@@ -6059,7 +6059,7 @@ public class MainActivity extends Activity {
                         if (header.getKey() == null || header.getValue() == null) continue;
                         String key = header.getKey().toLowerCase(Locale.ROOT);
                         String value = header.getValue();
-                        if (value.length() > 2048 || value.contains("\\r") || value.contains("\\n")) continue;
+                        if (value.length() > 2048 || value.contains("\r") || value.contains("\n")) continue;
                         if ("user-agent".equals(key)) vlcUserAgent = value;
                         else if ("referer".equals(key)) vlcReferer = value;
                     }
