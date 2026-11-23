@@ -219,6 +219,7 @@ public class MainActivity extends Activity {
     private VLCVideoLayout vlcVideoLayout;
     private volatile boolean isVlcPlaybackActive = false;
     private volatile boolean vlcPlaybackHasStarted = false;
+    private volatile String vlcLastEventDiagnostic = "لم تصل أي إشارة من VLC بعد.";
     private long vlcPlaybackAttemptToken = 0L;
     // Keep the selected level separately from mute state.
     private float lastNonZeroVolume = 1.0f;
@@ -6007,32 +6008,43 @@ public class MainActivity extends Activity {
                         final int eventType = event.type;
                         runOnUiThread(() -> {
                             if (!isVlcPlaybackActive) return;
-                            if (eventType == MediaPlayer.Event.Opening
-                                    || eventType == MediaPlayer.Event.Buffering) {
+                            if (eventType == MediaPlayer.Event.Opening) {
+                                vlcLastEventDiagnostic = "VLC بدأ فتح اتصال البث (Opening).";
+                                Log.i(TAG, "TikTok FLV VLC event: Opening");
+                                setPlayerBufferingVisible(true);
+                            } else if (eventType == MediaPlayer.Event.Buffering) {
+                                vlcLastEventDiagnostic = "VLC متصل ويحاول تحميل بيانات البث (Buffering).";
+                                Log.i(TAG, "TikTok FLV VLC event: Buffering");
                                 setPlayerBufferingVisible(true);
                             } else if (eventType == MediaPlayer.Event.Playing) {
+                                vlcLastEventDiagnostic = "VLC أرسل إشارة Playing.";
                                 vlcPlaybackHasStarted = true;
                                 setPlayerBufferingVisible(false);
                                 extractionStatus = "playing";
                                 playbackStatusMessage = "TikTok LIVE يعمل بمحرك VLC/FFmpeg.";
                                 persistExtractionState();
-                                Log.i(TAG, "TikTok FLV playback started with LibVLC avformat");
+                                Log.i(TAG, "TikTok FLV playback started with LibVLC");
                             } else if (eventType == MediaPlayer.Event.EncounteredError) {
+                                vlcLastEventDiagnostic = "VLC أرسل EncounteredError أثناء فتح أو قراءة البث.";
+                                Log.e(TAG, "TikTok FLV VLC event: EncounteredError");
                                 setPlayerBufferingVisible(false);
                                 extractionStatus = "error";
-                                playbackStatusMessage = "فشل محرك VLC في قراءة بث TikTok FLV.";
+                                playbackStatusMessage = "VLC أرسل EncounteredError أثناء قراءة بث TikTok FLV.";
                                 recordReceiverFailure("تشغيل TikTok FLV",
                                         originalIncomingMediaUrl == null || originalIncomingMediaUrl.isEmpty()
                                                 ? currentPlaybackUrl : originalIncomingMediaUrl,
-                                        currentPlaybackUrl, playbackStatusMessage);
+                                        currentPlaybackUrl, playbackStatusMessage + " " + vlcLastEventDiagnostic);
                                 persistExtractionState();
                                 new AlertDialog.Builder(MainActivity.this)
                                         .setTitle("فشل تشغيل TikTok بواسطة VLC")
-                                        .setMessage("محرك VLC/FFmpeg لم يتمكن من قراءة البث. الرابط لم يتم تغييره.")
+                                        .setMessage("VLC أبلغ عن خطأ أثناء فتح البث أو قراءة بياناته. لم يتم تغيير الرابط.\n\nالتشخيص: " + vlcLastEventDiagnostic)
                                         .setPositiveButton("موافق", null)
                                         .show();
                             } else if (eventType == MediaPlayer.Event.EndReached
                                     || eventType == MediaPlayer.Event.Stopped) {
+                                vlcLastEventDiagnostic = eventType == MediaPlayer.Event.EndReached
+                                        ? "VLC أنهى البث (EndReached)." : "VLC أوقف التشغيل (Stopped).";
+                                Log.i(TAG, "TikTok FLV VLC event: " + vlcLastEventDiagnostic);
                                 setPlayerBufferingVisible(false);
                             }
                         });
@@ -6077,6 +6089,7 @@ public class MainActivity extends Activity {
                 vlcMediaPlayer.setVolume(muted ? 0 : Math.round(lastNonZeroVolume * 100f));
                 isVlcPlaybackActive = true;
                 vlcPlaybackHasStarted = false;
+                vlcLastEventDiagnostic = "تم إرسال أمر play إلى VLC، في انتظار أول إشارة.";
                 final long vlcAttemptToken = ++vlcPlaybackAttemptToken;
                 playerView.setVisibility(View.GONE);
                 vlcVideoLayout.setVisibility(View.VISIBLE);
@@ -6089,9 +6102,9 @@ public class MainActivity extends Activity {
                 new Handler(Looper.getMainLooper()).postDelayed(() -> {
                     if (!isVlcPlaybackActive || vlcPlaybackAttemptToken != vlcAttemptToken
                             || vlcPlaybackHasStarted) return;
-                    Log.e(TAG, "TikTok FLV VLC startup timeout: no Playing event after 25 seconds");
+                    Log.e(TAG, "TikTok FLV VLC startup timeout after 25 seconds. Last event: " + vlcLastEventDiagnostic);
                     extractionStatus = "error";
-                    playbackStatusMessage = "انتهت مهلة بدء تشغيل بث TikTok داخل VLC دون وصول إشارة التشغيل.";
+                    playbackStatusMessage = "انتهت مهلة بدء تشغيل بث TikTok داخل VLC. آخر حالة: " + vlcLastEventDiagnostic;
                     persistExtractionState();
                     recordReceiverFailure("مهلة بدء تشغيل TikTok FLV بواسطة VLC",
                             originalIncomingMediaUrl == null || originalIncomingMediaUrl.isEmpty()
@@ -6100,7 +6113,7 @@ public class MainActivity extends Activity {
                     stopVlcPlayback();
                     new AlertDialog.Builder(MainActivity.this)
                             .setTitle("VLC لم يبدأ تشغيل البث")
-                            .setMessage("محرك VLC لم يصل إلى مرحلة التشغيل خلال 25 ثانية. تم إيقاف محاولة التشغيل بدل ترك شاشة التحميل معلقة.")
+                            .setMessage("محرك VLC لم يصل إلى مرحلة التشغيل خلال 25 ثانية.\n\nآخر حالة رصدها التطبيق: " + vlcLastEventDiagnostic + "\n\nتم إيقاف المحاولة بدل ترك شاشة التحميل معلقة.")
                             .setPositiveButton("موافق", null)
                             .show();
                 }, 25000L);
