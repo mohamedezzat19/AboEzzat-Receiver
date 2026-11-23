@@ -5852,6 +5852,10 @@ public class MainActivity extends Activity {
         } catch (Exception e) {
             Log.e(TAG, "Playback error", e);
             showWelcome();
+            if (currentPlaybackHasVideo) {
+                launchExternalVlcFallback(currentPlaybackUrl, "Receiver playback setup failed: "
+                        + e.getClass().getSimpleName());
+            }
         }
     }
 
@@ -6359,6 +6363,7 @@ public class MainActivity extends Activity {
         });
     }
 
+    private void togglePlaybackFromRemote() {
         if (player == null) return;
         synchronized (playerLock) {
             if (player.isPlaying()) player.pause();
