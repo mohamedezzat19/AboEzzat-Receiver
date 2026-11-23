@@ -6189,7 +6189,7 @@ public class MainActivity extends Activity {
                     media.addOption(":http-user-agent=VLC/3.6.5 LibVLC/3.6.5");
                     if (refererValue != null && !refererValue.trim().isEmpty()
                             && refererValue.length() <= 2048
-                            && refererValue.indexOf('\\r') < 0 && refererValue.indexOf('\\n') < 0) {
+                            && refererValue.indexOf('\r') < 0 && refererValue.indexOf('\n') < 0) {
                         media.addOption(":http-referrer=" + refererValue);
                     }
                     vlcTransportDiagnostic = "direct HTTPS to TikTok CDN (no session cookie; Referer "
