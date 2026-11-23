@@ -113,6 +113,9 @@ public class MainActivity extends Activity {
     private boolean lastTikTokCdnReachedEof = false;
     private long lastTikTokCdnTransferStartMs = 0L;
     private long lastTikTokCdnTransferDurationMs = -1L;
+    private String lastTikTokCdnHttpStatus = "unknown";
+    private String lastTikTokCdnReadError = "none";
+    private String lastTikTokCdnFlvProbe = "not captured";
 
     private FrameLayout root;
     private LinearLayout welcomeScreen;
@@ -5459,11 +5462,14 @@ public class MainActivity extends Activity {
             if (lastTikTokCdnResponseDiagnostic == null || lastTikTokCdnResponseDiagnostic.isEmpty()) {
                 return "TikTok CDN response: no HTTP response captured";
             }
-            return lastTikTokCdnResponseDiagnostic + " / bytes_received=" + lastTikTokCdnBytesReceived
+            return lastTikTokCdnResponseDiagnostic + " / http_status=" + lastTikTokCdnHttpStatus
+                    + " / bytes_received=" + lastTikTokCdnBytesReceived
                     + " / transfer_ended=" + lastTikTokCdnTransferEnded
                     + " / eof_reached=" + lastTikTokCdnReachedEof
                     + " / transfer_duration_ms=" + lastTikTokCdnTransferDurationMs
-                    + " / first_bytes_hex=" + lastTikTokCdnInitialBytes;
+                    + " / first_bytes_hex=" + lastTikTokCdnInitialBytes
+                    + " / flv_probe={" + lastTikTokCdnFlvProbe + "}"
+                    + " / read_error=" + lastTikTokCdnReadError;
         }
     }
 
@@ -6629,6 +6635,72 @@ public class MainActivity extends Activity {
         }
     }
 
+    private String describeTikTokFlvBytes(byte[] data, int length) {
+        if (data == null || length <= 0) return "empty";
+        int size = Math.min(length, data.length);
+        if (size < 9) return "header=incomplete(" + size + ")";
+        boolean signature = data[0] == 'F' && data[1] == 'L' && data[2] == 'V';
+        int headerSize = ((data[5] & 0xFF) << 24) | ((data[6] & 0xFF) << 16)
+                | ((data[7] & 0xFF) << 8) | (data[8] & 0xFF);
+        StringBuilder out = new StringBuilder();
+        out.append("signature=").append(signature ? "FLV" : "invalid")
+                .append(", version=").append(data[3] & 0xFF)
+                .append(", flags=").append(data[4] & 0xFF)
+                .append(", header_size=").append(headerSize);
+        if (!signature || headerSize < 9 || headerSize > size) return out.toString() + ", tags=unavailable";
+        int position = headerSize + 4; // Skip PreviousTagSize0.
+        int tags = 0, audio = 0, video = 0, script = 0, malformed = 0;
+        StringBuilder types = new StringBuilder();
+        while (position + 11 <= size && tags < 512) {
+            int type = data[position] & 0xFF;
+            int dataSize = ((data[position + 1] & 0xFF) << 16)
+                    | ((data[position + 2] & 0xFF) << 8) | (data[position + 3] & 0xFF);
+            long next = (long) position + 11L + dataSize + 4L;
+            if (next > size) {
+                malformed++;
+                break;
+            }
+            tags++;
+            if (type == 8) audio++;
+            else if (type == 9) video++;
+            else if (type == 18) script++;
+            if (types.length() < 120) {
+                if (types.length() > 0) types.append(',');
+                types.append(type).append(':').append(dataSize);
+            }
+            position = (int) next;
+        }
+        out.append(", tags=").append(tags)
+                .append(", audio_tags=").append(audio)
+                .append(", video_tags=").append(video)
+                .append(", script_tags=").append(script)
+                .append(", incomplete_tag=").append(malformed > 0)
+                .append(", tag_types=[").append(types).append("]");
+        return out.toString();
+    }
+
+    private String describeTikTokTransferError(Throwable error) {
+        if (error == null) return "none";
+        StringBuilder out = new StringBuilder();
+        Throwable current = error;
+        int depth = 0;
+        while (current != null && depth++ < 6) {
+            if (out.length() > 0) out.append(" -> ");
+            out.append(current.getClass().getSimpleName());
+            String message = current.getMessage();
+            if (message != null && !message.trim().isEmpty()) {
+                // Exception messages can contain signed URLs. Keep only a short,
+                // URL-redacted summary for the local diagnostic.
+                String safe = redactSensitiveUrl(message);
+                safe = safe.replaceAll("https?://\\S+", "[URL]");
+                if (safe.length() > 140) safe = safe.substring(0, 140);
+                out.append('(').append(safe).append(')');
+            }
+            current = current.getCause();
+        }
+        return out.toString();
+    }
+
     private DefaultMediaSourceFactory createMediaSourceFactory(java.util.Map<String, String> requestHeaders) {
         DefaultHttpDataSource.Factory httpFactory = new DefaultHttpDataSource.Factory()
                 .setConnectTimeoutMs(15000).setReadTimeoutMs(30000)
@@ -6646,6 +6718,12 @@ public class MainActivity extends Activity {
                         String responseUrl = source.getUri() == null ? "" : source.getUri().toString();
                         StringBuilder response = new StringBuilder("TikTok CDN response: url=")
                                 .append(redactSensitiveUrl(responseUrl));
+                        String status = "unknown";
+                        try {
+                            java.lang.reflect.Method method = source.getClass().getMethod("getResponseCode");
+                            Object value = method.invoke(source);
+                            if (value instanceof Number) status = String.valueOf(((Number) value).intValue());
+                        } catch (Exception ignored) { }
                         if (source instanceof androidx.media3.datasource.HttpDataSource) {
                             java.util.Map<String, java.util.List<String>> headers =
                                     ((androidx.media3.datasource.HttpDataSource) source).getResponseHeaders();
@@ -6656,23 +6734,27 @@ public class MainActivity extends Activity {
                                             || "server".equals(key) || "accept-ranges".equals(key)
                                             || "content-range".equals(key) || "content-encoding".equals(key)
                                             || "transfer-encoding".equals(key) || "cache-control".equals(key)
-                                            || "connection".equals(key))) continue;
+                                            || "connection".equals(key) || "location".equals(key))) continue;
                                     String value = entry.getValue() == null ? "" : String.join(", ", entry.getValue());
-                                    if (value.length() > 160) value = value.substring(0, 160);
+                                    if ("location".equals(key)) value = redactSensitiveUrl(value);
+                                    if (value.length() > 180) value = value.substring(0, 180);
                                     response.append(" / ").append(key).append("=").append(value);
                                 }
                             }
                         }
                         synchronized (tikTokCdnDiagnosticLock) {
                             lastTikTokCdnResponseDiagnostic = response.toString();
+                            lastTikTokCdnHttpStatus = status;
                             lastTikTokCdnBytesReceived = 0L;
                             lastTikTokCdnInitialBytes = "not captured";
                             lastTikTokCdnTransferEnded = false;
                             lastTikTokCdnReachedEof = false;
                             lastTikTokCdnTransferStartMs = System.currentTimeMillis();
                             lastTikTokCdnTransferDurationMs = -1L;
+                            lastTikTokCdnReadError = "none";
+                            lastTikTokCdnFlvProbe = "capturing";
                         }
-                        Log.i(TAG, response.toString());
+                        Log.i(TAG, response.toString() + " / http_status=" + status);
                     }
 
                     @Override
@@ -6683,7 +6765,6 @@ public class MainActivity extends Activity {
                             synchronized (tikTokCdnDiagnosticLock) {
                                 lastTikTokCdnBytesReceived += bytesTransferred;
                             }
-                            Log.d(TAG, "TikTok CDN bytes received=" + bytesTransferred);
                         }
                     }
 
@@ -6714,7 +6795,7 @@ public class MainActivity extends Activity {
                         || "priority".equals(key))
                         && entry.getValue() != null
                         && entry.getValue().length() <= ("cookie".equals(key) ? 8192 : 2048)
-                        && !entry.getValue().contains("\\r") && !entry.getValue().contains("\\n")) {
+                        && !entry.getValue().contains("\r") && !entry.getValue().contains("\n")) {
                     safe.put(entry.getKey(), entry.getValue());
                 }
             }
@@ -6722,17 +6803,33 @@ public class MainActivity extends Activity {
         }
         androidx.media3.datasource.DataSource.Factory upstreamFactory =
                 new DefaultDataSource.Factory(this, httpFactory);
-        // Capture only the first 16 response bytes (hex), never the media payload.
-        // This distinguishes a genuine FLV signature ("46 4C 56") from an HTML/error
-        // body mislabeled by the CDN as video/x-flv.
+        // Buffer only the first 64 KiB for bounded FLV tag diagnostics. No media
+        // payload or signed URL is written to logs or persistent storage.
         androidx.media3.datasource.DataSource.Factory diagnosticFactory = () -> {
             final androidx.media3.datasource.DataSource upstream = upstreamFactory.createDataSource();
             return new androidx.media3.datasource.DataSource() {
                 private boolean captureTikTok;
-                // A DataSource may return only a few bytes per read. Accumulate across
-                // reads so the diagnostic always contains the complete first 16 bytes.
+                private final java.io.ByteArrayOutputStream captured = new java.io.ByteArrayOutputStream(4096);
                 private final StringBuilder capturedHex = new StringBuilder();
                 private int capturedByteCount;
+
+                private void publishProbe() {
+                    if (!captureTikTok) return;
+                    byte[] bytes = captured.toByteArray();
+                    String probe = describeTikTokFlvBytes(bytes, bytes.length);
+                    synchronized (tikTokCdnDiagnosticLock) {
+                        lastTikTokCdnFlvProbe = probe;
+                        if (capturedHex.length() > 0) lastTikTokCdnInitialBytes = capturedHex.toString();
+                    }
+                }
+
+                private void recordReadError(java.io.IOException error) {
+                    if (!captureTikTok) return;
+                    publishProbe();
+                    synchronized (tikTokCdnDiagnosticLock) {
+                        lastTikTokCdnReadError = describeTikTokTransferError(error);
+                    }
+                }
 
                 @Override
                 public void addTransferListener(androidx.media3.datasource.TransferListener listener) {
@@ -6742,37 +6839,55 @@ public class MainActivity extends Activity {
                 @Override
                 public long open(androidx.media3.datasource.DataSpec dataSpec) throws java.io.IOException {
                     captureTikTok = isTikTokCdnVideoUrl(dataSpec.uri.toString());
+                    captured.reset();
                     capturedHex.setLength(0);
                     capturedByteCount = 0;
                     if (captureTikTok) {
                         synchronized (tikTokCdnDiagnosticLock) {
                             lastTikTokCdnInitialBytes = "waiting";
+                            lastTikTokCdnFlvProbe = "waiting";
+                            lastTikTokCdnReadError = "none";
                         }
                     }
-                    return upstream.open(dataSpec);
+                    try {
+                        return upstream.open(dataSpec);
+                    } catch (java.io.IOException error) {
+                        recordReadError(error);
+                        throw error;
+                    }
                 }
 
                 @Override
                 public int read(byte[] buffer, int offset, int length) throws java.io.IOException {
-                    int count = upstream.read(buffer, offset, length);
-                    if (captureTikTok && count == androidx.media3.common.C.RESULT_END_OF_INPUT) {
-                        synchronized (tikTokCdnDiagnosticLock) {
-                            lastTikTokCdnReachedEof = true;
+                    try {
+                        int count = upstream.read(buffer, offset, length);
+                        if (captureTikTok && count == androidx.media3.common.C.RESULT_END_OF_INPUT) {
+                            synchronized (tikTokCdnDiagnosticLock) {
+                                lastTikTokCdnReachedEof = true;
+                            }
+                            publishProbe();
                         }
+                        if (captureTikTok && count > 0) {
+                            int room = 65536 - captured.size();
+                            if (room > 0) captured.write(buffer, offset, Math.min(room, count));
+                            if (capturedByteCount < 16) {
+                                int take = Math.min(16 - capturedByteCount, count);
+                                for (int i = 0; i < take; i++) {
+                                    if (capturedHex.length() > 0) capturedHex.append(' ');
+                                    capturedHex.append(String.format(Locale.ROOT, "%02X",
+                                            buffer[offset + i] & 0xFF));
+                                }
+                                capturedByteCount += take;
+                                synchronized (tikTokCdnDiagnosticLock) {
+                                    lastTikTokCdnInitialBytes = capturedHex.toString();
+                                }
+                            }
+                        }
+                        return count;
+                    } catch (java.io.IOException error) {
+                        recordReadError(error);
+                        throw error;
                     }
-                    if (captureTikTok && count > 0 && capturedByteCount < 16) {
-                        int take = Math.min(16 - capturedByteCount, count);
-                        for (int i = 0; i < take; i++) {
-                            if (capturedHex.length() > 0) capturedHex.append(' ');
-                            capturedHex.append(String.format(Locale.ROOT, "%02X",
-                                    buffer[offset + i] & 0xFF));
-                        }
-                        capturedByteCount += take;
-                        synchronized (tikTokCdnDiagnosticLock) {
-                            lastTikTokCdnInitialBytes = capturedHex.toString();
-                        }
-                    }
-                    return count;
                 }
 
                 @Override
@@ -6787,7 +6902,13 @@ public class MainActivity extends Activity {
 
                 @Override
                 public void close() throws java.io.IOException {
-                    upstream.close();
+                    if (captureTikTok) publishProbe();
+                    try {
+                        upstream.close();
+                    } catch (java.io.IOException error) {
+                        recordReadError(error);
+                        throw error;
+                    }
                 }
             };
         };
