@@ -233,7 +233,7 @@ final class TikTokFfmpegHlsPipeline {
             try { FFmpegKit.cancel(id); } catch (Exception ignored) { }
         }
         closeBridge();
-        if (listener != null) listener.onFailure(buildDiagnostic());
+        if (listener != null) listener.onFailure(getDiagnostic());
     }
 
     void stop() {
