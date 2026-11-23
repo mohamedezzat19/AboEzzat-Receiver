@@ -3220,12 +3220,9 @@ public class MainActivity extends Activity {
     }
 
     /** Automatically hands failed media to the separately installed VLC app. */
-    private void launchExternalVlcFallback(String mediaUrl, String failureReason) {
+    private void launchExternalVlcFallback(String mediaUrl) {
         if (externalVlcFallbackLaunched || isFinishing() || isDestroyed()) return;
         externalVlcFallbackLaunched = true;
-        if (failureReason != null && !failureReason.trim().isEmpty()) {
-            Log.i(TAG, "External VLC fallback reason: " + failureReason.replace('\n', ' '));
-        }
         String targetUrl = mediaUrl;
         if (!isHttpUrl(targetUrl)) targetUrl = originalIncomingMediaUrl;
         if (!isHttpUrl(targetUrl)) targetUrl = currentPlaybackFallbackUrl;
@@ -3275,7 +3272,7 @@ public class MainActivity extends Activity {
         }
         persistExtractionState();
         recordReceiverFailure("استخراج الرابط", pageUrl, "", playbackStatusMessage);
-        launchExternalVlcFallback(pageUrl, playbackStatusMessage);
+        launchExternalVlcFallback(pageUrl);
     }
 
     /**
@@ -4593,7 +4590,7 @@ public class MainActivity extends Activity {
                 originalIncomingMediaUrl = failedSource;
                 String reason = "تعذر تجهيز رابط الوسائط المستلم؛ جاري تحويل الرابط الأصلي إلى VLC.";
                 recordReceiverFailure("استخراج الرابط", failedSource, "", reason);
-                launchExternalVlcFallback(failedSource, reason);
+                launchExternalVlcFallback(failedSource);
             }
             return;
         }
@@ -4667,7 +4664,7 @@ public class MainActivity extends Activity {
                 String reason = "الرابط المستلم لم يكن عنوان HTTP/HTTPS صالحًا أو لم يكن مدعومًا.";
                 recordReceiverFailure("استلام الرابط", originalIncomingMediaUrl, "", reason);
                 if (isHttpUrl(originalIncomingMediaUrl)) {
-                    launchExternalVlcFallback(originalIncomingMediaUrl, reason);
+                    launchExternalVlcFallback(originalIncomingMediaUrl);
                 } else {
                     Toast.makeText(this, "رابط غير مدعوم؛ استخدم رابط HTTP أو HTTPS صالحًا.", Toast.LENGTH_LONG).show();
                 }
@@ -5763,7 +5760,7 @@ public class MainActivity extends Activity {
                             persistExtractionState();
                             // Avoid logging full exceptions: signed CDN URLs may contain temporary tokens.
                             Log.e(TAG, "Media3 playback failed: " + detail);
-                            runOnUiThread(() -> launchExternalVlcFallback(currentPlaybackUrl, detail));
+                            runOnUiThread(() -> launchExternalVlcFallback(currentPlaybackUrl));
                         }
 
                         @Override
@@ -5871,8 +5868,7 @@ public class MainActivity extends Activity {
             Log.e(TAG, "Playback error", e);
             showWelcome();
             if (currentPlaybackHasVideo) {
-                launchExternalVlcFallback(currentPlaybackUrl, "Receiver playback setup failed: "
-                        + e.getClass().getSimpleName());
+                launchExternalVlcFallback(currentPlaybackUrl);
             }
         }
     }
@@ -6073,7 +6069,7 @@ public class MainActivity extends Activity {
         if (activePipeline != null) activePipeline.stop();
         Log.e(TAG, "TikTok FFmpeg/HLS playback failed: "
                 + diagnostic.replace('\n', ' '));
-        launchExternalVlcFallback(sourceUrl, "فشل تشغيل TikTok LIVE عبر FFmpeg/HLS: " + diagnostic);
+        launchExternalVlcFallback(sourceUrl);
     }
 
     private void stopTikTokFfmpegPipeline() {
