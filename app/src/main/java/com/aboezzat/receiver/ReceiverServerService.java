@@ -361,11 +361,8 @@ public class ReceiverServerService extends Service {
                             }
                         }
                     }
-                    // Persist playback headers with the pending URL so the player can use
-                    // the same authorization context that Share supplied.
+                    // Keep the sanitized headers until the URL/audio pair is persisted below.
                     incomingHeaders = safeHeaders;
-                    getSharedPreferences("AboEzzatReceiverPending", MODE_PRIVATE).edit()
-                            .putString("headers", safeHeaders.toString()).apply();
                 }
             } else if (target.contains("?")) {
                 int questionIndex = target.indexOf('?');
@@ -423,9 +420,12 @@ public class ReceiverServerService extends Service {
 
         if ((mediaUrl != null && !mediaUrl.trim().isEmpty())
                 || (audioUrl != null && !audioUrl.trim().isEmpty())) {
+            // Persist the URL, audio track, and their matching headers atomically.
+            // An empty header object intentionally clears credentials from any older request.
             getSharedPreferences("AboEzzatReceiverPending", MODE_PRIVATE).edit()
                     .putString("url", mediaUrl == null ? "" : mediaUrl)
                     .putString("audio", audioUrl == null ? "" : audioUrl)
+                    .putString("headers", incomingHeaders.toString())
                     .putLong("received_at", System.currentTimeMillis())
                     .apply();
         }
