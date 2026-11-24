@@ -812,12 +812,12 @@ public class MainActivity extends Activity {
                 ? new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", java.util.Locale.getDefault())
                         .format(new java.util.Date(lastTlsTime))
                 : "غير متاح";
-        String details = "عنوان IP: " + ip + "\\nبورت الاستقبال: " + port
-                + "\\nالشبكة: " + (networkConnected ? "متصل" : "غير متصل أو لم تُكتشف")
-                + "\\nإصدار أندرويد: " + android.os.Build.VERSION.RELEASE
-                + "\\nالجهاز: " + android.os.Build.MANUFACTURER + " " + android.os.Build.MODEL
-                + "\\n\\nآخر نتيجة لاتصال TLS (" + tlsTime + "):\\n" + lastTlsResult
-                + "\\n\\nلو Share لا يتصل، انسخ التشخيص بعد محاولة الربط وأرسله للمطور.";
+        String details = "عنوان IP: " + ip + "\nبورت الاستقبال: " + port
+                + "\nالشبكة: " + (networkConnected ? "متصل" : "غير متصل أو لم تُكتشف")
+                + "\nإصدار أندرويد: " + android.os.Build.VERSION.RELEASE
+                + "\nالجهاز: " + android.os.Build.MANUFACTURER + " " + android.os.Build.MODEL
+                + "\n\nآخر نتيجة لاتصال TLS (" + tlsTime + "):\n" + lastTlsResult
+                + "\n\nلو Share لا يتصل، انسخ التشخيص بعد محاولة الربط وأرسله للمطور.";
         new AlertDialog.Builder(this).setTitle("تشخيص الاتصال")
                 .setMessage(details)
                 .setPositiveButton("نسخ المعلومات", (d,w) -> {
