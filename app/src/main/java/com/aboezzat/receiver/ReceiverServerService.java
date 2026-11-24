@@ -365,7 +365,8 @@ public class ReceiverServerService extends Service {
         return ((KeyStore.SecretKeyEntry) keyStore.getEntry(alias, null)).getSecretKey();
     }
 
-    private String createPairingResponse(String suppliedCode) {
+    // Serialize pairing attempts so concurrent requests cannot consume the same one-time code.
+    private synchronized String createPairingResponse(String suppliedCode) {
         SharedPreferences pairing = getSharedPreferences("AboEzzatPairing", MODE_PRIVATE);
         String expectedCode = pairing.getString("pairing_code", "");
         long expiresAt = pairing.getLong("code_expires_at", 0L);
@@ -396,8 +397,15 @@ public class ReceiverServerService extends Service {
             Log.e(TAG, "Could not protect new receiver pairing key", encryptionError);
             return null;
         }
-        pairing.edit().putString("receiver_secret_enc", protectedSecret).remove("receiver_secret")
-                .remove("pairing_code").remove("code_expires_at").remove("failed_attempts").apply();
+        // Persist the one-time code consumption and new encrypted key before returning the secret.
+        // This prevents a process restart from reopening the same pairing window.
+        boolean committed = pairing.edit().putString("receiver_secret_enc", protectedSecret)
+                .remove("receiver_secret").remove("pairing_code")
+                .remove("code_expires_at").remove("failed_attempts").commit();
+        if (!committed) {
+            Log.e(TAG, "Could not persist receiver pairing state");
+            return null;
+        }
         JSONObject result = new JSONObject();
         try {
             result.put("paired", true);
