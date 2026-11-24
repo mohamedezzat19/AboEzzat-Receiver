@@ -657,11 +657,11 @@ public class MainActivity extends Activity {
 
         long remaining = Math.max(0L, (expiresAt - System.currentTimeMillis() + 59999L) / 60000L);
         String message = "افتح أبو عزت كاست على الموبايل، ثم الإعدادات > ربط مع الريسيفر. "
-                + "أدخل كود الربط، وتأكد من مطابقة بصمة الشهادة الظاهرة هنا قبل المتابعة.\\n\\n"
-                + "كود الربط:\\n" + displayedCode
-                + "\\n\\nبصمة شهادة الاتصال (SHA-256 / Base64URL):\\n"
+                + "أدخل كود الربط، وتأكد من مطابقة بصمة الشهادة الظاهرة هنا قبل المتابعة.\n\n"
+                + "كود الربط:\n" + displayedCode
+                + "\n\nبصمة شهادة الاتصال (SHA-256 / Base64URL):\n"
                 + certificateFingerprint
-                + "\\n\\nصالح لمدة تصل إلى " + remaining + " دقائق، ويسمح بخمس محاولات فقط. "
+                + "\n\nصالح لمدة تصل إلى " + remaining + " دقائق، ويسمح بخمس محاولات فقط. "
                 + "لا تشارك كود الربط مع أي شخص.";
         new AlertDialog.Builder(this).setTitle("🔐 كود الربط وبصمة الاتصال")
                 .setMessage(message)
