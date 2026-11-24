@@ -525,7 +525,7 @@ public class ReceiverServerService extends Service {
                 Log.i(TAG, "TLS handshake completed: protocol=" + tlsSession.getProtocol()
                         + ", cipher=" + tlsSession.getCipherSuite()
                         + ", peer=" + client.getInetAddress().getHostAddress());
-            } catch (SSLException handshakeError) {
+            } catch (Exception handshakeError) {
                 String tlsFailure = handshakeError.getClass().getSimpleName()
                         + (handshakeError.getMessage() == null ? "" : ": " + handshakeError.getMessage());
                 getSharedPreferences("ReceiverTlsDiagnostics", MODE_PRIVATE).edit()
