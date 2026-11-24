@@ -4137,7 +4137,11 @@ public class MainActivity extends Activity {
             settings.setJavaScriptEnabled(getSharedPreferences("AboEzzatBrowser", MODE_PRIVATE)
                     .getBoolean("javascript", true));
             settings.setAllowFileAccess(false);
-            settings.setAllowContentAccess(true);
+            settings.setAllowContentAccess(false);
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.LOLLIPOP) {
+                settings.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
+            }
+            settings.setGeolocationEnabled(false);
             if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.JELLY_BEAN) {
                 settings.setAllowFileAccessFromFileURLs(false);
                 settings.setAllowUniversalAccessFromFileURLs(false);
@@ -4172,10 +4176,18 @@ public class MainActivity extends Activity {
             fallbackWebView.setWebViewClient(new WebViewClient() {
                 @Override
                 public boolean shouldOverrideUrlLoading(WebView view, android.webkit.WebResourceRequest request) {
-                    android.net.Uri uri = request == null ? null : request.getUrl();
-                    return uri != null
-                            && getSharedPreferences("AboEzzatBrowser", MODE_PRIVATE).getBoolean("adblock_enabled", true)
-                            && isKnownBrowserAdRequest(uri.toString());
+                    Uri uri = request == null ? null : request.getUrl();
+                    if (uri == null || !isHttpUrl(uri.toString())) return true;
+                    return getSharedPreferences("AboEzzatBrowser", MODE_PRIVATE)
+                            .getBoolean("adblock_enabled", true) && isKnownBrowserAdRequest(uri.toString());
+                }
+
+                @Override
+                @SuppressWarnings("deprecation")
+                public boolean shouldOverrideUrlLoading(WebView view, String url) {
+                    if (!isHttpUrl(url)) return true;
+                    return getSharedPreferences("AboEzzatBrowser", MODE_PRIVATE)
+                            .getBoolean("adblock_enabled", true) && isKnownBrowserAdRequest(url);
                 }
 
                 @Override
@@ -4313,19 +4325,32 @@ public class MainActivity extends Activity {
                     popupSettings.setJavaScriptCanOpenWindowsAutomatically(false);
                     popupSettings.setSupportMultipleWindows(false);
                     popupSettings.setAllowFileAccess(false);
-                    popupSettings.setAllowContentAccess(true);
+                    popupSettings.setAllowContentAccess(false);
+                    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.LOLLIPOP) {
+                        popupSettings.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
+                    }
+                    popupSettings.setGeolocationEnabled(false);
                     if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
                         popupSettings.setSafeBrowsingEnabled(true);
                     }
                     CookieManager.getInstance().setAcceptCookie(true);
                     if (android.os.Build.VERSION.SDK_INT >= 21) {
-                        CookieManager.getInstance().setAcceptThirdPartyCookies(popup, true);
+                        CookieManager.getInstance().setAcceptThirdPartyCookies(popup,
+                                getSharedPreferences("AboEzzatBrowser", MODE_PRIVATE)
+                                        .getBoolean("cookies", true));
                     }
                     popup.setWebViewClient(new WebViewClient() {
                         @Override public boolean shouldOverrideUrlLoading(WebView w, android.webkit.WebResourceRequest req) {
                             Uri u = req == null ? null : req.getUrl();
-                            return u != null && getSharedPreferences("AboEzzatBrowser", MODE_PRIVATE)
+                            if (u == null || !isHttpUrl(u.toString())) return true;
+                            return getSharedPreferences("AboEzzatBrowser", MODE_PRIVATE)
                                     .getBoolean("adblock_enabled", true) && isKnownBrowserAdRequest(u.toString());
+                        }
+                        @Override @SuppressWarnings("deprecation")
+                        public boolean shouldOverrideUrlLoading(WebView w, String url) {
+                            if (!isHttpUrl(url)) return true;
+                            return getSharedPreferences("AboEzzatBrowser", MODE_PRIVATE)
+                                    .getBoolean("adblock_enabled", true) && isKnownBrowserAdRequest(url);
                         }
                         @Override public void onSafeBrowsingHit(WebView w, android.webkit.WebResourceRequest req,
                                 int threatType, android.webkit.SafeBrowsingResponse response) {
