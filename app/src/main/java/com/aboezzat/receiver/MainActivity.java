@@ -5251,8 +5251,9 @@ public class MainActivity extends Activity {
             }
             playbackQueueIndex = playbackQueue.size() - 1;
             loadPlaybackHistoryItems();
-            // Remove any previously persisted bearer-token media URLs from history.
+            // Remove any previously persisted bearer-token media URLs from both history stores.
             savePlaybackHistory();
+            savePlaybackHistoryItems();
 
         } catch (Exception e) {
             Log.w(TAG, "Unable to load playback history", e);
