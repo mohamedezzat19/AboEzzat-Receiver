@@ -793,10 +793,16 @@ public class ReceiverServerService extends Service {
             java.net.URL url = new java.net.URL(value.trim());
             String path = url.getPath();
             String token = url.getQuery();
+            String host = url.getHost();
+            if (host == null || !host.matches("(?:[0-9]{1,3}\\.){3}[0-9]{1,3}")) return false;
+            InetAddress address = InetAddress.getByName(host);
             return "https".equalsIgnoreCase(url.getProtocol())
                     && url.getPort() == 8088
                     && ("/media.mp4".equals(path) || "/media.jpg".equals(path))
                     && url.getUserInfo() == null
+                    && address instanceof java.net.Inet4Address
+                    && address.isSiteLocalAddress() && !address.isLoopbackAddress()
+                    && !address.isLinkLocalAddress() && !address.isMulticastAddress()
                     && token != null && token.matches("token=[A-Za-z0-9_-]{43}");
         } catch (Exception e) {
             return false;
