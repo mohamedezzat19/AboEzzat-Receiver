@@ -483,6 +483,7 @@ public class ReceiverServerService extends Service {
         String audioUrl = null;
         String sourceUrl = null;
         String command = null;
+        String mediaTlsPin = null;
         boolean invalidMediaUrl = false;
         boolean invalidRequestMethod = false;
         boolean unauthorized = false;
@@ -635,6 +636,7 @@ public class ReceiverServerService extends Service {
                     if ("url".equals(key) || "video".equals(key)) mediaUrl = value;
                     else if ("audio".equals(key)) audioUrl = value;
                     else if ("sourceUrl".equals(key)) sourceUrl = value;
+                    else if ("mediaPin".equals(key)) mediaTlsPin = value;
                     else if ("command".equals(key)) command = value;
                     else if ("open".equals(key) || "browser".equals(key))
                         openBrowser = "1".equals(value) || "true".equalsIgnoreCase(value) || "browser".equalsIgnoreCase(value);
@@ -642,9 +644,24 @@ public class ReceiverServerService extends Service {
             }
 
             if (sourceUrl != null && !sourceUrl.trim().isEmpty() && !isHttpUrl(sourceUrl)) sourceUrl = null;
+            boolean castMediaPortUrl = isCastMediaPortUrl(mediaUrl);
+            boolean validCastTlsMediaUrl = isValidCastTlsMediaUrl(mediaUrl);
             invalidMediaUrl = invalidMediaUrl || (mediaUrl != null && !mediaUrl.trim().isEmpty()
                     && !isHttpUrl(mediaUrl))
-                    || (audioUrl != null && !audioUrl.trim().isEmpty() && !isHttpUrl(audioUrl));
+                    || (audioUrl != null && !audioUrl.trim().isEmpty() && !isHttpUrl(audioUrl))
+                    || (castMediaPortUrl && (!validCastTlsMediaUrl
+                            || mediaTlsPin == null || !mediaTlsPin.matches("[A-Za-z0-9_-]{43}")))
+                    || (mediaTlsPin != null && !validCastTlsMediaUrl);
+            if (!invalidMediaUrl && validCastTlsMediaUrl) {
+                try {
+                    String mediaHost = new java.net.URL(mediaUrl).getHost().toLowerCase(java.util.Locale.ROOT);
+                    boolean pinSaved = getSharedPreferences("AboEzzatReceiverMediaTlsPins", MODE_PRIVATE)
+                            .edit().putString("pin_" + mediaHost, mediaTlsPin).commit();
+                    if (!pinSaved) invalidMediaUrl = true;
+                } catch (Exception invalidPinTarget) {
+                    invalidMediaUrl = true;
+                }
+            }
             String body = unauthorized ? "Unauthorized"
                     : pairingRequest ? (pairingResponse == null ? "Pairing code invalid or expired" : pairingResponse)
                     : invalidRequestMethod ? "Method not allowed"
@@ -755,7 +772,32 @@ public class ReceiverServerService extends Service {
             java.net.URL url = new java.net.URL(value.trim());
             String protocol = url.getProtocol();
             return ("http".equalsIgnoreCase(protocol) || "https".equalsIgnoreCase(protocol))
-                    && url.getHost() != null && !url.getHost().trim().isEmpty();
+                    && url.getHost() != null && !url.getHost().trim().isEmpty()
+                    && url.getUserInfo() == null;
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    private boolean isCastMediaPortUrl(String value) {
+        try {
+            java.net.URL url = new java.net.URL(value.trim());
+            return url.getPort() == 8088;
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    private boolean isValidCastTlsMediaUrl(String value) {
+        try {
+            java.net.URL url = new java.net.URL(value.trim());
+            String path = url.getPath();
+            String token = url.getQuery();
+            return "https".equalsIgnoreCase(url.getProtocol())
+                    && url.getPort() == 8088
+                    && ("/media.mp4".equals(path) || "/media.jpg".equals(path))
+                    && url.getUserInfo() == null
+                    && token != null && token.matches("token=[A-Za-z0-9_-]{43}");
         } catch (Exception e) {
             return false;
         }
