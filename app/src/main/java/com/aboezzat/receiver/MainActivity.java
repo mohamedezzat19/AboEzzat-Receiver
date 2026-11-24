@@ -1035,6 +1035,7 @@ public class MainActivity extends Activity {
                 .remove("audio")
                 .remove("source_url")
                 .remove("headers")
+                .remove("open_browser")
                 .remove("received_at")
                 .apply();
     }
