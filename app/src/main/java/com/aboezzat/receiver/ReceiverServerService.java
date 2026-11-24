@@ -655,9 +655,19 @@ public class ReceiverServerService extends Service {
             if (!invalidMediaUrl && validCastTlsMediaUrl) {
                 try {
                     String mediaHost = new java.net.URL(mediaUrl).getHost().toLowerCase(java.util.Locale.ROOT);
-                    boolean pinSaved = getSharedPreferences("AboEzzatReceiverMediaTlsPins", MODE_PRIVATE)
-                            .edit().putString("pin_" + mediaHost, mediaTlsPin).commit();
-                    if (!pinSaved) invalidMediaUrl = true;
+                    SharedPreferences mediaPins = getSharedPreferences(
+                            "AboEzzatReceiverMediaTlsPins", MODE_PRIVATE);
+                    String pinKey = "pin_" + mediaHost;
+                    String existingPin = mediaPins.getString(pinKey, "");
+                    // A first pin may be stored only once. Never silently replace an
+                    // established certificate pin based on a later network request.
+                    if (existingPin == null || existingPin.isEmpty()) {
+                        if (!mediaPins.edit().putString(pinKey, mediaTlsPin).commit()) {
+                            invalidMediaUrl = true;
+                        }
+                    } else if (!existingPin.equals(mediaTlsPin)) {
+                        invalidMediaUrl = true;
+                    }
                 } catch (Exception invalidPinTarget) {
                     invalidMediaUrl = true;
                 }
