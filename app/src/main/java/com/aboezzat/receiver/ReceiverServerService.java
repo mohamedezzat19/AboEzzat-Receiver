@@ -499,6 +499,8 @@ public class ReceiverServerService extends Service {
             }
             int contentLength = 0;
             int totalHeaderBytes = 0;
+            int headerCount = 0;
+            boolean contentLengthSeen = false;
             String authTime = null;
             String authNonce = null;
             String authSignature = null;
@@ -506,13 +508,25 @@ public class ReceiverServerService extends Service {
             while ((headerLine = readBoundedRequestLine(input)) != null && !headerLine.isEmpty()) {
                 totalHeaderBytes += headerLine.length();
                 if (totalHeaderBytes > 16384) throw new IOException("HTTP headers exceed limit");
+                if (++headerCount > 64) throw new IOException("Too many HTTP headers");
                 int colon = headerLine.indexOf(':');
                 if (colon > 0) {
                     String headerName = headerLine.substring(0, colon).trim();
                     String headerValue = headerLine.substring(colon + 1).trim();
                     if ("content-length".equalsIgnoreCase(headerName)) {
-                        try { contentLength = Integer.parseInt(headerValue); }
-                        catch (Exception ignored) { contentLength = -1; }
+                        // Conflicting or repeated lengths can make HTTP parsers disagree.
+                        if (contentLengthSeen) {
+                            contentLength = -1;
+                        } else {
+                            contentLengthSeen = true;
+                            try {
+                                if (!headerValue.matches("[0-9]{1,6}")) contentLength = -1;
+                                else contentLength = Integer.parseInt(headerValue);
+                            } catch (Exception ignored) { contentLength = -1; }
+                        }
+                    } else if ("transfer-encoding".equalsIgnoreCase(headerName)) {
+                        // Chunked bodies are unsupported; reject instead of ambiguously parsing them.
+                        contentLength = -1;
                     } else if ("x-aboezzat-time".equalsIgnoreCase(headerName)) authTime = headerValue;
                     else if ("x-aboezzat-nonce".equalsIgnoreCase(headerName)) authNonce = headerValue;
                     else if ("x-aboezzat-signature".equalsIgnoreCase(headerName)) authSignature = headerValue;
