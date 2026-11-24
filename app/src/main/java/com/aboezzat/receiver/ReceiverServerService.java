@@ -41,6 +41,7 @@ public class ReceiverServerService extends Service {
     public static final String EXTRA_AUDIO = "server_audio";
     public static final String EXTRA_SOURCE_URL = "server_source_url";
     public static final String EXTRA_COMMAND = "server_command";
+    public static final String EXTRA_OPEN_BROWSER = "server_open_browser";
 
     private static final int DEFAULT_PORT = 8081;
     private volatile int activePort = DEFAULT_PORT;
@@ -307,6 +308,7 @@ public class ReceiverServerService extends Service {
         String sourceUrl = null;
         String command = null;
         boolean invalidMediaUrl = false;
+        boolean openBrowser = false;
         JSONObject incomingHeaders = new JSONObject();
         try (Socket socket = client) {
             socket.setSoTimeout(5000);
@@ -378,6 +380,8 @@ public class ReceiverServerService extends Service {
                     else if ("audio".equals(key)) audioUrl = value;
                     else if ("sourceUrl".equals(key)) sourceUrl = value;
                     else if ("command".equals(key)) command = value;
+                    else if ("open".equals(key) || "browser".equals(key))
+                        openBrowser = "1".equals(value) || "true".equalsIgnoreCase(value) || "browser".equalsIgnoreCase(value);
                 }
             }
 
@@ -432,6 +436,7 @@ public class ReceiverServerService extends Service {
                     .putString("audio", audioUrl == null ? "" : audioUrl)
                     .putString("source_url", sourceUrl == null ? "" : sourceUrl)
                     .putString("headers", incomingHeaders.toString())
+                    .putBoolean("open_browser", openBrowser)
                     .putLong("received_at", System.currentTimeMillis())
                     .apply();
         }
@@ -442,6 +447,7 @@ public class ReceiverServerService extends Service {
         request.putExtra(EXTRA_AUDIO, audioUrl);
         request.putExtra(EXTRA_SOURCE_URL, sourceUrl);
         request.putExtra(EXTRA_COMMAND, command);
+        request.putExtra(EXTRA_OPEN_BROWSER, openBrowser);
         request.putExtra("server_headers", incomingHeaders.toString());
         request.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK
                 | Intent.FLAG_ACTIVITY_CLEAR_TOP
