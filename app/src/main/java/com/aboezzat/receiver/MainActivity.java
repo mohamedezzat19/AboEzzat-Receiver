@@ -4171,7 +4171,8 @@ public class MainActivity extends Activity {
             CookieManager.getInstance().setAcceptCookie(getSharedPreferences("AboEzzatBrowser", MODE_PRIVATE)
                     .getBoolean("cookies", true));
             if (android.os.Build.VERSION.SDK_INT >= 21) {
-                CookieManager.getInstance().setAcceptThirdPartyCookies(fallbackWebView, true);
+                CookieManager.getInstance().setAcceptThirdPartyCookies(fallbackWebView,
+                        getSharedPreferences("AboEzzatBrowser", MODE_PRIVATE).getBoolean("cookies", true));
             }
             fallbackWebView.setWebViewClient(new WebViewClient() {
                 @Override
@@ -4320,7 +4321,8 @@ public class MainActivity extends Activity {
                     }
                     WebView popup = new WebView(MainActivity.this);
                     WebSettings popupSettings = popup.getSettings();
-                    popupSettings.setJavaScriptEnabled(true);
+                    popupSettings.setJavaScriptEnabled(getSharedPreferences("AboEzzatBrowser", MODE_PRIVATE)
+                            .getBoolean("javascript", true));
                     popupSettings.setDomStorageEnabled(true);
                     popupSettings.setJavaScriptCanOpenWindowsAutomatically(false);
                     popupSettings.setSupportMultipleWindows(false);
@@ -4333,7 +4335,9 @@ public class MainActivity extends Activity {
                     if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
                         popupSettings.setSafeBrowsingEnabled(true);
                     }
-                    CookieManager.getInstance().setAcceptCookie(true);
+                    boolean acceptBrowserCookies = getSharedPreferences("AboEzzatBrowser", MODE_PRIVATE)
+                            .getBoolean("cookies", true);
+                    CookieManager.getInstance().setAcceptCookie(acceptBrowserCookies);
                     if (android.os.Build.VERSION.SDK_INT >= 21) {
                         CookieManager.getInstance().setAcceptThirdPartyCookies(popup,
                                 getSharedPreferences("AboEzzatBrowser", MODE_PRIVATE)
