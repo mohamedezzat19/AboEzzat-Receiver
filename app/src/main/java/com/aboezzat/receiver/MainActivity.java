@@ -597,7 +597,8 @@ public class MainActivity extends Activity {
                 "🕘  سجل المشاهدة",
                 "🧾  سجل الروابط الفاشلة والتشخيص",
                 "ℹ  معلومات الإصدار",
-                "🚀  فتح الفيديو تلقائيًا: " + ((android.os.Build.VERSION.SDK_INT < 23 || android.provider.Settings.canDrawOverlays(this)) ? "مسموح" : "يحتاج إذن")
+                "🚀  فتح الفيديو تلقائيًا: " + ((android.os.Build.VERSION.SDK_INT < 23 || android.provider.Settings.canDrawOverlays(this)) ? "مسموح" : "يحتاج إذن"),
+                "🔐  إظهار كود الربط الآمن مع كاست"
         };
         new AlertDialog.Builder(this)
                 .setTitle("⚙ إعدادات الريسيفر")
@@ -625,6 +626,7 @@ public class MainActivity extends Activity {
                             } catch (Exception e) { Toast.makeText(this, "تعذّر قراءة معلومات الإصدار", Toast.LENGTH_SHORT).show(); }
                             break;
                         case 8: configureAutoForegroundPlayback(); break;
+                        case 9: showSharePairingCode(); break;
                     }
                 }).setNegativeButton("إغلاق", null).show();
     }
@@ -642,12 +644,20 @@ public class MainActivity extends Activity {
                     .putLong("code_expires_at", expiresAt).putInt("failed_attempts", 0).apply();
         }
         long remaining = Math.max(0L, (expiresAt - System.currentTimeMillis() + 59999L) / 60000L);
-        String message = "ده كود تجريبي لواجهة الاقتران فقط:\n\n"
-                + code + "\n\nصالح لمدة تصل إلى " + remaining + " دقائق.\n"
-                + "تنبيه: الاقتران الفعلي غير مفعّل حاليًا، والكود لا يربط Share ولا ينقل تسجيل الدخول أو بيانات المواقع. لا تشاركه مع أي شخص.";
-        new AlertDialog.Builder(this).setTitle("🔐 الاقتران — قيد التطوير")
+        String message = "افتح أبو عزت كاست على الموبايل، ثم الإعدادات > ربط آمن مع الريسيفر، وأدخل الكود التالي.\n\n"
+                + code + "\n\nصالح لمدة تصل إلى " + remaining + " دقائق، ويسمح بخمس محاولات فقط.\n"
+                + "بعد نجاح الربط، تُوقّع أوامر الإرسال بمفتاح سري ولا يُرسل المفتاح نفسه مع كل طلب. لا تشارك الكود مع أي شخص.";
+        new AlertDialog.Builder(this).setTitle("🔐 كود الربط الآمن")
                 .setMessage(message)
-                .setPositiveButton("توليد كود جديد", (d, w) -> {
+                .setPositiveButton("نسخ الكود", (d, w) -> {
+                    android.content.ClipboardManager clipboard =
+                            (android.content.ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
+                    if (clipboard != null) {
+                        clipboard.setPrimaryClip(android.content.ClipData.newPlainText("AboEzzat pairing code", code));
+                        Toast.makeText(this, "تم نسخ كود الربط", Toast.LENGTH_SHORT).show();
+                    }
+                })
+                .setNeutralButton("توليد كود جديد", (d, w) -> {
                     pairing.edit().remove("pairing_code").remove("code_expires_at")
                             .remove("failed_attempts").apply();
                     showSharePairingCode();
