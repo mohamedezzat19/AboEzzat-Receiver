@@ -201,9 +201,18 @@ public class ReceiverServerService extends Service {
                         } catch (RejectedExecutionException overloaded) {
                             // Fail fast instead of accumulating sockets/threads without a bound.
                             try (Socket rejected = client) {
-                                rejected.setSoTimeout(1000);
+                                // Even overload responses must use the TLS record layer.
+                                // Writing plaintext HTTP bytes to an SSLSocket before its
+                                // handshake makes clients report EOF/connection-closed TLS errors.
+                                if (!(rejected instanceof SSLSocket)) {
+                                    throw new SSLException("Rejected connection is not an SSLSocket");
+                                }
+                                SSLSocket rejectedTls = (SSLSocket) rejected;
+                                rejectedTls.setUseClientMode(false);
+                                rejectedTls.setSoTimeout(5000);
+                                rejectedTls.startHandshake();
                                 byte[] body = "Receiver busy".getBytes(StandardCharsets.UTF_8);
-                                OutputStream output = rejected.getOutputStream();
+                                OutputStream output = rejectedTls.getOutputStream();
                                 output.write(("HTTP/1.1 503 Service Unavailable\r\n"
                                         + "Content-Type: text/plain; charset=utf-8\r\n"
                                         + "Cache-Control: no-store, max-age=0\r\n"
