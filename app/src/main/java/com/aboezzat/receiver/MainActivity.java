@@ -705,7 +705,7 @@ public class MainActivity extends Activity {
                                 (int) (220 * getResources().getDisplayMetrics().density));
                 qrParams.gravity = android.view.Gravity.CENTER_HORIZONTAL;
                 qrParams.bottomMargin = pad;
-                panel.addView(qrImage, 0, qrParams);
+                panel.addView(qrImage, 1, qrParams);
             } catch (Exception qrError) {
                 Log.e("AboEzzatReceiver", "Could not generate pairing QR", qrError);
                 Toast.makeText(this, "تعذر إنشاء QR، استخدم النسخ اليدوي", Toast.LENGTH_LONG).show();
@@ -804,8 +804,10 @@ public class MainActivity extends Activity {
         expiryParams.topMargin = pad;
         panel.addView(expiry, expiryParams);
 
+        android.widget.ScrollView pairingScroll = new android.widget.ScrollView(this);
+        pairingScroll.addView(panel);
         new AlertDialog.Builder(this).setTitle("ربط أبو عزت كاست بالريسيفر")
-                .setView(panel)
+                .setView(pairingScroll)
                 .setPositiveButton("إغلاق", null)
                 .setNeutralButton("توليد كود جديد", (d, w) -> {
                     pairing.edit().remove("pairing_code").remove("code_expires_at")
