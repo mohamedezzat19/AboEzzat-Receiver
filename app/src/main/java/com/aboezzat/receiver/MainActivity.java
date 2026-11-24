@@ -642,19 +642,8 @@ public class MainActivity extends Activity {
         }
 
         final String displayedCode = code;
-        final String certificateFingerprint;
-        try {
-            certificateFingerprint = ReceiverTlsIdentity.getCertificateFingerprint();
-        } catch (Exception identityError) {
-            Log.e("AboEzzatReceiver", "Receiver TLS identity is unavailable", identityError);
-            Toast.makeText(this, "تعذر تجهيز هوية الاتصال المشفر. أعد تشغيل التطبيق وحاول مرة أخرى.",
-                    Toast.LENGTH_LONG).show();
-            return;
-        }
-
         long remaining = Math.max(0L, (expiresAt - System.currentTimeMillis() + 59999L) / 60000L);
         int pad = (int) (getResources().getDisplayMetrics().density * 18);
-
         android.widget.LinearLayout panel = new android.widget.LinearLayout(this);
         panel.setOrientation(android.widget.LinearLayout.VERTICAL);
         panel.setPadding(pad, pad, pad, pad);
@@ -671,7 +660,6 @@ public class MainActivity extends Activity {
                 qrPayload.put("host", receiverIp);
                 qrPayload.put("port", receiverPort);
                 qrPayload.put("code", displayedCode);
-                qrPayload.put("fingerprint", certificateFingerprint);
                 com.google.zxing.common.BitMatrix matrix =
                         new com.google.zxing.qrcode.QRCodeWriter().encode(
                                 qrPayload.toString(), com.google.zxing.BarcodeFormat.QR_CODE,
@@ -689,11 +677,10 @@ public class MainActivity extends Activity {
                 qrTitle.setTextSize(15);
                 qrTitle.setTextColor(Color.WHITE);
                 qrTitle.setGravity(android.view.Gravity.CENTER);
-                android.widget.LinearLayout.LayoutParams qrTitleParams =
+                android.widget.LinearLayout.LayoutParams titleParams =
                         new android.widget.LinearLayout.LayoutParams(-1, -2);
-                qrTitleParams.bottomMargin = pad / 2;
-                panel.addView(qrTitle, 0, qrTitleParams);
-
+                titleParams.bottomMargin = pad / 2;
+                panel.addView(qrTitle, titleParams);
                 android.widget.ImageView qrImage = new android.widget.ImageView(this);
                 qrImage.setImageBitmap(qrBitmap);
                 qrImage.setScaleType(android.widget.ImageView.ScaleType.FIT_CENTER);
@@ -705,17 +692,17 @@ public class MainActivity extends Activity {
                                 (int) (220 * getResources().getDisplayMetrics().density));
                 qrParams.gravity = android.view.Gravity.CENTER_HORIZONTAL;
                 qrParams.bottomMargin = pad;
-                panel.addView(qrImage, 1, qrParams);
+                panel.addView(qrImage, qrParams);
             } catch (Exception qrError) {
                 Log.e("AboEzzatReceiver", "Could not generate pairing QR", qrError);
-                Toast.makeText(this, "تعذر إنشاء QR، استخدم النسخ اليدوي", Toast.LENGTH_LONG).show();
+                Toast.makeText(this, "تعذر إنشاء QR، استخدم الكود اليدوي", Toast.LENGTH_LONG).show();
             }
         } else {
             Toast.makeText(this, "عنوان الشبكة غير متاح لإنشاء QR. استخدم الربط اليدوي.", Toast.LENGTH_LONG).show();
         }
 
         android.widget.TextView instructions = new android.widget.TextView(this);
-        instructions.setText("انسخ كل قيمة من الزر الموجود تحتها، ثم أدخلها في أبو عزت كاست عند ربط الريسيفر لأول مرة.");
+        instructions.setText("امسح QR أو أدخل عنوان الريسيفر وكود الربط في تطبيق أبو عزت كاست.");
         instructions.setTextSize(15);
         instructions.setTextColor(Color.WHITE);
         panel.addView(instructions);
@@ -751,44 +738,6 @@ public class MainActivity extends Activity {
                 clipboard.setPrimaryClip(android.content.ClipData.newPlainText(
                         "AboEzzat Receiver pairing code", displayedCode));
                 Toast.makeText(this, "تم نسخ كود الربط", Toast.LENGTH_SHORT).show();
-            } else {
-                Toast.makeText(this, "تعذر الوصول إلى الحافظة", Toast.LENGTH_SHORT).show();
-            }
-        });
-
-        android.widget.TextView fingerprintLabel = new android.widget.TextView(this);
-        fingerprintLabel.setText("بصمة الاتصال (SHA-256)");
-        fingerprintLabel.setTextSize(16);
-        fingerprintLabel.setTypeface(null, android.graphics.Typeface.BOLD);
-        fingerprintLabel.setTextColor(Color.WHITE);
-        android.widget.LinearLayout.LayoutParams fingerprintLabelParams =
-                new android.widget.LinearLayout.LayoutParams(-1, -2);
-        fingerprintLabelParams.topMargin = pad;
-        panel.addView(fingerprintLabel, fingerprintLabelParams);
-
-        android.widget.TextView fingerprintValue = new android.widget.TextView(this);
-        fingerprintValue.setText(certificateFingerprint);
-        fingerprintValue.setTextSize(13);
-        fingerprintValue.setTypeface(android.graphics.Typeface.MONOSPACE);
-        fingerprintValue.setTextColor(Color.WHITE);
-        fingerprintValue.setGravity(android.view.Gravity.CENTER);
-        fingerprintValue.setTextIsSelectable(true);
-        fingerprintValue.setBreakStrategy(android.text.Layout.BREAK_STRATEGY_SIMPLE);
-        fingerprintValue.setPadding(pad, pad, pad, pad);
-        fingerprintValue.setBackgroundColor(Color.rgb(35, 48, 68));
-        panel.addView(fingerprintValue, new android.widget.LinearLayout.LayoutParams(-1, -2));
-
-        android.widget.Button copyFingerprint = new android.widget.Button(this);
-        copyFingerprint.setText("نسخ البصمة");
-        copyFingerprint.setAllCaps(false);
-        panel.addView(copyFingerprint, new android.widget.LinearLayout.LayoutParams(-1, -2));
-        copyFingerprint.setOnClickListener(v -> {
-            android.content.ClipboardManager clipboard =
-                    (android.content.ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
-            if (clipboard != null) {
-                clipboard.setPrimaryClip(android.content.ClipData.newPlainText(
-                        "AboEzzat Receiver TLS fingerprint", certificateFingerprint));
-                Toast.makeText(this, "تم نسخ بصمة الاتصال", Toast.LENGTH_SHORT).show();
             } else {
                 Toast.makeText(this, "تعذر الوصول إلى الحافظة", Toast.LENGTH_SHORT).show();
             }
