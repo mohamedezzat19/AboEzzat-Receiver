@@ -643,9 +643,10 @@ public class MainActivity extends Activity {
             pairing.edit().putString("pairing_code", code)
                     .putLong("code_expires_at", expiresAt).putInt("failed_attempts", 0).apply();
         }
+        final String displayedCode = code;
         long remaining = Math.max(0L, (expiresAt - System.currentTimeMillis() + 59999L) / 60000L);
         String message = "افتح أبو عزت كاست على الموبايل، ثم الإعدادات > ربط آمن مع الريسيفر، وأدخل الكود التالي.\n\n"
-                + code + "\n\nصالح لمدة تصل إلى " + remaining + " دقائق، ويسمح بخمس محاولات فقط.\n"
+                + displayedCode + "\n\nصالح لمدة تصل إلى " + remaining + " دقائق، ويسمح بخمس محاولات فقط.\n"
                 + "بعد نجاح الربط، تُوقّع أوامر الإرسال بمفتاح سري ولا يُرسل المفتاح نفسه مع كل طلب. لا تشارك الكود مع أي شخص.";
         new AlertDialog.Builder(this).setTitle("🔐 كود الربط الآمن")
                 .setMessage(message)
@@ -653,7 +654,7 @@ public class MainActivity extends Activity {
                     android.content.ClipboardManager clipboard =
                             (android.content.ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
                     if (clipboard != null) {
-                        clipboard.setPrimaryClip(android.content.ClipData.newPlainText("AboEzzat pairing code", code));
+                        clipboard.setPrimaryClip(android.content.ClipData.newPlainText("AboEzzat pairing code", displayedCode));
                         Toast.makeText(this, "تم نسخ كود الربط", Toast.LENGTH_SHORT).show();
                     }
                 })
