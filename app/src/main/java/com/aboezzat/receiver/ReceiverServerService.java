@@ -324,9 +324,17 @@ public class ReceiverServerService extends Service {
                 }
             }
 
+            boolean invalidRequestMethod = !("GET".equalsIgnoreCase(method)
+                    || "POST".equalsIgnoreCase(method));
+            if ("POST".equalsIgnoreCase(method) && !"/play".equals(target)) {
+                invalidRequestMethod = true;
+            }
             int contentLength = 0;
+            int totalHeaderBytes = 0;
             String headerLine;
             while ((headerLine = readBoundedRequestLine(input)) != null && !headerLine.isEmpty()) {
+                totalHeaderBytes += headerLine.length();
+                if (totalHeaderBytes > 16384) throw new IOException("HTTP headers exceed limit");
                 int colon = headerLine.indexOf(':');
                 if (colon > 0 && "content-length".equalsIgnoreCase(headerLine.substring(0, colon).trim())) {
                     try { contentLength = Integer.parseInt(headerLine.substring(colon + 1).trim()); }
@@ -334,7 +342,8 @@ public class ReceiverServerService extends Service {
                 }
             }
 
-            if ("POST".equalsIgnoreCase(method) && "/play".equals(target)) {
+            if ("POST".equalsIgnoreCase(method) && "/play".equals(target)
+                    && !invalidRequestMethod) {
                 if (contentLength < 0 || contentLength > 65536) {
                     invalidMediaUrl = true;
                 } else {
@@ -389,8 +398,10 @@ public class ReceiverServerService extends Service {
             invalidMediaUrl = invalidMediaUrl || (mediaUrl != null && !mediaUrl.trim().isEmpty()
                     && !isHttpUrl(mediaUrl))
                     || (audioUrl != null && !audioUrl.trim().isEmpty() && !isHttpUrl(audioUrl));
-            String body = invalidMediaUrl ? "Invalid media URL" : "OK";
-            String responseStatus = invalidMediaUrl ? "400 Bad Request" : "200 OK";
+            String body = invalidRequestMethod ? "Method not allowed"
+                    : invalidMediaUrl ? "Invalid media URL" : "OK";
+            String responseStatus = invalidRequestMethod ? "405 Method Not Allowed"
+                    : invalidMediaUrl ? "400 Bad Request" : "200 OK";
             String contentType = "text/plain; charset=utf-8";
             if ("status".equals(command)) {
                 SharedPreferences state = getSharedPreferences("AboEzzatReceiverState", MODE_PRIVATE);
@@ -404,8 +415,6 @@ public class ReceiverServerService extends Service {
             byte[] bodyBytes = body.getBytes(StandardCharsets.UTF_8);
             byte[] responseHeaders = ("HTTP/1.1 " + responseStatus + "\\r\\n"
                     + "Content-Type: " + contentType + "\\r\\n"
-                    + "Access-Control-Allow-Origin: *\\r\\n"
-                    + "Access-Control-Allow-Methods: GET, POST, OPTIONS\\r\\n"
                     + "Connection: close\\r\\n"
                     + "Content-Length: " + bodyBytes.length + "\\r\\n\\r\\n")
                     .getBytes(StandardCharsets.UTF_8);
@@ -418,6 +427,10 @@ public class ReceiverServerService extends Service {
             return;
         }
 
+        if (invalidRequestMethod) {
+            Log.w(TAG, "Rejected unsupported HTTP method or endpoint");
+            return;
+        }
         if (invalidMediaUrl) {
             Log.w(TAG, "Rejected non-HTTP or malformed media URL");
             return;
