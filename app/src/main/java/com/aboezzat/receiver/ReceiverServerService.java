@@ -494,7 +494,12 @@ public class ReceiverServerService extends Service {
 
             invalidRequestMethod = !("GET".equalsIgnoreCase(method)
                     || "POST".equalsIgnoreCase(method));
-            if ("POST".equalsIgnoreCase(method) && !"/play".equals(target)) {
+            if ("POST".equalsIgnoreCase(method)
+                    && !"/play".equals(target) && !"/pair".equals(target)) {
+                invalidRequestMethod = true;
+            }
+            if ("GET".equalsIgnoreCase(method) && target.startsWith("/pair")) {
+                // Pairing codes must never be accepted in URLs or query strings.
                 invalidRequestMethod = true;
             }
             int contentLength = 0;
@@ -534,24 +539,33 @@ public class ReceiverServerService extends Service {
             }
 
             String requestPath = target.split("\\?", 2)[0];
-            pairingRequest = "GET".equalsIgnoreCase(method) && "/pair".equals(requestPath);
+            pairingRequest = "POST".equalsIgnoreCase(method) && "/pair".equals(target);
             byte[] requestBody = new byte[0];
-            if ("POST".equalsIgnoreCase(method) && "/play".equals(target)
+            if ("POST".equalsIgnoreCase(method)
+                    && ("/play".equals(target) || pairingRequest)
                     && !invalidRequestMethod) {
-                if (contentLength < 0 || contentLength > 65536) {
+                int maxBodyLength = pairingRequest ? 1024 : 65536;
+                if (contentLength < 0 || contentLength > maxBodyLength) {
                     invalidMediaUrl = true;
                 } else {
                     requestBody = new byte[contentLength];
                     int offset = 0;
                     while (offset < contentLength) {
                         int count = input.read(requestBody, offset, contentLength - offset);
-                        if (count < 0) throw new IOException("Incomplete /play JSON body");
+                        if (count < 0) throw new IOException("Incomplete HTTP request body");
                         offset += count;
                     }
                 }
             }
-            if (pairingRequest && !invalidRequestMethod) {
-                pairingResponse = createPairingResponse(queryValue(target, "code"));
+            if (pairingRequest && !invalidRequestMethod && !invalidMediaUrl) {
+                String suppliedCode = "";
+                try {
+                    JSONObject pairingPayload = new JSONObject(new String(requestBody, StandardCharsets.UTF_8));
+                    suppliedCode = pairingPayload.optString("code", "");
+                } catch (Exception malformedPairingBody) {
+                    suppliedCode = "";
+                }
+                pairingResponse = createPairingResponse(suppliedCode);
                 unauthorized = pairingResponse == null;
             } else if (!invalidRequestMethod && !invalidMediaUrl) {
                 unauthorized = !verifySignedRequest(method, target, requestBody,
