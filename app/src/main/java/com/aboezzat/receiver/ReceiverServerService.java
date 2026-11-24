@@ -563,8 +563,8 @@ public class ReceiverServerService extends Service {
                 // Require a bounded JSON payload and a syntactically valid 8-digit code.
                 // Malformed requests must not consume one of the user's five pairing attempts.
                 if (requestContentType == null
-                        || !requestContentType.toLowerCase(java.util.Locale.ROOT)
-                                .startsWith("application/json")
+                        || !"application/json".equalsIgnoreCase(
+                                requestContentType.split(";", 2)[0].trim())
                         || requestBody.length == 0 || requestBody.length > 1024) {
                     invalidMediaUrl = true;
                 } else {
