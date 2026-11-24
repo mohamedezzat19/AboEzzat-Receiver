@@ -308,6 +308,7 @@ public class ReceiverServerService extends Service {
         String sourceUrl = null;
         String command = null;
         boolean invalidMediaUrl = false;
+        boolean invalidRequestMethod = false;
         boolean openBrowser = false;
         JSONObject incomingHeaders = new JSONObject();
         try (Socket socket = client) {
@@ -324,7 +325,7 @@ public class ReceiverServerService extends Service {
                 }
             }
 
-            boolean invalidRequestMethod = !("GET".equalsIgnoreCase(method)
+            invalidRequestMethod = !("GET".equalsIgnoreCase(method)
                     || "POST".equalsIgnoreCase(method));
             if ("POST".equalsIgnoreCase(method) && !"/play".equals(target)) {
                 invalidRequestMethod = true;
