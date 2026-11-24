@@ -2210,7 +2210,7 @@ public class MainActivity extends Activity {
         try {
             Uri uri = Uri.parse(value.trim());
             String path = uri.getPath();
-            if (!"http".equalsIgnoreCase(uri.getScheme()) || path == null) return false;
+            if (path == null) return false;
 
             int port = uri.getPort();
             if (port == 8088) {
