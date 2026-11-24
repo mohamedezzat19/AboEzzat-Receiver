@@ -23,11 +23,14 @@ import javax.security.auth.x500.X500Principal;
 /**
  * Stable, per-install TLS identity for the receiver.
  *
- * The private key is generated and retained by Android Keystore. Only the
- * public certificate fingerprint is exposed for out-of-band verification.
+ * The private key is generated and retained by Android Keystore. ECDSA is
+ * used instead of RSA because some Android 14/Conscrypt device combinations
+ * fail inside the RSA signing path during a TLS server handshake.
+ * Only the public certificate fingerprint is exposed for pin verification.
  */
 public final class ReceiverTlsIdentity {
-    private static final String KEY_ALIAS = "AboEzzatReceiver.TlsIdentity.v1";
+    // v2 deliberately creates a new EC identity; its new fingerprint is shown in the QR.
+    private static final String KEY_ALIAS = "AboEzzatReceiver.TlsIdentity.v2.EC";
     private static final String KEYSTORE_PROVIDER = "AndroidKeyStore";
 
     private ReceiverTlsIdentity() { }
@@ -39,13 +42,11 @@ public final class ReceiverTlsIdentity {
         if (!keyStore.containsAlias(KEY_ALIAS)) {
             long now = System.currentTimeMillis();
             KeyPairGenerator generator = KeyPairGenerator.getInstance(
-                    KeyProperties.KEY_ALGORITHM_RSA, KEYSTORE_PROVIDER);
+                    KeyProperties.KEY_ALGORITHM_EC, KEYSTORE_PROVIDER);
             KeyGenParameterSpec spec = new KeyGenParameterSpec.Builder(
                     KEY_ALIAS, KeyProperties.PURPOSE_SIGN)
-                    .setKeySize(2048)
+                    .setKeySize(256)
                     .setDigests(KeyProperties.DIGEST_SHA256)
-                    .setSignaturePaddings(KeyProperties.SIGNATURE_PADDING_RSA_PKCS1,
-                            KeyProperties.SIGNATURE_PADDING_RSA_PSS)
                     .setCertificateSubject(new X500Principal("CN=AboEzzat Receiver"))
                     .setCertificateSerialNumber(BigInteger.valueOf(now))
                     .setCertificateNotBefore(new Date(now - 24L * 60L * 60L * 1000L))
@@ -66,6 +67,9 @@ public final class ReceiverTlsIdentity {
         }
         X509Certificate x509 = (X509Certificate) certificate;
         x509.checkValidity();
+        if (!"EC".equalsIgnoreCase(x509.getPublicKey().getAlgorithm())) {
+            throw new IllegalStateException("Receiver TLS identity is not an EC certificate");
+        }
         return x509;
     }
 
