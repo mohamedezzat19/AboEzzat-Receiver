@@ -368,7 +368,7 @@ public class ReceiverServerService extends Service {
         long requestTime;
         try { requestTime = Long.parseLong(timestamp); } catch (Exception e) { return false; }
         long now = System.currentTimeMillis();
-        if (Math.abs(now - requestTime) > 90000L) return false;
+        if (requestTime < now - 90000L || requestTime > now + 90000L) return false;
         String secret = getSharedPreferences("AboEzzatPairing", MODE_PRIVATE)
                 .getString("receiver_secret", "");
         if (secret.isEmpty()) return false;
@@ -383,7 +383,7 @@ public class ReceiverServerService extends Service {
             if (!MessageDigest.isEqual(expected.getBytes(StandardCharsets.US_ASCII),
                     suppliedSignature.getBytes(StandardCharsets.US_ASCII))) return false;
             usedAuthNonces.entrySet().removeIf(entry -> now - entry.getValue() > 120000L);
-            if (usedAuthNonces.size() > 2000) usedAuthNonces.clear();
+            if (usedAuthNonces.size() > 4096) return false;
             return usedAuthNonces.putIfAbsent(nonce, now) == null;
         } catch (Exception e) {
             Log.w(TAG, "Request authentication failed", e);
