@@ -207,6 +207,9 @@ public class ReceiverServerService extends Service {
                                 OutputStream output = rejected.getOutputStream();
                                 output.write(("HTTP/1.1 503 Service Unavailable\r\n"
                                         + "Content-Type: text/plain; charset=utf-8\r\n"
+                                        + "Cache-Control: no-store, max-age=0\r\n"
+                                        + "Pragma: no-cache\r\n"
+                                        + "X-Content-Type-Options: nosniff\r\n"
                                         + "Connection: close\r\n"
                                         + "Content-Length: " + body.length + "\r\n\r\n")
                                         .getBytes(StandardCharsets.UTF_8));
@@ -656,6 +659,9 @@ public class ReceiverServerService extends Service {
             byte[] bodyBytes = body.getBytes(StandardCharsets.UTF_8);
             byte[] responseHeaders = ("HTTP/1.1 " + responseStatus + "\r\n"
                     + "Content-Type: " + contentType + "\r\n"
+                    + "Cache-Control: no-store, max-age=0\r\n"
+                    + "Pragma: no-cache\r\n"
+                    + "X-Content-Type-Options: nosniff\r\n"
                     + "Connection: close\r\n"
                     + "Content-Length: " + bodyBytes.length + "\r\n\r\n")
                     .getBytes(StandardCharsets.UTF_8);
