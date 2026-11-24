@@ -4234,6 +4234,15 @@ public class MainActivity extends Activity {
                 }
 
                 @Override
+                public void onReceivedSslError(WebView view, android.webkit.SslErrorHandler handler,
+                        android.net.http.SslError error) {
+                    // Never let the browser bypass certificate validation, even after a user prompt.
+                    handler.cancel();
+                    runOnUiThread(() -> Toast.makeText(MainActivity.this,
+                            "تم إيقاف الاتصال: شهادة أمان الموقع غير موثوقة", Toast.LENGTH_LONG).show());
+                }
+
+                @Override
                 public void onSafeBrowsingHit(WebView view, android.webkit.WebResourceRequest request,
                         int threatType, android.webkit.SafeBrowsingResponse response) {
                     if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O_MR1) {
@@ -4366,6 +4375,13 @@ public class MainActivity extends Activity {
                             if (!isHttpUrl(url)) return true;
                             return getSharedPreferences("AboEzzatBrowser", MODE_PRIVATE)
                                     .getBoolean("adblock_enabled", true) && isKnownBrowserAdRequest(url);
+                        }
+                        @Override public void onReceivedSslError(WebView w, android.webkit.SslErrorHandler handler,
+                                android.net.http.SslError error) {
+                            // Never proceed through an invalid, expired, or intercepted TLS certificate.
+                            handler.cancel();
+                            runOnUiThread(() -> Toast.makeText(MainActivity.this,
+                                    "تم إيقاف الاتصال: شهادة أمان الموقع غير موثوقة", Toast.LENGTH_LONG).show());
                         }
                         @Override public void onSafeBrowsingHit(WebView w, android.webkit.WebResourceRequest req,
                                 int threatType, android.webkit.SafeBrowsingResponse response) {
