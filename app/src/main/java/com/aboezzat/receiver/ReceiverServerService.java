@@ -34,7 +34,6 @@ import java.security.KeyStore;
 import java.security.MessageDigest;
 import java.util.HashMap;
 import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
 import javax.crypto.Mac;
 import javax.crypto.Cipher;
 import javax.crypto.KeyGenerator;
@@ -78,7 +77,6 @@ public class ReceiverServerService extends Service {
     // Bound concurrent clients so a burst of LAN requests cannot create unbounded threads.
     private final ThreadPoolExecutor requestExecutor = new ThreadPoolExecutor(
             2, 4, 30L, TimeUnit.SECONDS, new ArrayBlockingQueue<>(16));
-    private final ConcurrentHashMap<String, Long> usedAuthNonces = new ConcurrentHashMap<>();
 
     @Override
     public void onCreate() {
@@ -437,8 +435,8 @@ public class ReceiverServerService extends Service {
         return "";
     }
 
-    private boolean verifySignedRequest(String method, String target, byte[] requestBody,
-                                        String timestamp, String nonce, String suppliedSignature) {
+    private synchronized boolean verifySignedRequest(String method, String target, byte[] requestBody,
+                                                      String timestamp, String nonce, String suppliedSignature) {
         if (timestamp == null || nonce == null || suppliedSignature == null
                 || nonce.length() < 16 || nonce.length() > 80 || suppliedSignature.length() > 128) return false;
         long requestTime;
@@ -462,9 +460,20 @@ public class ReceiverServerService extends Service {
                     android.util.Base64.URL_SAFE | android.util.Base64.NO_WRAP | android.util.Base64.NO_PADDING);
             if (!MessageDigest.isEqual(expected.getBytes(StandardCharsets.US_ASCII),
                     suppliedSignature.getBytes(StandardCharsets.US_ASCII))) return false;
-            usedAuthNonces.entrySet().removeIf(entry -> now - entry.getValue() > 120000L);
-            if (usedAuthNonces.size() > 4096) return false;
-            return usedAuthNonces.putIfAbsent(nonce, now) == null;
+
+            // Persist the replay window so a service/process restart cannot reopen
+            // the same signed request during its timestamp validity window.
+            SharedPreferences replayPrefs = getSharedPreferences("AboEzzatAuthReplay", MODE_PRIVATE);
+            JSONObject recentNonces = new JSONObject(replayPrefs.getString("recent_nonces", "{}"));
+            java.util.Iterator<String> keys = recentNonces.keys();
+            while (keys.hasNext()) {
+                String oldNonce = keys.next();
+                long seenAt = recentNonces.optLong(oldNonce, 0L);
+                if (seenAt <= 0L || now - seenAt > 120000L) keys.remove();
+            }
+            if (recentNonces.has(nonce) || recentNonces.length() >= 4096) return false;
+            recentNonces.put(nonce, now);
+            return replayPrefs.edit().putString("recent_nonces", recentNonces.toString()).commit();
         } catch (Exception e) {
             Log.w(TAG, "Request authentication failed", e);
             return false;
