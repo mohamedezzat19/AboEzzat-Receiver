@@ -562,7 +562,6 @@ public class ReceiverServerService extends Service {
                     }
                     // Keep the sanitized headers until the URL/audio pair is persisted below.
                     incomingHeaders = safeHeaders;
-                }
             } else if (!unauthorized && !pairingRequest && target.contains("?")) {
                 int questionIndex = target.indexOf('?');
                 for (String pair : target.substring(questionIndex + 1).split("&")) {
