@@ -44,7 +44,7 @@ public final class ReceiverTlsIdentity {
                     KEY_ALIAS, KeyProperties.PURPOSE_SIGN)
                     .setKeySize(2048)
                     .setDigests(KeyProperties.DIGEST_SHA256)
-                    .setSignaturePaddings(KeyProperties.SIGNATURE_PADDING_RSA_PKCS1)
+                    .setSignaturePaddings(KeyProperties.SIGNATURE_PADDING_RSA_PKCS1,\n                            KeyProperties.SIGNATURE_PADDING_RSA_PSS)
                     .setCertificateSubject(new X500Principal("CN=AboEzzat Receiver"))
                     .setCertificateSerialNumber(BigInteger.valueOf(now))
                     .setCertificateNotBefore(new Date(now - 24L * 60L * 60L * 1000L))
