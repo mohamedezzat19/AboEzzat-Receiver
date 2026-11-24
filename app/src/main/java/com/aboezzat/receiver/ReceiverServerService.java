@@ -9,6 +9,8 @@ import android.content.Intent;
 import android.content.SharedPreferences;
 import android.os.Build;
 import android.os.IBinder;
+import android.security.keystore.KeyGenParameterSpec;
+import android.security.keystore.KeyProperties;
 import android.util.Log;
 
 import org.json.JSONObject;
@@ -27,11 +29,17 @@ import java.net.ServerSocket;
 import java.net.Socket;
 import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
+import java.nio.ByteBuffer;
+import java.security.KeyStore;
 import java.security.MessageDigest;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import javax.crypto.Mac;
+import javax.crypto.Cipher;
+import javax.crypto.KeyGenerator;
+import javax.crypto.SecretKey;
+import javax.crypto.spec.GCMParameterSpec;
 import javax.crypto.spec.SecretKeySpec;
 import java.util.Enumeration;
 import java.util.concurrent.ArrayBlockingQueue;
@@ -309,6 +317,54 @@ public class ReceiverServerService extends Service {
         }
     }
 
+    private String encryptPairingSecret(String plainText) throws Exception {
+        SecretKey key = getOrCreatePairingKey();
+        Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
+        cipher.init(Cipher.ENCRYPT_MODE, key);
+        byte[] encrypted = cipher.doFinal(plainText.getBytes(StandardCharsets.UTF_8));
+        byte[] iv = cipher.getIV();
+        ByteBuffer packed = ByteBuffer.allocate(4 + iv.length + encrypted.length);
+        packed.putInt(iv.length).put(iv).put(encrypted);
+        return android.util.Base64.encodeToString(packed.array(), android.util.Base64.NO_WRAP);
+    }
+
+    private String decryptPairingSecret(String encoded) {
+        if (encoded == null || encoded.isEmpty()) return "";
+        try {
+            byte[] packedBytes = android.util.Base64.decode(encoded, android.util.Base64.NO_WRAP);
+            ByteBuffer packed = ByteBuffer.wrap(packedBytes);
+            int ivLength = packed.getInt();
+            if (ivLength < 12 || ivLength > 16 || packed.remaining() <= ivLength) return "";
+            byte[] iv = new byte[ivLength];
+            packed.get(iv);
+            byte[] encrypted = new byte[packed.remaining()];
+            packed.get(encrypted);
+            Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
+            cipher.init(Cipher.DECRYPT_MODE, getOrCreatePairingKey(), new GCMParameterSpec(128, iv));
+            return new String(cipher.doFinal(encrypted), StandardCharsets.UTF_8);
+        } catch (Exception e) {
+            Log.w(TAG, "Stored receiver key could not be decrypted");
+            return "";
+        }
+    }
+
+    private SecretKey getOrCreatePairingKey() throws Exception {
+        final String alias = "AboEzzatReceiver.AuthKey";
+        KeyStore keyStore = KeyStore.getInstance("AndroidKeyStore");
+        keyStore.load(null);
+        if (!keyStore.containsAlias(alias)) {
+            KeyGenerator generator = KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, "AndroidKeyStore");
+            generator.init(new KeyGenParameterSpec.Builder(alias,
+                    KeyProperties.PURPOSE_ENCRYPT | KeyProperties.PURPOSE_DECRYPT)
+                    .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
+                    .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
+                    .setRandomizedEncryptionRequired(true)
+                    .build());
+            generator.generateKey();
+        }
+        return ((KeyStore.SecretKeyEntry) keyStore.getEntry(alias, null)).getSecretKey();
+    }
+
     private String createPairingResponse(String suppliedCode) {
         SharedPreferences pairing = getSharedPreferences("AboEzzatPairing", MODE_PRIVATE);
         String expectedCode = pairing.getString("pairing_code", "");
@@ -333,7 +389,14 @@ public class ReceiverServerService extends Service {
         new java.security.SecureRandom().nextBytes(secretBytes);
         String secret = android.util.Base64.encodeToString(secretBytes,
                 android.util.Base64.URL_SAFE | android.util.Base64.NO_WRAP | android.util.Base64.NO_PADDING);
-        pairing.edit().putString("receiver_secret", secret)
+        final String protectedSecret;
+        try {
+            protectedSecret = encryptPairingSecret(secret);
+        } catch (Exception encryptionError) {
+            Log.e(TAG, "Could not protect new receiver pairing key", encryptionError);
+            return null;
+        }
+        pairing.edit().putString("receiver_secret_enc", protectedSecret).remove("receiver_secret")
                 .remove("pairing_code").remove("code_expires_at").remove("failed_attempts").apply();
         JSONObject result = new JSONObject();
         try {
@@ -369,8 +432,8 @@ public class ReceiverServerService extends Service {
         try { requestTime = Long.parseLong(timestamp); } catch (Exception e) { return false; }
         long now = System.currentTimeMillis();
         if (requestTime < now - 90000L || requestTime > now + 90000L) return false;
-        String secret = getSharedPreferences("AboEzzatPairing", MODE_PRIVATE)
-                .getString("receiver_secret", "");
+        String secret = decryptPairingSecret(getSharedPreferences("AboEzzatPairing", MODE_PRIVATE)
+                .getString("receiver_secret_enc", ""));
         if (secret.isEmpty()) return false;
         try {
             byte[] safeBody = requestBody == null ? new byte[0] : requestBody;
