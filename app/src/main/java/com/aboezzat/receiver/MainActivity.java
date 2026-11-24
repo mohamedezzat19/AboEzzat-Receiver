@@ -4348,6 +4348,11 @@ public class MainActivity extends Activity {
                     popupSettings.setSupportMultipleWindows(false);
                     popupSettings.setAllowFileAccess(false);
                     popupSettings.setAllowContentAccess(false);
+                    // Keep file-origin pages from reaching local files or cross-origin network resources.
+                    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.JELLY_BEAN) {
+                        popupSettings.setAllowFileAccessFromFileURLs(false);
+                        popupSettings.setAllowUniversalAccessFromFileURLs(false);
+                    }
                     if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.LOLLIPOP) {
                         popupSettings.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
                     }
