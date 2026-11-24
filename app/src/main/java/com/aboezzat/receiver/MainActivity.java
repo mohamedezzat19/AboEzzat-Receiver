@@ -5219,7 +5219,7 @@ public class MainActivity extends Activity {
     }
 
     private void rememberPlaybackUrl(String url) {
-        if (url == null || url.trim().isEmpty()) return;
+        if (url == null || url.trim().isEmpty() || isCastMediaPortUrl(url)) return;
         if (playbackQueueIndex >= 0 && playbackQueueIndex < playbackQueue.size()
                 && url.equals(playbackQueue.get(playbackQueueIndex))) return;
         if (playbackQueueIndex >= 0 && playbackQueueIndex < playbackQueue.size() - 1) {
@@ -5247,10 +5247,12 @@ public class MainActivity extends Activity {
             playbackQueue.clear();
             for (int i = 0; i < array.length() && playbackQueue.size() < 100; i++) {
                 String url = array.optString(i, "");
-                if (isHttpUrl(url) && !playbackQueue.contains(url)) playbackQueue.add(url);
+                if (isHttpUrl(url) && !isCastMediaPortUrl(url) && !playbackQueue.contains(url)) playbackQueue.add(url);
             }
             playbackQueueIndex = playbackQueue.size() - 1;
             loadPlaybackHistoryItems();
+            // Remove any previously persisted bearer-token media URLs from history.
+            savePlaybackHistory();
 
         } catch (Exception e) {
             Log.w(TAG, "Unable to load playback history", e);
@@ -5296,9 +5298,10 @@ public class MainActivity extends Activity {
                         if (!value.isEmpty()) headers.put(key, value);
                     }
                 }
-                if (isHttpUrl(video) || isHttpUrl(audio)) {
-                    if (!isHttpUrl(video)) video = "";
-                    if (!isHttpUrl(audio)) audio = "";
+                if ((isHttpUrl(video) && !isCastMediaPortUrl(video))
+                        || (isHttpUrl(audio) && !isCastMediaPortUrl(audio))) {
+                    if (!isHttpUrl(video) || isCastMediaPortUrl(video)) video = "";
+                    if (!isHttpUrl(audio) || isCastMediaPortUrl(audio)) audio = "";
                     playbackHistoryItems.add(new PlaybackHistoryItem(video, audio,
                             title.isEmpty() ? historyTitleForUrl(video.isEmpty() ? audio : video) : title,
                             headers));
@@ -5359,8 +5362,8 @@ public class MainActivity extends Activity {
 
     private void rememberPlaybackItem(String videoUrl, String audioUrl,
                                       java.util.Map<String, String> requestHeaders) {
-        String video = isHttpUrl(videoUrl) ? videoUrl : "";
-        String audio = isHttpUrl(audioUrl) ? audioUrl : "";
+        String video = isHttpUrl(videoUrl) && !isCastMediaPortUrl(videoUrl) ? videoUrl : "";
+        String audio = isHttpUrl(audioUrl) && !isCastMediaPortUrl(audioUrl) ? audioUrl : "";
         if (video.isEmpty() && audio.isEmpty()) return;
         for (int i = playbackHistoryItems.size() - 1; i >= 0; i--) {
             PlaybackHistoryItem old = playbackHistoryItems.get(i);
