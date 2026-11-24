@@ -27,6 +27,12 @@ import java.net.ServerSocket;
 import java.net.Socket;
 import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import javax.crypto.Mac;
+import javax.crypto.spec.SecretKeySpec;
 import java.util.Enumeration;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.RejectedExecutionException;
@@ -64,6 +70,7 @@ public class ReceiverServerService extends Service {
     // Bound concurrent clients so a burst of LAN requests cannot create unbounded threads.
     private final ThreadPoolExecutor requestExecutor = new ThreadPoolExecutor(
             2, 4, 30L, TimeUnit.SECONDS, new ArrayBlockingQueue<>(16));
+    private final ConcurrentHashMap<String, Long> usedAuthNonces = new ConcurrentHashMap<>();
 
     @Override
     public void onCreate() {
@@ -302,6 +309,88 @@ public class ReceiverServerService extends Service {
         }
     }
 
+    private String createPairingResponse(String suppliedCode) {
+        SharedPreferences pairing = getSharedPreferences("AboEzzatPairing", MODE_PRIVATE);
+        String expectedCode = pairing.getString("pairing_code", "");
+        long expiresAt = pairing.getLong("code_expires_at", 0L);
+        int failedAttempts = pairing.getInt("failed_attempts", 0);
+        boolean valid = !expectedCode.isEmpty()
+                && System.currentTimeMillis() < expiresAt
+                && failedAttempts < 5
+                && suppliedCode != null
+                && MessageDigest.isEqual(expectedCode.getBytes(StandardCharsets.US_ASCII),
+                        suppliedCode.getBytes(StandardCharsets.US_ASCII));
+        if (!valid) {
+            int nextAttempts = failedAttempts + 1;
+            SharedPreferences.Editor edit = pairing.edit().putInt("failed_attempts", nextAttempts);
+            if (nextAttempts >= 5 || System.currentTimeMillis() >= expiresAt) {
+                edit.remove("pairing_code").remove("code_expires_at");
+            }
+            edit.apply();
+            return null;
+        }
+        byte[] secretBytes = new byte[32];
+        new java.security.SecureRandom().nextBytes(secretBytes);
+        String secret = android.util.Base64.encodeToString(secretBytes,
+                android.util.Base64.URL_SAFE | android.util.Base64.NO_WRAP | android.util.Base64.NO_PADDING);
+        pairing.edit().putString("receiver_secret", secret)
+                .remove("pairing_code").remove("code_expires_at").remove("failed_attempts").apply();
+        JSONObject result = new JSONObject();
+        try {
+            result.put("paired", true);
+            result.put("secret", secret);
+            return result.toString();
+        } catch (Exception ignored) {
+            return null;
+        }
+    }
+
+    private String queryValue(String target, String wantedKey) {
+        int question = target.indexOf('?');
+        if (question < 0 || question + 1 >= target.length()) return "";
+        for (String pair : target.substring(question + 1).split("&")) {
+            String[] item = pair.split("=", 2);
+            if (item.length == 2) {
+                try {
+                    if (wantedKey.equals(URLDecoder.decode(item[0], "UTF-8"))) {
+                        return URLDecoder.decode(item[1], "UTF-8");
+                    }
+                } catch (Exception ignored) { return ""; }
+            }
+        }
+        return "";
+    }
+
+    private boolean verifySignedRequest(String method, String target, String timestamp,
+                                        String nonce, String suppliedSignature) {
+        if (timestamp == null || nonce == null || suppliedSignature == null
+                || nonce.length() < 16 || nonce.length() > 80 || suppliedSignature.length() > 128) return false;
+        long requestTime;
+        try { requestTime = Long.parseLong(timestamp); } catch (Exception e) { return false; }
+        long now = System.currentTimeMillis();
+        if (Math.abs(now - requestTime) > 90000L) return false;
+        String secret = getSharedPreferences("AboEzzatPairing", MODE_PRIVATE)
+                .getString("receiver_secret", "");
+        if (secret.isEmpty()) return false;
+        String canonical = method.toUpperCase(java.util.Locale.ROOT) + "\n"
+                + target + "\n" + timestamp + "\n" + nonce;
+        try {
+            Mac mac = Mac.getInstance("HmacSHA256");
+            mac.init(new SecretKeySpec(secret.getBytes(StandardCharsets.UTF_8), "HmacSHA256"));
+            String expected = android.util.Base64.encodeToString(
+                    mac.doFinal(canonical.getBytes(StandardCharsets.UTF_8)),
+                    android.util.Base64.URL_SAFE | android.util.Base64.NO_WRAP | android.util.Base64.NO_PADDING);
+            if (!MessageDigest.isEqual(expected.getBytes(StandardCharsets.US_ASCII),
+                    suppliedSignature.getBytes(StandardCharsets.US_ASCII))) return false;
+            usedAuthNonces.entrySet().removeIf(entry -> now - entry.getValue() > 120000L);
+            if (usedAuthNonces.size() > 2000) usedAuthNonces.clear();
+            return usedAuthNonces.putIfAbsent(nonce, now) == null;
+        } catch (Exception e) {
+            Log.w(TAG, "Request authentication failed", e);
+            return false;
+        }
+    }
+
     private void handleRequest(Socket client) {
         String mediaUrl = null;
         String audioUrl = null;
@@ -309,7 +398,10 @@ public class ReceiverServerService extends Service {
         String command = null;
         boolean invalidMediaUrl = false;
         boolean invalidRequestMethod = false;
+        boolean unauthorized = false;
+        boolean pairingRequest = false;
         boolean openBrowser = false;
+        String pairingResponse = null;
         JSONObject incomingHeaders = new JSONObject();
         try (Socket socket = client) {
             socket.setSoTimeout(5000);
@@ -332,19 +424,37 @@ public class ReceiverServerService extends Service {
             }
             int contentLength = 0;
             int totalHeaderBytes = 0;
+            String authTime = null;
+            String authNonce = null;
+            String authSignature = null;
             String headerLine;
             while ((headerLine = readBoundedRequestLine(input)) != null && !headerLine.isEmpty()) {
                 totalHeaderBytes += headerLine.length();
                 if (totalHeaderBytes > 16384) throw new IOException("HTTP headers exceed limit");
                 int colon = headerLine.indexOf(':');
-                if (colon > 0 && "content-length".equalsIgnoreCase(headerLine.substring(0, colon).trim())) {
-                    try { contentLength = Integer.parseInt(headerLine.substring(colon + 1).trim()); }
-                    catch (Exception ignored) { contentLength = -1; }
+                if (colon > 0) {
+                    String headerName = headerLine.substring(0, colon).trim();
+                    String headerValue = headerLine.substring(colon + 1).trim();
+                    if ("content-length".equalsIgnoreCase(headerName)) {
+                        try { contentLength = Integer.parseInt(headerValue); }
+                        catch (Exception ignored) { contentLength = -1; }
+                    } else if ("x-aboezzat-time".equalsIgnoreCase(headerName)) authTime = headerValue;
+                    else if ("x-aboezzat-nonce".equalsIgnoreCase(headerName)) authNonce = headerValue;
+                    else if ("x-aboezzat-signature".equalsIgnoreCase(headerName)) authSignature = headerValue;
                 }
             }
 
-            if ("POST".equalsIgnoreCase(method) && "/play".equals(target)
-                    && !invalidRequestMethod) {
+            String requestPath = target.split("\\?", 2)[0];
+            pairingRequest = "GET".equalsIgnoreCase(method) && "/pair".equals(requestPath);
+            if (pairingRequest && !invalidRequestMethod) {
+                pairingResponse = createPairingResponse(queryValue(target, "code"));
+                unauthorized = pairingResponse == null;
+            } else if (!invalidRequestMethod) {
+                unauthorized = !verifySignedRequest(method, target, authTime, authNonce, authSignature);
+            }
+
+            if (!unauthorized && !pairingRequest && "POST".equalsIgnoreCase(method)
+                    && "/play".equals(target) && !invalidRequestMethod) {
                 if (contentLength < 0 || contentLength > 65536) {
                     invalidMediaUrl = true;
                 } else {
@@ -379,7 +489,7 @@ public class ReceiverServerService extends Service {
                     // Keep the sanitized headers until the URL/audio pair is persisted below.
                     incomingHeaders = safeHeaders;
                 }
-            } else if (target.contains("?")) {
+            } else if (!unauthorized && !pairingRequest && target.contains("?")) {
                 int questionIndex = target.indexOf('?');
                 for (String pair : target.substring(questionIndex + 1).split("&")) {
                     String[] item = pair.split("=", 2);
@@ -399,11 +509,15 @@ public class ReceiverServerService extends Service {
             invalidMediaUrl = invalidMediaUrl || (mediaUrl != null && !mediaUrl.trim().isEmpty()
                     && !isHttpUrl(mediaUrl))
                     || (audioUrl != null && !audioUrl.trim().isEmpty() && !isHttpUrl(audioUrl));
-            String body = invalidRequestMethod ? "Method not allowed"
+            String body = unauthorized ? "Unauthorized"
+                    : pairingRequest ? (pairingResponse == null ? "Pairing code invalid or expired" : pairingResponse)
+                    : invalidRequestMethod ? "Method not allowed"
                     : invalidMediaUrl ? "Invalid media URL" : "OK";
-            String responseStatus = invalidRequestMethod ? "405 Method Not Allowed"
+            String responseStatus = unauthorized ? "401 Unauthorized"
+                    : invalidRequestMethod ? "405 Method Not Allowed"
                     : invalidMediaUrl ? "400 Bad Request" : "200 OK";
-            String contentType = "text/plain; charset=utf-8";
+            String contentType = pairingRequest && !unauthorized
+                    ? "application/json; charset=utf-8" : "text/plain; charset=utf-8";
             if ("status".equals(command)) {
                 SharedPreferences state = getSharedPreferences("AboEzzatReceiverState", MODE_PRIVATE);
                 JSONObject json = new JSONObject();
@@ -428,6 +542,11 @@ public class ReceiverServerService extends Service {
             return;
         }
 
+        if (unauthorized) {
+            Log.w(TAG, "Rejected unauthenticated receiver request");
+            return;
+        }
+        if (pairingRequest) return;
         if (invalidRequestMethod) {
             Log.w(TAG, "Rejected unsupported HTTP method or endpoint");
             return;
