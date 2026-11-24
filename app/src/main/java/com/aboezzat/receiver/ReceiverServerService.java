@@ -187,11 +187,9 @@ public class ReceiverServerService extends Service {
         running = true;
         serverThread = new Thread(() -> {
             try {
-                ServerSocket listener = new ServerSocket();
-                listener.setReuseAddress(true);
-                listener.bind(new InetSocketAddress(activePort));
+                ServerSocket listener = ReceiverTlsIdentity.createServerSocket(activePort);
                 serverSocket = listener;
-                Log.i(TAG, "Background receiver listening on port " + activePort);
+                Log.i(TAG, "Background receiver TLS listener ready on port " + activePort);
                 while (running) {
                     try {
                         Socket client = listener.accept();
@@ -485,6 +483,7 @@ public class ReceiverServerService extends Service {
         String audioUrl = null;
         String sourceUrl = null;
         String command = null;
+        String mediaTlsPin = null;
         boolean invalidMediaUrl = false;
         boolean invalidRequestMethod = false;
         boolean unauthorized = false;
@@ -637,6 +636,7 @@ public class ReceiverServerService extends Service {
                     if ("url".equals(key) || "video".equals(key)) mediaUrl = value;
                     else if ("audio".equals(key)) audioUrl = value;
                     else if ("sourceUrl".equals(key)) sourceUrl = value;
+                    else if ("mediaPin".equals(key)) mediaTlsPin = value;
                     else if ("command".equals(key)) command = value;
                     else if ("open".equals(key) || "browser".equals(key))
                         openBrowser = "1".equals(value) || "true".equalsIgnoreCase(value) || "browser".equalsIgnoreCase(value);
@@ -644,9 +644,42 @@ public class ReceiverServerService extends Service {
             }
 
             if (sourceUrl != null && !sourceUrl.trim().isEmpty() && !isHttpUrl(sourceUrl)) sourceUrl = null;
+            boolean castMediaPortUrl = isCastMediaPortUrl(mediaUrl);
+            boolean validCastTlsMediaUrl = isValidCastTlsMediaUrl(mediaUrl);
             invalidMediaUrl = invalidMediaUrl || (mediaUrl != null && !mediaUrl.trim().isEmpty()
                     && !isHttpUrl(mediaUrl))
-                    || (audioUrl != null && !audioUrl.trim().isEmpty() && !isHttpUrl(audioUrl));
+                    || (audioUrl != null && !audioUrl.trim().isEmpty() && !isHttpUrl(audioUrl))
+                    || (castMediaPortUrl && (!validCastTlsMediaUrl
+                            || mediaTlsPin == null || !mediaTlsPin.matches("[A-Za-z0-9_-]{43}")))
+                    || (mediaTlsPin != null && !validCastTlsMediaUrl);
+            if (!invalidMediaUrl && validCastTlsMediaUrl) {
+                try {
+                    String mediaHost = new java.net.URL(mediaUrl).getHost().toLowerCase(java.util.Locale.ROOT);
+                    java.net.InetAddress mediaAddress = java.net.InetAddress.getByName(mediaHost);
+                    // The media endpoint must be the same phone that sent this
+                    // authenticated command; do not accept a pin for an arbitrary host.
+                    if (!(mediaAddress instanceof java.net.Inet4Address)
+                            || !mediaAddress.equals(client.getInetAddress())) {
+                        invalidMediaUrl = true;
+                    } else {
+                        SharedPreferences mediaPins = getSharedPreferences(
+                                "AboEzzatReceiverMediaTlsPins", MODE_PRIVATE);
+                        String pinKey = "pin_" + mediaHost;
+                        String existingPin = mediaPins.getString(pinKey, "");
+                        // A first pin may be stored only once. Never silently replace an
+                        // established certificate pin based on a later network request.
+                        if (existingPin == null || existingPin.isEmpty()) {
+                            if (!mediaPins.edit().putString(pinKey, mediaTlsPin).commit()) {
+                                invalidMediaUrl = true;
+                            }
+                        } else if (!existingPin.equals(mediaTlsPin)) {
+                            invalidMediaUrl = true;
+                        }
+                    }
+                } catch (Exception invalidPinTarget) {
+                    invalidMediaUrl = true;
+                }
+            }
             String body = unauthorized ? "Unauthorized"
                     : pairingRequest ? (pairingResponse == null ? "Pairing code invalid or expired" : pairingResponse)
                     : invalidRequestMethod ? "Method not allowed"
@@ -757,7 +790,38 @@ public class ReceiverServerService extends Service {
             java.net.URL url = new java.net.URL(value.trim());
             String protocol = url.getProtocol();
             return ("http".equalsIgnoreCase(protocol) || "https".equalsIgnoreCase(protocol))
-                    && url.getHost() != null && !url.getHost().trim().isEmpty();
+                    && url.getHost() != null && !url.getHost().trim().isEmpty()
+                    && url.getUserInfo() == null;
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    private boolean isCastMediaPortUrl(String value) {
+        try {
+            java.net.URL url = new java.net.URL(value.trim());
+            return url.getPort() == 8088;
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    private boolean isValidCastTlsMediaUrl(String value) {
+        try {
+            java.net.URL url = new java.net.URL(value.trim());
+            String path = url.getPath();
+            String token = url.getQuery();
+            String host = url.getHost();
+            if (host == null || !host.matches("(?:[0-9]{1,3}\\.){3}[0-9]{1,3}")) return false;
+            InetAddress address = InetAddress.getByName(host);
+            return "https".equalsIgnoreCase(url.getProtocol())
+                    && url.getPort() == 8088
+                    && ("/media.mp4".equals(path) || "/media.jpg".equals(path))
+                    && url.getUserInfo() == null
+                    && address instanceof java.net.Inet4Address
+                    && address.isSiteLocalAddress() && !address.isLoopbackAddress()
+                    && !address.isLinkLocalAddress() && !address.isMulticastAddress()
+                    && token != null && token.matches("token=[A-Za-z0-9_-]{43}");
         } catch (Exception e) {
             return false;
         }
