@@ -45,6 +45,9 @@ import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
+import javax.net.ssl.SSLException;
+import javax.net.ssl.SSLSession;
+import javax.net.ssl.SSLSocket;
 
 public class ReceiverServerService extends Service {
     private static final String TAG = "AboEzzatReceiverService";
@@ -198,9 +201,18 @@ public class ReceiverServerService extends Service {
                         } catch (RejectedExecutionException overloaded) {
                             // Fail fast instead of accumulating sockets/threads without a bound.
                             try (Socket rejected = client) {
-                                rejected.setSoTimeout(1000);
+                                // Even overload responses must use the TLS record layer.
+                                // Writing plaintext HTTP bytes to an SSLSocket before its
+                                // handshake makes clients report EOF/connection-closed TLS errors.
+                                if (!(rejected instanceof SSLSocket)) {
+                                    throw new SSLException("Rejected connection is not an SSLSocket");
+                                }
+                                SSLSocket rejectedTls = (SSLSocket) rejected;
+                                rejectedTls.setUseClientMode(false);
+                                rejectedTls.setSoTimeout(5000);
+                                rejectedTls.startHandshake();
                                 byte[] body = "Receiver busy".getBytes(StandardCharsets.UTF_8);
-                                OutputStream output = rejected.getOutputStream();
+                                OutputStream output = rejectedTls.getOutputStream();
                                 output.write(("HTTP/1.1 503 Service Unavailable\r\n"
                                         + "Content-Type: text/plain; charset=utf-8\r\n"
                                         + "Cache-Control: no-store, max-age=0\r\n"
@@ -492,8 +504,27 @@ public class ReceiverServerService extends Service {
         String pairingResponse = null;
         JSONObject incomingHeaders = new JSONObject();
         try (Socket socket = client) {
-            socket.setSoTimeout(5000);
-            InputStream input = socket.getInputStream();
+            // The listener is TLS-only. Complete the handshake explicitly before
+            // parsing HTTP so TLS failures are reported at their true boundary.
+            if (!(socket instanceof SSLSocket)) {
+                throw new SSLException("Accepted connection is not an SSLSocket");
+            }
+            SSLSocket tlsSocket = (SSLSocket) socket;
+            tlsSocket.setUseClientMode(false);
+            tlsSocket.setSoTimeout(15000);
+            try {
+                tlsSocket.startHandshake();
+                SSLSession tlsSession = tlsSocket.getSession();
+                Log.i(TAG, "TLS handshake completed: protocol=" + tlsSession.getProtocol()
+                        + ", cipher=" + tlsSession.getCipherSuite()
+                        + ", peer=" + client.getInetAddress().getHostAddress());
+            } catch (SSLException handshakeError) {
+                Log.e(TAG, "TLS handshake failed from "
+                        + client.getInetAddress().getHostAddress()
+                        + ": " + handshakeError.getClass().getSimpleName(), handshakeError);
+                throw handshakeError;
+            }
+            InputStream input = tlsSocket.getInputStream();
             String requestLine = readBoundedRequestLine(input);
             String method = "";
             String target = "";
