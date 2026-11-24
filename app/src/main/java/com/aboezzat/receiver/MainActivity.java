@@ -598,7 +598,7 @@ public class MainActivity extends Activity {
                 "🧾  سجل الروابط الفاشلة والتشخيص",
                 "ℹ  معلومات الإصدار",
                 "🚀  فتح الفيديو تلقائيًا: " + ((android.os.Build.VERSION.SDK_INT < 23 || android.provider.Settings.canDrawOverlays(this)) ? "مسموح" : "يحتاج إذن"),
-                "🔐  إظهار كود الربط الآمن مع كاست"
+                "🔐  إظهار كود الربط مع كاست"
         };
         new AlertDialog.Builder(this)
                 .setTitle("⚙ إعدادات الريسيفر")
@@ -648,7 +648,7 @@ public class MainActivity extends Activity {
         String message = "افتح أبو عزت كاست على الموبايل، ثم الإعدادات > ربط آمن مع الريسيفر، وأدخل الكود التالي.\n\n"
                 + displayedCode + "\n\nصالح لمدة تصل إلى " + remaining + " دقائق، ويسمح بخمس محاولات فقط.\n"
                 + "بعد نجاح الربط، تُوقّع أوامر الإرسال بمفتاح سري ولا يُرسل المفتاح نفسه مع كل طلب. لا تشارك الكود مع أي شخص.";
-        new AlertDialog.Builder(this).setTitle("🔐 كود الربط الآمن")
+        new AlertDialog.Builder(this).setTitle("🔐 كود الربط")
                 .setMessage(message)
                 .setPositiveButton("نسخ الكود", (d, w) -> {
                     android.content.ClipboardManager clipboard =
