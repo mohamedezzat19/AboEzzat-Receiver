@@ -889,6 +889,7 @@ public class MainActivity extends Activity {
             String incomingUrl = intent.getStringExtra(ReceiverServerService.EXTRA_URL);
             String incomingAudio = intent.getStringExtra(ReceiverServerService.EXTRA_AUDIO);
             String incomingSourceUrl = intent.getStringExtra(ReceiverServerService.EXTRA_SOURCE_URL);
+            boolean openIncomingInBrowser = intent.getBooleanExtra(ReceiverServerService.EXTRA_OPEN_BROWSER, false);
             String dlnaMetadata = intent.getStringExtra(ReceiverServerService.EXTRA_METADATA);
             // Internal remote-control/status commands arrive through the same Activity
             // action as media requests. Do not let them overwrite the last real share
@@ -936,6 +937,11 @@ public class MainActivity extends Activity {
             } catch (Exception ignored) { }
             if (command != null && !command.trim().isEmpty()) {
                 handleRemoteCommand(command.trim());
+            } else if (openIncomingInBrowser && isHttpUrl(incomingUrl)
+                    && !isDirectStreamUrl(incomingUrl) && !isTikTokLiveCdnVideoUrl(incomingUrl)) {
+                clearPendingServerMedia();
+                pendingBrowserUrl = incomingUrl;
+                openTvBrowser();
             } else {
                 clearPendingServerMedia();
                 queueIncomingMedia(incomingUrl, incomingAudio, incomingHeaders, incomingSourceUrl);
@@ -982,6 +988,7 @@ public class MainActivity extends Activity {
         String pendingUrl = pending.getString("url", "");
         String pendingAudio = pending.getString("audio", "");
         String pendingSourceUrl = pending.getString("source_url", "");
+        boolean pendingOpenBrowser = pending.getBoolean("open_browser", false);
         long receivedAt = pending.getLong("received_at", 0L);
         if (System.currentTimeMillis() - receivedAt <= 10 * 60 * 1000L
                 && (!pendingUrl.trim().isEmpty() || !pendingAudio.trim().isEmpty())) {
@@ -1010,7 +1017,13 @@ public class MainActivity extends Activity {
                 Log.w(TAG, "Could not restore saved playback headers");
             }
             clearPendingServerMedia();
-            queueIncomingMedia(pendingUrl, pendingAudio, pendingHeaders, pendingSourceUrl);
+            if (pendingOpenBrowser && isHttpUrl(pendingUrl)
+                    && !isDirectStreamUrl(pendingUrl) && !isTikTokLiveCdnVideoUrl(pendingUrl)) {
+                pendingBrowserUrl = pendingUrl;
+                openTvBrowser();
+            } else {
+                queueIncomingMedia(pendingUrl, pendingAudio, pendingHeaders, pendingSourceUrl);
+            }
         } else if (receivedAt != 0L) {
             clearPendingServerMedia();
         }
