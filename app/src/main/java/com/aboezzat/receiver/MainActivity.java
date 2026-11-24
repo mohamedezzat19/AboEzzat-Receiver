@@ -708,10 +708,10 @@ public class MainActivity extends Activity {
                 panel.addView(qrImage, 1, qrParams);
             } catch (Exception qrError) {
                 Log.e("AboEzzatReceiver", "Could not generate pairing QR", qrError);
-                Toast.makeText(this, "تعذر إنشاء QR، استخدم النسخ اليدوي", Toast.LENGTH_LONG).show();
+                Toast.makeText(this, "تعذر إنشاء QR. حاول مرة أخرى بعد التأكد من اتصال الريسيفر بالشبكة.", Toast.LENGTH_LONG).show();
             }
         } else {
-            Toast.makeText(this, "عنوان الشبكة غير متاح لإنشاء QR. استخدم الربط اليدوي.", Toast.LENGTH_LONG).show();
+            Toast.makeText(this, "عنوان الشبكة غير متاح لإنشاء QR. تأكد من اتصال الريسيفر بشبكة Wi-Fi.", Toast.LENGTH_LONG).show();
         }
 
         android.widget.TextView instructions = new android.widget.TextView(this);
