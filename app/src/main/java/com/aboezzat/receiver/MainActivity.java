@@ -804,11 +804,20 @@ public class MainActivity extends Activity {
             }
         }
 
+        android.content.SharedPreferences tlsDiagnostics =
+                getSharedPreferences("ReceiverTlsDiagnostics", MODE_PRIVATE);
+        String lastTlsResult = tlsDiagnostics.getString("last_tls_result", "لم تُسجل محاولة TLS بعد");
+        long lastTlsTime = tlsDiagnostics.getLong("last_tls_time", 0L);
+        String tlsTime = lastTlsTime > 0
+                ? new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", java.util.Locale.getDefault())
+                        .format(new java.util.Date(lastTlsTime))
+                : "غير متاح";
         String details = "عنوان IP: " + ip + "\nبورت الاستقبال: " + port
                 + "\nالشبكة: " + (networkConnected ? "متصل" : "غير متصل أو لم تُكتشف")
                 + "\nإصدار أندرويد: " + android.os.Build.VERSION.RELEASE
                 + "\nالجهاز: " + android.os.Build.MANUFACTURER + " " + android.os.Build.MODEL
-                + "\n\nلو Share لا يتصل، تأكد أن الجهازين على نفس الشبكة وأن البورت متطابق في التطبيقين.";
+                + "\n\nآخر نتيجة لاتصال TLS (" + tlsTime + "):\n" + lastTlsResult
+                + "\n\nلو Share لا يتصل، انسخ التشخيص بعد محاولة الربط وأرسله للمطور.";
         new AlertDialog.Builder(this).setTitle("تشخيص الاتصال")
                 .setMessage(details)
                 .setPositiveButton("نسخ المعلومات", (d,w) -> {

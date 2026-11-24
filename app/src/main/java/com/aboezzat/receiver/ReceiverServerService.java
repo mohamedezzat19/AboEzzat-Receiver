@@ -515,10 +515,23 @@ public class ReceiverServerService extends Service {
             try {
                 tlsSocket.startHandshake();
                 SSLSession tlsSession = tlsSocket.getSession();
+                String tlsSuccess = "نجحت مصافحة TLS"
+                        + "\nالبروتوكول: " + tlsSession.getProtocol()
+                        + "\nالتشفير: " + tlsSession.getCipherSuite();
+                getSharedPreferences("ReceiverTlsDiagnostics", MODE_PRIVATE).edit()
+                        .putString("last_tls_result", tlsSuccess)
+                        .putLong("last_tls_time", System.currentTimeMillis())
+                        .apply();
                 Log.i(TAG, "TLS handshake completed: protocol=" + tlsSession.getProtocol()
                         + ", cipher=" + tlsSession.getCipherSuite()
                         + ", peer=" + client.getInetAddress().getHostAddress());
-            } catch (SSLException handshakeError) {
+            } catch (Exception handshakeError) {
+                String tlsFailure = handshakeError.getClass().getSimpleName()
+                        + (handshakeError.getMessage() == null ? "" : ": " + handshakeError.getMessage());
+                getSharedPreferences("ReceiverTlsDiagnostics", MODE_PRIVATE).edit()
+                        .putString("last_tls_result", "فشلت مصافحة TLS\n" + tlsFailure)
+                        .putLong("last_tls_time", System.currentTimeMillis())
+                        .apply();
                 Log.e(TAG, "TLS handshake failed from "
                         + client.getInetAddress().getHostAddress()
                         + ": " + handshakeError.getClass().getSimpleName(), handshakeError);
