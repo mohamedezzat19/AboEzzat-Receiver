@@ -188,7 +188,7 @@ jobs:
           echo "CURRENT_CERT=$CURRENT_CERT" >> "$GITHUB_ENV"
 
       - name: Ensure signing key matches the last published release
-        if: ${{ env.HAS_SIGNING == 'true' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master') }}
+        if: ${{ env.HAS_SIGNING == 'true' && (github.event_name == 'pull_request' || github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master') }}
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
