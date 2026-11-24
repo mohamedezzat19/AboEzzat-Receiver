@@ -653,30 +653,110 @@ public class MainActivity extends Activity {
         }
 
         long remaining = Math.max(0L, (expiresAt - System.currentTimeMillis() + 59999L) / 60000L);
-        String message = "افتح أبو عزت كاست على الموبايل، ثم الإعدادات > ربط مع الريسيفر. "
-                + "أدخل كود الربط، وتأكد من مطابقة بصمة الشهادة الظاهرة هنا قبل المتابعة.\n\n"
-                + "كود الربط:\n" + displayedCode
-                + "\n\nبصمة شهادة الاتصال (SHA-256 / Base64URL):\n"
-                + certificateFingerprint
-                + "\n\nصالح لمدة تصل إلى " + remaining + " دقائق، ويسمح بخمس محاولات فقط. "
-                + "لا تشارك كود الربط مع أي شخص.";
-        new AlertDialog.Builder(this).setTitle("🔐 كود الربط وبصمة الاتصال")
-                .setMessage(message)
-                .setPositiveButton("نسخ البصمة", (d, w) -> {
-                    android.content.ClipboardManager clipboard =
-                            (android.content.ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
-                    if (clipboard != null) {
-                        clipboard.setPrimaryClip(android.content.ClipData.newPlainText(
-                                "AboEzzat Receiver TLS fingerprint", certificateFingerprint));
-                        Toast.makeText(this, "تم نسخ بصمة الاتصال", Toast.LENGTH_SHORT).show();
-                    }
-                })
+        int pad = (int) (getResources().getDisplayMetrics().density * 18);
+
+        android.widget.LinearLayout panel = new android.widget.LinearLayout(this);
+        panel.setOrientation(android.widget.LinearLayout.VERTICAL);
+        panel.setPadding(pad, pad, pad, pad);
+
+        android.widget.TextView instructions = new android.widget.TextView(this);
+        instructions.setText("انسخ كل قيمة من الزر الموجود تحتها، ثم أدخلها في أبو عزت كاست عند ربط الريسيفر لأول مرة.");
+        instructions.setTextSize(15);
+        instructions.setTextColor(Color.WHITE);
+        panel.addView(instructions);
+
+        android.widget.TextView codeLabel = new android.widget.TextView(this);
+        codeLabel.setText("كود الربط");
+        codeLabel.setTextSize(16);
+        codeLabel.setTypeface(null, android.graphics.Typeface.BOLD);
+        codeLabel.setTextColor(Color.WHITE);
+        android.widget.LinearLayout.LayoutParams labelParams =
+                new android.widget.LinearLayout.LayoutParams(-1, -2);
+        labelParams.topMargin = pad;
+        panel.addView(codeLabel, labelParams);
+
+        android.widget.TextView codeValue = new android.widget.TextView(this);
+        codeValue.setText(displayedCode);
+        codeValue.setTextSize(25);
+        codeValue.setGravity(android.view.Gravity.CENTER);
+        codeValue.setTypeface(android.graphics.Typeface.MONOSPACE, android.graphics.Typeface.BOLD);
+        codeValue.setTextColor(Color.WHITE);
+        codeValue.setPadding(pad, pad / 2, pad, pad / 2);
+        codeValue.setBackgroundColor(Color.rgb(35, 48, 68));
+        panel.addView(codeValue, new android.widget.LinearLayout.LayoutParams(-1, -2));
+
+        android.widget.Button copyCode = new android.widget.Button(this);
+        copyCode.setText("نسخ كود الربط");
+        copyCode.setAllCaps(false);
+        panel.addView(copyCode, new android.widget.LinearLayout.LayoutParams(-1, -2));
+        copyCode.setOnClickListener(v -> {
+            android.content.ClipboardManager clipboard =
+                    (android.content.ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
+            if (clipboard != null) {
+                clipboard.setPrimaryClip(android.content.ClipData.newPlainText(
+                        "AboEzzat Receiver pairing code", displayedCode));
+                Toast.makeText(this, "تم نسخ كود الربط", Toast.LENGTH_SHORT).show();
+            } else {
+                Toast.makeText(this, "تعذر الوصول إلى الحافظة", Toast.LENGTH_SHORT).show();
+            }
+        });
+
+        android.widget.TextView fingerprintLabel = new android.widget.TextView(this);
+        fingerprintLabel.setText("بصمة الاتصال (SHA-256)");
+        fingerprintLabel.setTextSize(16);
+        fingerprintLabel.setTypeface(null, android.graphics.Typeface.BOLD);
+        fingerprintLabel.setTextColor(Color.WHITE);
+        android.widget.LinearLayout.LayoutParams fingerprintLabelParams =
+                new android.widget.LinearLayout.LayoutParams(-1, -2);
+        fingerprintLabelParams.topMargin = pad;
+        panel.addView(fingerprintLabel, fingerprintLabelParams);
+
+        android.widget.TextView fingerprintValue = new android.widget.TextView(this);
+        fingerprintValue.setText(certificateFingerprint);
+        fingerprintValue.setTextSize(13);
+        fingerprintValue.setTypeface(android.graphics.Typeface.MONOSPACE);
+        fingerprintValue.setTextColor(Color.WHITE);
+        fingerprintValue.setGravity(android.view.Gravity.CENTER);
+        fingerprintValue.setTextIsSelectable(true);
+        fingerprintValue.setBreakStrategy(android.text.Layout.BREAK_STRATEGY_SIMPLE);
+        fingerprintValue.setPadding(pad, pad, pad, pad);
+        fingerprintValue.setBackgroundColor(Color.rgb(35, 48, 68));
+        panel.addView(fingerprintValue, new android.widget.LinearLayout.LayoutParams(-1, -2));
+
+        android.widget.Button copyFingerprint = new android.widget.Button(this);
+        copyFingerprint.setText("نسخ البصمة");
+        copyFingerprint.setAllCaps(false);
+        panel.addView(copyFingerprint, new android.widget.LinearLayout.LayoutParams(-1, -2));
+        copyFingerprint.setOnClickListener(v -> {
+            android.content.ClipboardManager clipboard =
+                    (android.content.ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
+            if (clipboard != null) {
+                clipboard.setPrimaryClip(android.content.ClipData.newPlainText(
+                        "AboEzzat Receiver TLS fingerprint", certificateFingerprint));
+                Toast.makeText(this, "تم نسخ بصمة الاتصال", Toast.LENGTH_SHORT).show();
+            } else {
+                Toast.makeText(this, "تعذر الوصول إلى الحافظة", Toast.LENGTH_SHORT).show();
+            }
+        });
+
+        android.widget.TextView expiry = new android.widget.TextView(this);
+        expiry.setText("صالح لمدة تصل إلى " + remaining
+                + " دقائق، ويسمح بخمس محاولات فقط. لا تشارك كود الربط مع أي شخص.");
+        expiry.setTextSize(13);
+        expiry.setTextColor(Color.LTGRAY);
+        android.widget.LinearLayout.LayoutParams expiryParams =
+                new android.widget.LinearLayout.LayoutParams(-1, -2);
+        expiryParams.topMargin = pad;
+        panel.addView(expiry, expiryParams);
+
+        new AlertDialog.Builder(this).setTitle("ربط أبو عزت كاست بالريسيفر")
+                .setView(panel)
+                .setPositiveButton("إغلاق", null)
                 .setNeutralButton("توليد كود جديد", (d, w) -> {
                     pairing.edit().remove("pairing_code").remove("code_expires_at")
                             .remove("failed_attempts").apply();
                     showSharePairingCode();
-                })
-                .setNegativeButton("إغلاق", null).show();
+                }).show();
     }
 
     private void showConnectionDiagnostics() {
