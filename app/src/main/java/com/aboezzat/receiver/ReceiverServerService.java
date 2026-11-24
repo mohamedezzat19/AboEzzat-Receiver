@@ -509,6 +509,7 @@ public class ReceiverServerService extends Service {
             String authTime = null;
             String authNonce = null;
             String authSignature = null;
+            String requestContentType = null;
             String headerLine;
             while ((headerLine = readBoundedRequestLine(input)) != null && !headerLine.isEmpty()) {
                 totalHeaderBytes += headerLine.length();
@@ -532,7 +533,8 @@ public class ReceiverServerService extends Service {
                     } else if ("transfer-encoding".equalsIgnoreCase(headerName)) {
                         // Chunked bodies are unsupported; reject instead of ambiguously parsing them.
                         contentLength = -1;
-                    } else if ("x-aboezzat-time".equalsIgnoreCase(headerName)) authTime = headerValue;
+                    } else if ("content-type".equalsIgnoreCase(headerName)) requestContentType = headerValue;
+                    else if ("x-aboezzat-time".equalsIgnoreCase(headerName)) authTime = headerValue;
                     else if ("x-aboezzat-nonce".equalsIgnoreCase(headerName)) authNonce = headerValue;
                     else if ("x-aboezzat-signature".equalsIgnoreCase(headerName)) authSignature = headerValue;
                 }
@@ -558,15 +560,28 @@ public class ReceiverServerService extends Service {
                 }
             }
             if (pairingRequest && !invalidRequestMethod && !invalidMediaUrl) {
-                String suppliedCode = "";
-                try {
-                    JSONObject pairingPayload = new JSONObject(new String(requestBody, StandardCharsets.UTF_8));
-                    suppliedCode = pairingPayload.optString("code", "");
-                } catch (Exception malformedPairingBody) {
-                    suppliedCode = "";
+                // Require a bounded JSON payload and a syntactically valid 8-digit code.
+                // Malformed requests must not consume one of the user's five pairing attempts.
+                if (requestContentType == null
+                        || !requestContentType.toLowerCase(java.util.Locale.ROOT)
+                                .startsWith("application/json")
+                        || requestBody.length == 0 || requestBody.length > 1024) {
+                    invalidMediaUrl = true;
+                } else {
+                    String suppliedCode = "";
+                    try {
+                        JSONObject pairingPayload = new JSONObject(new String(requestBody, StandardCharsets.UTF_8));
+                        suppliedCode = pairingPayload.optString("code", "");
+                    } catch (Exception malformedPairingBody) {
+                        suppliedCode = "";
+                    }
+                    if (!suppliedCode.matches("[0-9]{8}")) {
+                        invalidMediaUrl = true;
+                    } else {
+                        pairingResponse = createPairingResponse(suppliedCode);
+                        unauthorized = pairingResponse == null;
+                    }
                 }
-                pairingResponse = createPairingResponse(suppliedCode);
-                unauthorized = pairingResponse == null;
             } else if (!invalidRequestMethod && !invalidMediaUrl) {
                 unauthorized = !verifySignedRequest(method, target, requestBody,
                         authTime, authNonce, authSignature);
