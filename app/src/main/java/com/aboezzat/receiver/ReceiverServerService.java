@@ -516,8 +516,8 @@ public class ReceiverServerService extends Service {
                 tlsSocket.startHandshake();
                 SSLSession tlsSession = tlsSocket.getSession();
                 String tlsSuccess = "نجحت مصافحة TLS"
-                        + "\\nالبروتوكول: " + tlsSession.getProtocol()
-                        + "\\nالتشفير: " + tlsSession.getCipherSuite();
+                        + "\nالبروتوكول: " + tlsSession.getProtocol()
+                        + "\nالتشفير: " + tlsSession.getCipherSuite();
                 getSharedPreferences("ReceiverTlsDiagnostics", MODE_PRIVATE).edit()
                         .putString("last_tls_result", tlsSuccess)
                         .putLong("last_tls_time", System.currentTimeMillis())
@@ -529,7 +529,7 @@ public class ReceiverServerService extends Service {
                 String tlsFailure = handshakeError.getClass().getSimpleName()
                         + (handshakeError.getMessage() == null ? "" : ": " + handshakeError.getMessage());
                 getSharedPreferences("ReceiverTlsDiagnostics", MODE_PRIVATE).edit()
-                        .putString("last_tls_result", "فشلت مصافحة TLS\\n" + tlsFailure)
+                        .putString("last_tls_result", "فشلت مصافحة TLS\n" + tlsFailure)
                         .putLong("last_tls_time", System.currentTimeMillis())
                         .apply();
                 Log.e(TAG, "TLS handshake failed from "
