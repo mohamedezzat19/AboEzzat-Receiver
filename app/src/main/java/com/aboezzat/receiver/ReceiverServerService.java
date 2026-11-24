@@ -187,9 +187,11 @@ public class ReceiverServerService extends Service {
         running = true;
         serverThread = new Thread(() -> {
             try {
-                ServerSocket listener = ReceiverTlsIdentity.createServerSocket(activePort);
+                ServerSocket listener = new ServerSocket();
+                listener.setReuseAddress(true);
+                listener.bind(new InetSocketAddress(activePort));
                 serverSocket = listener;
-                Log.i(TAG, "Background receiver TLS listener ready on port " + activePort);
+                Log.i(TAG, "Background receiver HTTP listener ready on port " + activePort);
                 while (running) {
                     try {
                         Socket client = listener.accept();
