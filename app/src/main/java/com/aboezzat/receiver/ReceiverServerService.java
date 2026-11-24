@@ -383,7 +383,9 @@ public class ReceiverServerService extends Service {
             if (nextAttempts >= 5 || System.currentTimeMillis() >= expiresAt) {
                 edit.remove("pairing_code").remove("code_expires_at");
             }
-            edit.apply();
+            if (!edit.commit()) {
+                Log.e(TAG, "Could not persist failed pairing attempt");
+            }
             return null;
         }
         byte[] secretBytes = new byte[32];
