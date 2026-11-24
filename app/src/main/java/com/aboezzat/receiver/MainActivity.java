@@ -6990,6 +6990,58 @@ public class MainActivity extends Activity {
         return out.toString();
     }
 
+    private boolean isCastMediaPortUrl(String value) {
+        try { return Uri.parse(value).getPort() == 8088; }
+        catch (Exception ignored) { return false; }
+    }
+
+    private void configurePinnedCastMediaConnection(HttpURLConnection connection, String mediaUrl)
+            throws Exception {
+        if (isCastMediaPortUrl(mediaUrl) && !isPhoneLocalMediaUrl(mediaUrl)) {
+            throw new java.security.cert.CertificateException("Unpinned or plaintext Cast media URL rejected");
+        }
+        if (!isPhoneLocalMediaUrl(mediaUrl)) return;
+        if (!(connection instanceof HttpsURLConnection)) {
+            throw new java.security.cert.CertificateException("Cast media requires HTTPS");
+        }
+        String host = Uri.parse(mediaUrl).getHost();
+        String pin = getSharedPreferences("AboEzzatReceiverMediaTlsPins", MODE_PRIVATE)
+                .getString("pin_" + host.toLowerCase(Locale.ROOT), "");
+        if (pin == null || !pin.matches("[A-Za-z0-9_-]{43}")) {
+            throw new java.security.cert.CertificateException("Cast media certificate has not been pinned");
+        }
+        final byte[] expectedPin = android.util.Base64.decode(pin,
+                android.util.Base64.URL_SAFE | android.util.Base64.NO_WRAP | android.util.Base64.NO_PADDING);
+        if (expectedPin.length != 32) throw new java.security.cert.CertificateException("Invalid media pin");
+        X509TrustManager trustManager = new X509TrustManager() {
+            @Override public void checkClientTrusted(X509Certificate[] chain, String authType)
+                    throws CertificateException {
+                throw new CertificateException("Client certificates are not accepted");
+            }
+            @Override public void checkServerTrusted(X509Certificate[] chain, String authType)
+                    throws CertificateException {
+                if (chain == null || chain.length == 0
+                        || !matchesCastMediaCertificate(chain[0], expectedPin)) {
+                    throw new CertificateException("Cast media certificate pin mismatch");
+                }
+            }
+            @Override public X509Certificate[] getAcceptedIssuers() { return new X509Certificate[0]; }
+        };
+        SSLContext sslContext = SSLContext.getInstance("TLS");
+        sslContext.init(null, new javax.net.ssl.TrustManager[]{trustManager}, new java.security.SecureRandom());
+        HttpsURLConnection https = (HttpsURLConnection) connection;
+        https.setSSLSocketFactory(sslContext.getSocketFactory());
+        https.setHostnameVerifier((hostname, session) -> {
+            if (hostname == null || !host.equalsIgnoreCase(hostname)) return false;
+            try {
+                java.security.cert.Certificate[] peer = session.getPeerCertificates();
+                return peer.length > 0 && peer[0] instanceof X509Certificate
+                        && matchesCastMediaCertificate((X509Certificate) peer[0], expectedPin);
+            } catch (Exception ignored) { return false; }
+        });
+        connection.setInstanceFollowRedirects(false);
+    }
+
     private OkHttpClient createPinnedCastMediaClient(String host) throws Exception {
         if (host == null || host.trim().isEmpty()) throw new IllegalArgumentException("Missing media host");
         String pin = getSharedPreferences("AboEzzatReceiverMediaTlsPins", MODE_PRIVATE)
@@ -7139,6 +7191,9 @@ public class MainActivity extends Activity {
                 }
             }
             httpFactory.setDefaultRequestProperties(safe);
+        }
+        if (isCastMediaPortUrl(currentPlaybackUrl) && !isPhoneLocalMediaUrl(currentPlaybackUrl)) {
+            throw new IllegalStateException("Plaintext or malformed Cast media URL rejected");
         }
         androidx.media3.datasource.DataSource.Factory networkFactory = httpFactory;
         if (isPhoneLocalMediaUrl(currentPlaybackUrl)) {
@@ -7371,6 +7426,10 @@ public class MainActivity extends Activity {
     }
 
     private void showImage(String imageUrl) {
+        if (isCastMediaPortUrl(imageUrl) && !isPhoneLocalMediaUrl(imageUrl)) {
+            Toast.makeText(this, "رابط صورة Cast غير مشفر أو غير موثوق.", Toast.LENGTH_LONG).show();
+            return;
+        }
         if (settingsHomeButton != null) settingsHomeButton.setVisibility(View.GONE);
         if (browserHomeButton != null) browserHomeButton.setVisibility(View.GONE);
         if (playerSettingsButton != null) playerSettingsButton.setVisibility(View.GONE);
@@ -7407,6 +7466,7 @@ public class MainActivity extends Activity {
                 connection.setReadTimeout(30000);
                 connection.setInstanceFollowRedirects(true);
                 connection.setRequestProperty("Accept", "image/avif,image/webp,image/apng,image/*,*/*;q=0.8");
+                configurePinnedCastMediaConnection(connection, imageUrl);
                 connection.connect();
                 int response = connection.getResponseCode();
                 if (response < 200 || response >= 300) {
@@ -7447,7 +7507,7 @@ public class MainActivity extends Activity {
                     bitmap = BitmapFactory.decodeStream(input, null, decode);
                 }
             } catch (Exception e) {
-                Log.e(TAG, "Image loading error for " + imageUrl, e);
+                Log.e(TAG, "Image loading error for " + redactSensitiveUrl(imageUrl), e);
             } finally {
                 if (connection != null) connection.disconnect();
             }
