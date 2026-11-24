@@ -40,6 +40,7 @@ import android.widget.Toast;
 import android.widget.ProgressBar;
 import android.widget.EditText;
 import org.json.JSONObject;
+import okhttp3.OkHttpClient;
 
 import androidx.media3.common.MediaItem;
 import androidx.media3.common.Player;
@@ -53,6 +54,7 @@ import androidx.media3.common.util.UnstableApi;
 import androidx.media3.exoplayer.ExoPlayer;
 import androidx.media3.exoplayer.DefaultLoadControl;
 import androidx.media3.datasource.DefaultHttpDataSource;
+import androidx.media3.datasource.okhttp.OkHttpDataSource;
 import androidx.media3.datasource.DefaultDataSource;
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory;
 import androidx.media3.exoplayer.source.MergingMediaSource;
@@ -81,6 +83,12 @@ import java.util.Enumeration;
 import java.net.Socket;
 import java.net.URL;
 import java.net.HttpURLConnection;
+import javax.net.ssl.HttpsURLConnection;
+import javax.net.ssl.SSLContext;
+import javax.net.ssl.HostnameVerifier;
+import javax.net.ssl.X509TrustManager;
+import java.security.cert.X509Certificate;
+import java.security.cert.CertificateException;
 import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
 import java.util.Locale;
@@ -2206,10 +2214,13 @@ public class MainActivity extends Activity {
 
             int port = uri.getPort();
             if (port == 8088) {
-                return "/media.mp4".equalsIgnoreCase(path)
-                        || "/media.jpg".equalsIgnoreCase(path);
+                String token = uri.getQueryParameter("token");
+                return "https".equalsIgnoreCase(uri.getScheme())
+                        && ("/media.mp4".equalsIgnoreCase(path) || "/media.jpg".equalsIgnoreCase(path))
+                        && token != null && token.matches("[A-Za-z0-9_-]{43}");
             }
-            return port == 8082 && "/media".equals(path);
+            return port == 8082 && "http".equalsIgnoreCase(uri.getScheme())
+                    && "/media".equals(path);
         } catch (Exception ignored) {
             return false;
         }
@@ -6979,6 +6990,56 @@ public class MainActivity extends Activity {
         return out.toString();
     }
 
+    private OkHttpClient createPinnedCastMediaClient(String host) throws Exception {
+        if (host == null || host.trim().isEmpty()) throw new IllegalArgumentException("Missing media host");
+        String pin = getSharedPreferences("AboEzzatReceiverMediaTlsPins", MODE_PRIVATE)
+                .getString("pin_" + host.toLowerCase(Locale.ROOT), "");
+        if (pin == null || !pin.matches("[A-Za-z0-9_-]{43}")) {
+            throw new java.security.cert.CertificateException("Cast media certificate has not been pinned");
+        }
+        final byte[] expectedPin = android.util.Base64.decode(pin,
+                android.util.Base64.URL_SAFE | android.util.Base64.NO_WRAP | android.util.Base64.NO_PADDING);
+        if (expectedPin.length != 32) throw new java.security.cert.CertificateException("Invalid media pin length");
+        X509TrustManager trustManager = new X509TrustManager() {
+            @Override public void checkClientTrusted(X509Certificate[] chain, String authType)
+                    throws CertificateException {
+                throw new CertificateException("Client certificates are not accepted");
+            }
+            @Override public void checkServerTrusted(X509Certificate[] chain, String authType)
+                    throws CertificateException {
+                if (chain == null || chain.length == 0 || !matchesCastMediaCertificate(chain[0], expectedPin)) {
+                    throw new CertificateException("Cast media certificate pin mismatch");
+                }
+            }
+            @Override public X509Certificate[] getAcceptedIssuers() { return new X509Certificate[0]; }
+        };
+        SSLContext sslContext = SSLContext.getInstance("TLS");
+        sslContext.init(null, new javax.net.ssl.TrustManager[]{trustManager}, new java.security.SecureRandom());
+        HostnameVerifier hostnameVerifier = (hostname, session) -> {
+            if (hostname == null || !host.equalsIgnoreCase(hostname)) return false;
+            try {
+                java.security.cert.Certificate[] peer = session.getPeerCertificates();
+                return peer.length > 0 && peer[0] instanceof X509Certificate
+                        && matchesCastMediaCertificate((X509Certificate) peer[0], expectedPin);
+            } catch (Exception ignored) { return false; }
+        };
+        return new OkHttpClient.Builder()
+                .sslSocketFactory(sslContext.getSocketFactory(), trustManager)
+                .hostnameVerifier(hostnameVerifier)
+                .followRedirects(false)
+                .followSslRedirects(false)
+                .build();
+    }
+
+    private boolean matchesCastMediaCertificate(X509Certificate certificate, byte[] expectedPin) {
+        try {
+            certificate.checkValidity();
+            byte[] actual = java.security.MessageDigest.getInstance("SHA-256")
+                    .digest(certificate.getEncoded());
+            return java.security.MessageDigest.isEqual(actual, expectedPin);
+        } catch (Exception ignored) { return false; }
+    }
+
     private DefaultMediaSourceFactory createMediaSourceFactory(java.util.Map<String, String> requestHeaders) {
         DefaultHttpDataSource.Factory httpFactory = new DefaultHttpDataSource.Factory()
                 .setConnectTimeoutMs(15000).setReadTimeoutMs(30000)
@@ -7079,8 +7140,19 @@ public class MainActivity extends Activity {
             }
             httpFactory.setDefaultRequestProperties(safe);
         }
+        androidx.media3.datasource.DataSource.Factory networkFactory = httpFactory;
+        if (isPhoneLocalMediaUrl(currentPlaybackUrl)) {
+            try {
+                String mediaHost = Uri.parse(currentPlaybackUrl).getHost();
+                OkHttpClient pinnedMediaClient = createPinnedCastMediaClient(mediaHost);
+                networkFactory = new OkHttpDataSource.Factory(pinnedMediaClient);
+            } catch (Exception pinError) {
+                Log.e(TAG, "Pinned local media TLS setup failed; refusing plaintext fallback", pinError);
+                throw new IllegalStateException("Local media certificate verification failed", pinError);
+            }
+        }
         androidx.media3.datasource.DataSource.Factory upstreamFactory =
-                new DefaultDataSource.Factory(this, httpFactory);
+                new DefaultDataSource.Factory(this, networkFactory);
         // Buffer only the first 64 KiB for bounded FLV tag diagnostics. No media
         // payload or signed URL is written to logs or persistent storage.
         androidx.media3.datasource.DataSource.Factory diagnosticFactory = () -> {
