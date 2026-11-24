@@ -655,18 +655,26 @@ public class ReceiverServerService extends Service {
             if (!invalidMediaUrl && validCastTlsMediaUrl) {
                 try {
                     String mediaHost = new java.net.URL(mediaUrl).getHost().toLowerCase(java.util.Locale.ROOT);
-                    SharedPreferences mediaPins = getSharedPreferences(
-                            "AboEzzatReceiverMediaTlsPins", MODE_PRIVATE);
-                    String pinKey = "pin_" + mediaHost;
-                    String existingPin = mediaPins.getString(pinKey, "");
-                    // A first pin may be stored only once. Never silently replace an
-                    // established certificate pin based on a later network request.
-                    if (existingPin == null || existingPin.isEmpty()) {
-                        if (!mediaPins.edit().putString(pinKey, mediaTlsPin).commit()) {
+                    java.net.InetAddress mediaAddress = java.net.InetAddress.getByName(mediaHost);
+                    // The media endpoint must be the same phone that sent this
+                    // authenticated command; do not accept a pin for an arbitrary host.
+                    if (!(mediaAddress instanceof java.net.Inet4Address)
+                            || !mediaAddress.equals(client.getInetAddress())) {
+                        invalidMediaUrl = true;
+                    } else {
+                        SharedPreferences mediaPins = getSharedPreferences(
+                                "AboEzzatReceiverMediaTlsPins", MODE_PRIVATE);
+                        String pinKey = "pin_" + mediaHost;
+                        String existingPin = mediaPins.getString(pinKey, "");
+                        // A first pin may be stored only once. Never silently replace an
+                        // established certificate pin based on a later network request.
+                        if (existingPin == null || existingPin.isEmpty()) {
+                            if (!mediaPins.edit().putString(pinKey, mediaTlsPin).commit()) {
+                                invalidMediaUrl = true;
+                            }
+                        } else if (!existingPin.equals(mediaTlsPin)) {
                             invalidMediaUrl = true;
                         }
-                    } else if (!existingPin.equals(mediaTlsPin)) {
-                        invalidMediaUrl = true;
                     }
                 } catch (Exception invalidPinTarget) {
                     invalidMediaUrl = true;
