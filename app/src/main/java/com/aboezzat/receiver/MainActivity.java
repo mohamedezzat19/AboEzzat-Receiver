@@ -71,16 +71,12 @@ import java.io.File;
 import java.io.FileOutputStream;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
-import java.net.ServerSocket;
-import java.net.DatagramPacket;
-import java.net.DatagramSocket;
 import java.net.InetSocketAddress;
 import java.net.MulticastSocket;
 import java.net.InetAddress;
 import java.net.Inet4Address;
 import java.net.NetworkInterface;
 import java.util.Enumeration;
-import java.net.Socket;
 import java.net.URL;
 import java.net.HttpURLConnection;
 import javax.net.ssl.HttpsURLConnection;
@@ -97,11 +93,6 @@ import java.util.Locale;
 public class MainActivity extends Activity {
 
     private static final String TAG = "AboEzzatReceiver";
-    private static final int PORT = 8081;
-    private static final int DISCOVERY_PORT = 37020;
-    private static final String DISCOVERY_GROUP = "239.255.42.99";
-    private volatile boolean heartbeatRunning = false;
-    private volatile long lastRequestAt = 0L;
     private volatile boolean extractionInProgress = false;
     private volatile int extractionAttemptCount = 0;
     private volatile String extractionStatus = "idle";
@@ -293,8 +284,6 @@ public class MainActivity extends Activity {
     }
 
 
-    private volatile boolean running = false;
-    private volatile ServerSocket serverSocket;
 
     private ConnectivityManager.NetworkCallback networkCallback;
     private boolean networkCallbackRegistered = false;
@@ -1919,251 +1908,6 @@ public class MainActivity extends Activity {
                     "IP الحالي: " + ip + ":" + getSharedPreferences("receiver_settings", MODE_PRIVATE).getInt("receiver_port", 8081)
             );
         }
-    }
-
-    private void startReceiver() {
-        running = true;
-        startDiscoveryHeartbeat();
-
-        Thread serverThread = new Thread(() -> {
-            try {
-                serverSocket = new ServerSocket(PORT);
-
-                Log.i(
-                        TAG,
-                        "Receiver listening on port " + PORT
-                );
-
-                runOnUiThread(() -> {
-                    if (receiverStatusText != null) {
-                        receiverStatusText.setText(
-                                "●  الاستقبال يعمل الآن"
-                        );
-
-                        receiverStatusText.setTextColor(
-                                Color.rgb(49, 239, 164)
-                        );
-                    }
-
-                    updateConnectionInfo();
-                });
-
-                while (running) {
-                    Socket client = serverSocket.accept();
-
-                    Thread requestThread = new Thread(
-                            () -> handleRequest(client)
-                    );
-
-                    requestThread.start();
-                }
-
-            } catch (Exception e) {
-                if (running) {
-                    Log.e(TAG, "Server error", e);
-
-                    runOnUiThread(() -> {
-                        if (receiverStatusText != null) {
-                            receiverStatusText.setText(
-                                    "●  تعذّر تشغيل الاستقبال"
-                            );
-
-                            receiverStatusText.setTextColor(
-                                    Color.rgb(255, 100, 100)
-                            );
-                        }
-                    });
-                }
-            }
-        }, "ReceiverServer");
-
-        serverThread.start();
-    }
-
-
-    // إعلان وجود الريسيفر على الشبكة المحلية عبر multicast، دون الاعتماد على مسح كل IP.
-    private void startDiscoveryHeartbeat() {
-        if (heartbeatRunning) return;
-        heartbeatRunning = true;
-        Thread thread = new Thread(() -> {
-            while (running && heartbeatRunning) {
-                try (DatagramSocket socket = new DatagramSocket()) {
-                    socket.setBroadcast(true);
-                    byte[] data = ("ABOEZZAT_RECEIVER|" + getCurrentIpAddress() + "|" + PORT)
-                            .getBytes(StandardCharsets.UTF_8);
-                    InetAddress group = InetAddress.getByName(DISCOVERY_GROUP);
-                    DatagramPacket packet = new DatagramPacket(data, data.length, group, DISCOVERY_PORT);
-                    socket.send(packet);
-                } catch (Exception e) {
-                    Log.w(TAG, "Discovery heartbeat send failed", e);
-                }
-                try { Thread.sleep(1200L); }
-                catch (InterruptedException e) { Thread.currentThread().interrupt(); break; }
-            }
-        }, "ReceiverDiscoveryHeartbeat");
-        thread.setDaemon(true);
-        thread.start();
-    }
-
-    private void handleRequest(Socket client) {
-        lastRequestAt = System.currentTimeMillis();
-        String mediaUrl = null;
-        String audioUrl = null;
-        String sourceUrl = null;
-        String command = null;
-        java.util.Map<String, String> mediaHeaders = new java.util.LinkedHashMap<>();
-        boolean requestAccepted = false;
-
-        try (Socket socket = client) {
-            socket.setSoTimeout(5000);
-            java.io.InputStream input = new java.io.BufferedInputStream(socket.getInputStream());
-            String requestLine = readHttpLine(input, 4096);
-            if (requestLine != null) {
-                String[] parts = requestLine.split(" ", 3);
-                String method = parts.length > 0 ? parts[0] : "";
-                int contentLength = 0;
-                int totalHeaderBytes = 0;
-                String headerLine;
-                while ((headerLine = readHttpLine(input, 8192)) != null && !headerLine.isEmpty()) {
-                    totalHeaderBytes += headerLine.length();
-                    if (totalHeaderBytes > 16384) throw new java.io.IOException("HTTP headers too large");
-                    int colon = headerLine.indexOf(':');
-                    if (colon > 0 && "content-length".equalsIgnoreCase(headerLine.substring(0, colon).trim())) {
-                        try {
-                            contentLength = Integer.parseInt(headerLine.substring(colon + 1).trim());
-                            if (contentLength < 0 || contentLength > 16384) throw new java.io.IOException("Invalid content length");
-                        } catch (NumberFormatException invalidLength) {
-                            throw new java.io.IOException("Invalid content length");
-                        }
-                    }
-                }
-
-                if ("POST".equalsIgnoreCase(method) && parts.length >= 2 && "/play".equals(parts[1])) {
-                    if (contentLength <= 0) throw new java.io.IOException("Empty playback request");
-                    byte[] bodyBytes = new byte[contentLength];
-                    int offset = 0;
-                    while (offset < contentLength) {
-                        int count = input.read(bodyBytes, offset, contentLength - offset);
-                        if (count < 0) break;
-                        offset += count;
-                    }
-                    if (offset != contentLength) throw new java.io.IOException("Incomplete playback request");
-                    JSONObject payload = new JSONObject(new String(bodyBytes, StandardCharsets.UTF_8));
-                    mediaUrl = payload.optString("url", null);
-                    audioUrl = payload.optString("audio", null);
-                    sourceUrl = payload.optString("sourceUrl", null);
-                    JSONObject headers = payload.optJSONObject("headers");
-                    if (headers != null) {
-                        java.util.Iterator<String> keys = headers.keys();
-                        while (keys.hasNext() && mediaHeaders.size() < 16) {
-                            String key = keys.next();
-                            String lower = key.toLowerCase(Locale.ROOT);
-                            String value = headers.optString(key, "");
-                            if (value.length() <= ("cookie".equals(lower) ? 8192 : 2048)
-                                    && !value.contains("\r") && !value.contains("\n")
-                                    && ("user-agent".equals(lower) || "referer".equals(lower) || "origin".equals(lower)
-                                    || "accept".equals(lower) || "accept-language".equals(lower) || "cookie".equals(lower)
-                                    || "sec-fetch-site".equals(lower) || "sec-fetch-mode".equals(lower)
-                                    || "sec-fetch-dest".equals(lower) || "sec-ch-ua".equals(lower)
-                                    || "sec-ch-ua-mobile".equals(lower) || "sec-ch-ua-platform".equals(lower)
-                                    || "priority".equals(lower))) {
-                                mediaHeaders.put(key, value);
-                            }
-                        }
-                    }
-                } else if ("GET".equalsIgnoreCase(method) && parts.length >= 2) {
-                    String target = parts[1];
-                    int questionIndex = target.indexOf('?');
-                    if (questionIndex >= 0) {
-                        String query = target.substring(questionIndex + 1);
-                        for (String pair : query.split("&")) {
-                            String[] item = pair.split("=", 2);
-                            if (item.length != 2) continue;
-                            String key = URLDecoder.decode(item[0], "UTF-8");
-                            String value = URLDecoder.decode(item[1], "UTF-8");
-                            if ("url".equals(key) || "video".equals(key)) mediaUrl = value;
-                            else if ("audio".equals(key)) audioUrl = value;
-                            else if ("sourceUrl".equals(key)) sourceUrl = value;
-                            else if ("command".equals(key)) command = value;
-                        }
-                    }
-                }
-
-                if (sourceUrl != null && !isHttpUrl(sourceUrl)) sourceUrl = null;
-                boolean hasMedia = mediaUrl != null && !mediaUrl.trim().isEmpty();
-                boolean hasAudio = audioUrl != null && !audioUrl.trim().isEmpty();
-                boolean validMedia = (!hasMedia || isHttpUrl(mediaUrl)) && (!hasAudio || isHttpUrl(audioUrl));
-                requestAccepted = ("ping".equals(command) || "status".equals(command))
-                        || (validMedia && (hasMedia || hasAudio));
-            }
-
-            String responseBody = requestAccepted ? "OK" : "Invalid or unsupported request";
-            String contentType = "text/plain; charset=utf-8";
-            if ("status".equals(command)) {
-                JSONObject statusJson = new JSONObject();
-                statusJson.put("extracting", extractionInProgress);
-                statusJson.put("attempt", extractionAttemptCount);
-                statusJson.put("status", extractionStatus);
-                statusJson.put("message", playbackStatusMessage == null ? "" : playbackStatusMessage);
-                responseBody = statusJson.toString();
-                contentType = "application/json; charset=utf-8";
-            }
-            byte[] bodyBytes = responseBody.getBytes(StandardCharsets.UTF_8);
-            String statusLine = requestAccepted ? "HTTP/1.1 200 OK\r\n" : "HTTP/1.1 400 Bad Request\r\n";
-            byte[] response = (statusLine
-                    + "Content-Type: " + contentType + "\r\n"
-                    + "Connection: close\r\n"
-                    + "Content-Length: " + bodyBytes.length + "\r\n\r\n")
-                    .getBytes(StandardCharsets.UTF_8);
-            OutputStream output = socket.getOutputStream();
-            output.write(response);
-            output.write(bodyBytes);
-            output.flush();
-        } catch (Exception e) {
-            Log.e(TAG, "Request error", e);
-            return;
-        }
-
-        if ("ping".equals(command) || "status".equals(command)) return;
-        if (command != null && !command.trim().isEmpty()) {
-            final String requestedCommand = command.trim();
-            Log.i(TAG, "Remote command received: " + requestedCommand
-                    + ", playerAvailable=" + (player != null));
-            runOnUiThread(() -> {
-                try {
-                    handleRemoteCommand(requestedCommand);
-                } catch (Exception e) {
-                    Log.e(TAG, "Remote command failed: " + requestedCommand, e);
-                    Toast.makeText(MainActivity.this,
-                            "تعذّر تنفيذ أمر الريموت: " + requestedCommand,
-                            Toast.LENGTH_SHORT).show();
-                }
-            });
-            return;
-        }
-        if (requestAccepted && ((mediaUrl != null && !mediaUrl.trim().isEmpty())
-                || (audioUrl != null && !audioUrl.trim().isEmpty()))) {
-            final String receivedMediaUrl = mediaUrl;
-            final String receivedAudioUrl = audioUrl;
-            final java.util.Map<String, String> receivedHeaders = new java.util.LinkedHashMap<>(mediaHeaders);
-            final String receivedSourceUrl = sourceUrl;
-            runOnUiThread(() -> {
-                Toast.makeText(MainActivity.this, "وصل طلب فيديو من Share New؛ جاري تجهيز التشغيل…", Toast.LENGTH_LONG).show();
-                queueIncomingMedia(receivedMediaUrl, receivedAudioUrl, receivedHeaders, receivedSourceUrl);
-            });
-        }
-    }
-
-    private String readHttpLine(java.io.InputStream input, int maxBytes) throws java.io.IOException {
-        java.io.ByteArrayOutputStream line = new java.io.ByteArrayOutputStream();
-        int value;
-        while ((value = input.read()) != -1) {
-            if (value == '\n') break;
-            if (value != '\r') line.write(value);
-            if (line.size() > maxBytes) throw new java.io.IOException("HTTP line too long");
-        }
-        if (value == -1 && line.size() == 0) return null;
-        return line.toString("UTF-8");
     }
 
     private boolean isYouTubeUrl(String value) {
@@ -7639,19 +7383,9 @@ public class MainActivity extends Activity {
         synchronized (playerLock) {
             savePlaybackPositionLocked();
         }
-        running = false;
-        heartbeatRunning = false;
         if (pendingPlayback != null) {
             mediaHandler.removeCallbacks(pendingPlayback);
             pendingPlayback = null;
-        }
-
-        try {
-            if (serverSocket != null) {
-                serverSocket.close();
-            }
-        } catch (Exception e) {
-            Log.w(TAG, "Server close error", e);
         }
 
         if (popupRequestDialog != null) { popupRequestDialog.dismiss(); popupRequestDialog = null; }
