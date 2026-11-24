@@ -12,6 +12,7 @@ import java.security.KeyStore;
 import java.security.SecureRandom;
 import java.security.cert.Certificate;
 import java.security.cert.X509Certificate;
+import java.security.spec.ECGenParameterSpec;
 import java.util.Arrays;
 import java.util.Date;
 
@@ -27,7 +28,9 @@ import javax.security.auth.x500.X500Principal;
  * public certificate fingerprint is exposed for out-of-band verification.
  */
 public final class ReceiverTlsIdentity {
-    private static final String KEY_ALIAS = "AboEzzatReceiver.TlsIdentity.v1";
+    // v2 intentionally rotates the old RSA identity to an EC P-256 TLS key.
+    private static final String KEY_ALIAS = "AboEzzatReceiver.TlsIdentity.v2";
+    private static final String LEGACY_KEY_ALIAS = "AboEzzatReceiver.TlsIdentity.v1";
     private static final String KEYSTORE_PROVIDER = "AndroidKeyStore";
 
     private ReceiverTlsIdentity() { }
@@ -39,13 +42,13 @@ public final class ReceiverTlsIdentity {
         if (!keyStore.containsAlias(KEY_ALIAS)) {
             long now = System.currentTimeMillis();
             KeyPairGenerator generator = KeyPairGenerator.getInstance(
-                    KeyProperties.KEY_ALGORITHM_RSA, KEYSTORE_PROVIDER);
+                    KeyProperties.KEY_ALGORITHM_EC, KEYSTORE_PROVIDER);
             KeyGenParameterSpec spec = new KeyGenParameterSpec.Builder(
                     KEY_ALIAS, KeyProperties.PURPOSE_SIGN)
-                    .setKeySize(2048)
-                    .setDigests(KeyProperties.DIGEST_SHA256)
-                    .setSignaturePaddings(KeyProperties.SIGNATURE_PADDING_RSA_PKCS1,
-                            KeyProperties.SIGNATURE_PADDING_RSA_PSS)
+                    .setAlgorithmParameterSpec(new ECGenParameterSpec("secp256r1"))
+                    // TLS providers perform the digest operation themselves and
+                    // therefore need the Keystore key to permit DIGEST_NONE.
+                    .setDigests(KeyProperties.DIGEST_NONE, KeyProperties.DIGEST_SHA256)
                     .setCertificateSubject(new X500Principal("CN=AboEzzat Receiver"))
                     .setCertificateSerialNumber(BigInteger.valueOf(now))
                     .setCertificateNotBefore(new Date(now - 24L * 60L * 60L * 1000L))
@@ -54,6 +57,13 @@ public final class ReceiverTlsIdentity {
                     .build();
             generator.initialize(spec);
             generator.generateKeyPair();
+            keyStore.load(null);
+        }
+
+        // The v2 EC certificate has a new public-key fingerprint. Remove the
+        // obsolete RSA private key after the replacement is safely present.
+        if (keyStore.containsAlias(LEGACY_KEY_ALIAS)) {
+            keyStore.deleteEntry(LEGACY_KEY_ALIAS);
             keyStore.load(null);
         }
         return keyStore;
