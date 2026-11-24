@@ -643,19 +643,35 @@ public class MainActivity extends Activity {
             pairing.edit().putString("pairing_code", code)
                     .putLong("code_expires_at", expiresAt).putInt("failed_attempts", 0).apply();
         }
+
         final String displayedCode = code;
+        final String certificateFingerprint;
+        try {
+            certificateFingerprint = ReceiverTlsIdentity.getCertificateFingerprint();
+        } catch (Exception identityError) {
+            Log.e("AboEzzatReceiver", "Receiver TLS identity is unavailable", identityError);
+            Toast.makeText(this, "تعذر تجهيز هوية الاتصال المشفر. أعد تشغيل التطبيق وحاول مرة أخرى.",
+                    Toast.LENGTH_LONG).show();
+            return;
+        }
+
         long remaining = Math.max(0L, (expiresAt - System.currentTimeMillis() + 59999L) / 60000L);
-        String message = "افتح أبو عزت كاست على الموبايل، ثم الإعدادات > ربط آمن مع الريسيفر، وأدخل الكود التالي.\n\n"
-                + displayedCode + "\n\nصالح لمدة تصل إلى " + remaining + " دقائق، ويسمح بخمس محاولات فقط.\n"
-                + "بعد نجاح الربط، تُوقّع أوامر الإرسال بمفتاح سري ولا يُرسل المفتاح نفسه مع كل طلب. لا تشارك الكود مع أي شخص.";
-        new AlertDialog.Builder(this).setTitle("🔐 كود الربط")
+        String message = "افتح أبو عزت كاست على الموبايل، ثم الإعدادات > ربط مع الريسيفر. "
+                + "أدخل كود الربط، وتأكد من مطابقة بصمة الشهادة الظاهرة هنا قبل المتابعة.\\n\\n"
+                + "كود الربط:\\n" + displayedCode
+                + "\\n\\nبصمة شهادة الاتصال (SHA-256 / Base64URL):\\n"
+                + certificateFingerprint
+                + "\\n\\nصالح لمدة تصل إلى " + remaining + " دقائق، ويسمح بخمس محاولات فقط. "
+                + "لا تشارك كود الربط مع أي شخص.";
+        new AlertDialog.Builder(this).setTitle("🔐 كود الربط وبصمة الاتصال")
                 .setMessage(message)
-                .setPositiveButton("نسخ الكود", (d, w) -> {
+                .setPositiveButton("نسخ البصمة", (d, w) -> {
                     android.content.ClipboardManager clipboard =
                             (android.content.ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
                     if (clipboard != null) {
-                        clipboard.setPrimaryClip(android.content.ClipData.newPlainText("AboEzzat pairing code", displayedCode));
-                        Toast.makeText(this, "تم نسخ كود الربط", Toast.LENGTH_SHORT).show();
+                        clipboard.setPrimaryClip(android.content.ClipData.newPlainText(
+                                "AboEzzat Receiver TLS fingerprint", certificateFingerprint));
+                        Toast.makeText(this, "تم نسخ بصمة الاتصال", Toast.LENGTH_SHORT).show();
                     }
                 })
                 .setNeutralButton("توليد كود جديد", (d, w) -> {
