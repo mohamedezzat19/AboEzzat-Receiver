@@ -659,6 +659,61 @@ public class MainActivity extends Activity {
         panel.setOrientation(android.widget.LinearLayout.VERTICAL);
         panel.setPadding(pad, pad, pad, pad);
 
+        String receiverIp = getCurrentIpAddress();
+        int receiverPort = getSharedPreferences("receiver_settings", MODE_PRIVATE)
+                .getInt("receiver_port", 8081);
+        if (receiverIp != null && receiverIp.matches("[0-9]{1,3}(\\.[0-9]{1,3}){3}")
+                && receiverPort >= 1 && receiverPort <= 65535) {
+            try {
+                org.json.JSONObject qrPayload = new org.json.JSONObject();
+                qrPayload.put("type", "aboezzat_receiver_pair");
+                qrPayload.put("version", 1);
+                qrPayload.put("host", receiverIp);
+                qrPayload.put("port", receiverPort);
+                qrPayload.put("code", displayedCode);
+                qrPayload.put("fingerprint", certificateFingerprint);
+                com.google.zxing.common.BitMatrix matrix =
+                        new com.google.zxing.qrcode.QRCodeWriter().encode(
+                                qrPayload.toString(), com.google.zxing.BarcodeFormat.QR_CODE,
+                                720, 720, java.util.Collections.singletonMap(
+                                        com.google.zxing.EncodeHintType.MARGIN, 2));
+                android.graphics.Bitmap qrBitmap = android.graphics.Bitmap.createBitmap(
+                        720, 720, android.graphics.Bitmap.Config.ARGB_8888);
+                for (int y = 0; y < 720; y++) {
+                    for (int x = 0; x < 720; x++) {
+                        qrBitmap.setPixel(x, y, matrix.get(x, y) ? Color.BLACK : Color.WHITE);
+                    }
+                }
+                android.widget.TextView qrTitle = new android.widget.TextView(this);
+                qrTitle.setText("امسح الكود من تطبيق أبو عزت كاست للربط التلقائي");
+                qrTitle.setTextSize(15);
+                qrTitle.setTextColor(Color.WHITE);
+                qrTitle.setGravity(android.view.Gravity.CENTER);
+                android.widget.LinearLayout.LayoutParams qrTitleParams =
+                        new android.widget.LinearLayout.LayoutParams(-1, -2);
+                qrTitleParams.bottomMargin = pad / 2;
+                panel.addView(qrTitle, 0, qrTitleParams);
+
+                android.widget.ImageView qrImage = new android.widget.ImageView(this);
+                qrImage.setImageBitmap(qrBitmap);
+                qrImage.setScaleType(android.widget.ImageView.ScaleType.FIT_CENTER);
+                qrImage.setBackgroundColor(Color.WHITE);
+                qrImage.setPadding(pad / 3, pad / 3, pad / 3, pad / 3);
+                android.widget.LinearLayout.LayoutParams qrParams =
+                        new android.widget.LinearLayout.LayoutParams(
+                                (int) (220 * getResources().getDisplayMetrics().density),
+                                (int) (220 * getResources().getDisplayMetrics().density));
+                qrParams.gravity = android.view.Gravity.CENTER_HORIZONTAL;
+                qrParams.bottomMargin = pad;
+                panel.addView(qrImage, 0, qrParams);
+            } catch (Exception qrError) {
+                Log.e("AboEzzatReceiver", "Could not generate pairing QR", qrError);
+                Toast.makeText(this, "تعذر إنشاء QR، استخدم النسخ اليدوي", Toast.LENGTH_LONG).show();
+            }
+        } else {
+            Toast.makeText(this, "عنوان الشبكة غير متاح لإنشاء QR. استخدم الربط اليدوي.", Toast.LENGTH_LONG).show();
+        }
+
         android.widget.TextView instructions = new android.widget.TextView(this);
         instructions.setText("انسخ كل قيمة من الزر الموجود تحتها، ثم أدخلها في أبو عزت كاست عند ربط الريسيفر لأول مرة.");
         instructions.setTextSize(15);
