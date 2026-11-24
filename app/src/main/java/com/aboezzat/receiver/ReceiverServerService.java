@@ -361,8 +361,8 @@ public class ReceiverServerService extends Service {
         return "";
     }
 
-    private boolean verifySignedRequest(String method, String target, String timestamp,
-                                        String nonce, String suppliedSignature) {
+    private boolean verifySignedRequest(String method, String target, byte[] requestBody,
+                                        String timestamp, String nonce, String suppliedSignature) {
         if (timestamp == null || nonce == null || suppliedSignature == null
                 || nonce.length() < 16 || nonce.length() > 80 || suppliedSignature.length() > 128) return false;
         long requestTime;
@@ -372,9 +372,13 @@ public class ReceiverServerService extends Service {
         String secret = getSharedPreferences("AboEzzatPairing", MODE_PRIVATE)
                 .getString("receiver_secret", "");
         if (secret.isEmpty()) return false;
-        String canonical = method.toUpperCase(java.util.Locale.ROOT) + "\n"
-                + target + "\n" + timestamp + "\n" + nonce;
         try {
+            byte[] safeBody = requestBody == null ? new byte[0] : requestBody;
+            String bodyHash = android.util.Base64.encodeToString(
+                    MessageDigest.getInstance("SHA-256").digest(safeBody),
+                    android.util.Base64.URL_SAFE | android.util.Base64.NO_WRAP | android.util.Base64.NO_PADDING);
+            String canonical = method.toUpperCase(java.util.Locale.ROOT) + "\n"
+                    + target + "\n" + bodyHash + "\n" + timestamp + "\n" + nonce;
             Mac mac = Mac.getInstance("HmacSHA256");
             mac.init(new SecretKeySpec(secret.getBytes(StandardCharsets.UTF_8), "HmacSHA256"));
             String expected = android.util.Base64.encodeToString(
@@ -446,26 +450,33 @@ public class ReceiverServerService extends Service {
 
             String requestPath = target.split("\\?", 2)[0];
             pairingRequest = "GET".equalsIgnoreCase(method) && "/pair".equals(requestPath);
-            if (pairingRequest && !invalidRequestMethod) {
-                pairingResponse = createPairingResponse(queryValue(target, "code"));
-                unauthorized = pairingResponse == null;
-            } else if (!invalidRequestMethod) {
-                unauthorized = !verifySignedRequest(method, target, authTime, authNonce, authSignature);
-            }
-
-            if (!unauthorized && !pairingRequest && "POST".equalsIgnoreCase(method)
-                    && "/play".equals(target) && !invalidRequestMethod) {
+            byte[] requestBody = new byte[0];
+            if ("POST".equalsIgnoreCase(method) && "/play".equals(target)
+                    && !invalidRequestMethod) {
                 if (contentLength < 0 || contentLength > 65536) {
                     invalidMediaUrl = true;
                 } else {
-                    byte[] body = new byte[contentLength];
+                    requestBody = new byte[contentLength];
                     int offset = 0;
                     while (offset < contentLength) {
-                        int count = input.read(body, offset, contentLength - offset);
+                        int count = input.read(requestBody, offset, contentLength - offset);
                         if (count < 0) throw new IOException("Incomplete /play JSON body");
                         offset += count;
                     }
-                    JSONObject payload = new JSONObject(new String(body, StandardCharsets.UTF_8));
+                }
+            }
+            if (pairingRequest && !invalidRequestMethod) {
+                pairingResponse = createPairingResponse(queryValue(target, "code"));
+                unauthorized = pairingResponse == null;
+            } else if (!invalidRequestMethod && !invalidMediaUrl) {
+                unauthorized = !verifySignedRequest(method, target, requestBody,
+                        authTime, authNonce, authSignature);
+            }
+
+            if (!unauthorized && !pairingRequest && !invalidMediaUrl
+                    && "POST".equalsIgnoreCase(method) && "/play".equals(target)
+                    && !invalidRequestMethod) {
+                    JSONObject payload = new JSONObject(new String(requestBody, StandardCharsets.UTF_8));
                     mediaUrl = payload.optString("url", "");
                     // /play POST requests may carry a separate DASH audio-only track.
                     // Preserve it exactly like the legacy GET ?audio=... path.
