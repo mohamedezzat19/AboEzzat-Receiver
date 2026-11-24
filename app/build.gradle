@@ -61,6 +61,7 @@ dependencies {
     implementation 'com.google.android.material:material:1.11.0'
 
     implementation 'androidx.media3:media3-exoplayer:1.9.0'
+    implementation 'androidx.media3:media3-datasource-okhttp:1.9.0'
     implementation 'androidx.media3:media3-exoplayer-hls:1.9.0'
     implementation 'androidx.media3:media3-exoplayer-dash:1.9.0'
     implementation 'androidx.media3:media3-exoplayer-smoothstreaming:1.9.0'
