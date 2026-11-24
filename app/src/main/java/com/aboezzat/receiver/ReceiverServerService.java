@@ -601,10 +601,10 @@ public class ReceiverServerService extends Service {
                 contentType = "application/json; charset=utf-8";
             }
             byte[] bodyBytes = body.getBytes(StandardCharsets.UTF_8);
-            byte[] responseHeaders = ("HTTP/1.1 " + responseStatus + "\\r\\n"
-                    + "Content-Type: " + contentType + "\\r\\n"
-                    + "Connection: close\\r\\n"
-                    + "Content-Length: " + bodyBytes.length + "\\r\\n\\r\\n")
+            byte[] responseHeaders = ("HTTP/1.1 " + responseStatus + "\r\n"
+                    + "Content-Type: " + contentType + "\r\n"
+                    + "Connection: close\r\n"
+                    + "Content-Length: " + bodyBytes.length + "\r\n\r\n")
                     .getBytes(StandardCharsets.UTF_8);
             OutputStream output = socket.getOutputStream();
             output.write(responseHeaders);
