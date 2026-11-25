@@ -655,13 +655,25 @@ public class ReceiverServerService extends Service {
                             || requestBody.length == 0) {
                         invalidMediaUrl = true;
                     }
-                    JSONObject payload = invalidMediaUrl ? new JSONObject()
-                            : new JSONObject(new String(requestBody, StandardCharsets.UTF_8));
+                    JSONObject payload;
+                    try {
+                        payload = invalidMediaUrl ? new JSONObject()
+                                : new JSONObject(new String(requestBody, StandardCharsets.UTF_8));
+                    } catch (Exception malformedJson) {
+                        payload = new JSONObject();
+                        invalidMediaUrl = true;
+                    }
                     mediaUrl = payload.optString("url", "");
                     // /play POST requests may carry a separate DASH audio-only track.
                     // Preserve it exactly like the legacy GET ?audio=... path.
                     audioUrl = payload.optString("audio", "");
                     sourceUrl = payload.optString("sourceUrl", "");
+                    // Local Cast media URLs require their authenticated TLS pin too.
+                    mediaTlsPin = payload.optString("mediaPin", "");
+                    if ((mediaUrl == null || mediaUrl.trim().isEmpty())
+                            && (audioUrl == null || audioUrl.trim().isEmpty())) {
+                        invalidMediaUrl = true;
+                    }
                     JSONObject suppliedHeaders = payload.optJSONObject("headers");
                     JSONObject safeHeaders = new JSONObject();
                     if (suppliedHeaders != null) {
