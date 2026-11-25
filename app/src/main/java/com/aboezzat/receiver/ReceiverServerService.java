@@ -850,6 +850,12 @@ public class ReceiverServerService extends Service {
         }
     }
 
+    private boolean isSupportedCastMediaPath(String path) {
+        if (path == null) return false;
+        return path.toLowerCase(java.util.Locale.ROOT).matches(
+                "/media\\.(jpg|mp4|m4v|mkv|webm|mov|avi|flv|mpg|mpeg|3gp|ogv|wmv|vob|ts|m2ts|mp3|m4a|aac|ogg|oga|opus|wav|flac|mid|midi)");
+    }
+
     private boolean isValidCastTlsMediaUrl(String value) {
         try {
             java.net.URL url = new java.net.URL(value.trim());
@@ -860,7 +866,7 @@ public class ReceiverServerService extends Service {
             InetAddress address = InetAddress.getByName(host);
             return "https".equalsIgnoreCase(url.getProtocol())
                     && url.getPort() == 8088
-                    && ("/media.mp4".equals(path) || "/media.jpg".equals(path))
+                    && isSupportedCastMediaPath(path)
                     && url.getUserInfo() == null
                     && address instanceof java.net.Inet4Address
                     && address.isSiteLocalAddress() && !address.isLoopbackAddress()
