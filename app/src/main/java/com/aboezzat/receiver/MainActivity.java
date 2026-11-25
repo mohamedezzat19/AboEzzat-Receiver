@@ -3221,6 +3221,24 @@ public class MainActivity extends Activity {
         if (!isHttpUrl(targetUrl)) targetUrl = originalIncomingMediaUrl;
         if (!isHttpUrl(targetUrl)) targetUrl = currentPlaybackFallbackUrl;
 
+        // VLC does not know Receiver's per-install Cast certificate pin. For
+        // local Cast media, relay through a loopback-only HTTP endpoint whose
+        // upstream HTTPS connection is still verified with that exact pin.
+        try {
+            Uri targetUri = Uri.parse(targetUrl);
+            if ("https".equalsIgnoreCase(targetUri.getScheme()) && targetUri.getPort() == 8088
+                    && isPhoneLocalMediaUrl(targetUrl)) {
+                String mediaHost = targetUri.getHost();
+                targetUrl = PinnedVlcMediaProxy.start(targetUrl,
+                        createPinnedCastMediaClient(mediaHost));
+            }
+        } catch (Exception relayError) {
+            Log.e(TAG, "Could not create pinned local VLC relay", relayError);
+            playbackStatusMessage = "تعذر تجهيز رابط VLC المحلي الآمن؛ سيظل التشغيل داخل الريسيفر.";
+            persistExtractionState();
+            return;
+        }
+
         if (!isVlcInstalled()) {
             Log.i(TAG, "VLC app is not installed; routing to the device's app store.");
             openVlcStoreListing();
