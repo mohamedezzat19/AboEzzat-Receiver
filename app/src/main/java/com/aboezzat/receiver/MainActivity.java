@@ -525,7 +525,7 @@ public class MainActivity extends Activity {
                 .putInt("attempt", extractionAttemptCount)
                 .putString("status", extractionStatus)
                 .putBoolean("media_active", videoActive || imageActive)
-                .putString("media_type", videoActive ? "video" : imageActive ? "image" : "none")
+                .putString("media_type", videoActive ? (currentPlaybackHasVideo ? "video" : "audio") : imageActive ? "image" : "none")
                 .putLong("media_state_updated_at", System.currentTimeMillis())
                 .apply();
     }
