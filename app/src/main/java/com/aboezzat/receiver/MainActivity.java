@@ -672,6 +672,9 @@ public class MainActivity extends Activity {
                 qrPayload.put("port", receiverPort);
                 qrPayload.put("code", displayedCode);
                 qrPayload.put("fingerprint", certificateFingerprint);
+                qrPayload.put("name", android.os.Build.MODEL == null
+                        || android.os.Build.MODEL.trim().isEmpty()
+                        ? "أبو عزت ريسيفر" : android.os.Build.MODEL.trim());
                 com.google.zxing.common.BitMatrix matrix =
                         new com.google.zxing.qrcode.QRCodeWriter().encode(
                                 qrPayload.toString(), com.google.zxing.BarcodeFormat.QR_CODE,
