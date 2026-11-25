@@ -6335,8 +6335,7 @@ public class MainActivity extends Activity {
     }
 
     private long getImageSlideshowIntervalMs() {
-        return getSharedPreferences("AboEzzatReceiverPrefs", MODE_PRIVATE)
-                .getLong("image_slideshow_interval_ms", 5000L);
+        return getPlayerSettingsPrefs().getLong("image_slideshow_interval_ms", 5000L);
     }
 
     private void showImageSlideshowDurationDialog() {
@@ -6347,7 +6346,7 @@ public class MainActivity extends Activity {
         for (int i = 0; i < seconds.length; i++) if (seconds[i] == current) selected = i;
         new AlertDialog.Builder(this).setTitle("مدة عرض كل صورة")
                 .setSingleChoiceItems(labels, selected, (dialog, which) -> {
-                    getSharedPreferences("AboEzzatReceiverPrefs", MODE_PRIVATE).edit()
+                    getPlayerSettingsPrefs().edit()
                             .putLong("image_slideshow_interval_ms", seconds[which] * 1000L).apply();
                     dialog.dismiss();
                     if (imageSlideshowRunning) {
