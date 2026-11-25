@@ -7491,16 +7491,16 @@ public class MainActivity extends Activity {
 
     private void showImage(String imageUrl) {
         final long imageRequestGeneration = ++imageLoadGeneration;
+        if (isCastMediaPortUrl(imageUrl) && !isPhoneLocalMediaUrl(imageUrl)) {
+            Toast.makeText(this, "رابط صورة Cast غير مشفر أو غير موثوق.", Toast.LENGTH_LONG).show();
+            return;
+        }
         if (!navigatingImageQueue && imageUrl != null && !imageUrl.trim().isEmpty()) {
             if (receivedImageIndex < 0 || receivedImageQueue.isEmpty()
                     || !imageUrl.equals(receivedImageQueue.get(receivedImageQueue.size() - 1))) {
                 receivedImageQueue.add(imageUrl);
                 receivedImageIndex = receivedImageQueue.size() - 1;
             }
-        }
-        if (isCastMediaPortUrl(imageUrl) && !isPhoneLocalMediaUrl(imageUrl)) {
-            Toast.makeText(this, "رابط صورة Cast غير مشفر أو غير موثوق.", Toast.LENGTH_LONG).show();
-            return;
         }
         if (settingsHomeButton != null) settingsHomeButton.setVisibility(View.GONE);
         if (browserHomeButton != null) browserHomeButton.setVisibility(View.GONE);
@@ -7619,6 +7619,8 @@ public class MainActivity extends Activity {
         imageLoadGeneration++;
         imageSlideshowRunning = false;
         imageSlideshowHandler.removeCallbacks(imageSlideshowRunnable);
+        receivedImageQueue.clear();
+        receivedImageIndex = -1;
         if (imagePlaybackControls != null) imagePlaybackControls.setVisibility(View.GONE);
         imageControlsHandler.removeCallbacks(hideImageControlsRunnable);
         resetImageTransform();
