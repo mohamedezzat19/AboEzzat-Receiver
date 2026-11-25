@@ -7730,6 +7730,12 @@ public class MainActivity extends Activity {
 
     @Override
     protected void onDestroy() {
+        // Stop image-session callbacks before the Activity and its views are destroyed.
+        // Otherwise an active slideshow can keep reposting itself against a dead Activity.
+        imageLoadGeneration++;
+        imageSlideshowRunning = false;
+        imageSlideshowHandler.removeCallbacks(imageSlideshowRunnable);
+        imageControlsHandler.removeCallbacks(hideImageControlsRunnable);
         backPressHandler.removeCallbacks(resetBrowserBackPress);
         playbackProgressHandler.removeCallbacks(playbackProgressRunnable);
         if (sleepTimerRunnable != null) sleepTimerHandler.removeCallbacks(sleepTimerRunnable);
