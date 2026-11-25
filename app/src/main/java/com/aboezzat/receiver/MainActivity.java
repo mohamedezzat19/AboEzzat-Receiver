@@ -189,6 +189,8 @@ public class MainActivity extends Activity {
     private final Runnable hideImageControlsRunnable = () -> setImageControlsVisible(false);
     private boolean imageControlsVisible = false;
     private String currentImageUrl = "";
+    // Invalidates late bitmap callbacks when another image/video session takes over.
+    private volatile long imageLoadGeneration = 0L;
     private String pendingBrowserUrl = "";
     private volatile boolean fallbackStreamCaptured = false;
     private volatile String fallbackPageUrl = "";
@@ -7380,6 +7382,7 @@ public class MainActivity extends Activity {
     }
 
     private void showImage(String imageUrl) {
+        final long imageRequestGeneration = ++imageLoadGeneration;
         if (isCastMediaPortUrl(imageUrl) && !isPhoneLocalMediaUrl(imageUrl)) {
             Toast.makeText(this, "رابط صورة Cast غير مشفر أو غير موثوق.", Toast.LENGTH_LONG).show();
             return;
@@ -7471,6 +7474,10 @@ public class MainActivity extends Activity {
 
             final Bitmap result = bitmap;
             runOnUiThread(() -> {
+                if (imageRequestGeneration != imageLoadGeneration || isFinishing() || isDestroyed()) {
+                    if (result != null && !result.isRecycled()) result.recycle();
+                    return;
+                }
                 imageLoading.setVisibility(View.GONE);
                 if (result != null && !isFinishing()) {
                     imageView.setScaleType(ImageView.ScaleType.FIT_CENTER);
@@ -7493,6 +7500,8 @@ public class MainActivity extends Activity {
     }
 
     private void hideImage() {
+        imageLoadGeneration++;
+        imageControlsHandler.removeCallbacks(hideImageControlsRunnable);
         resetImageTransform();
         imageView.setVisibility(View.GONE);
         imageLoading.setVisibility(View.GONE);
