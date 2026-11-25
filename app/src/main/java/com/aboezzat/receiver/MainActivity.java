@@ -1080,7 +1080,7 @@ public class MainActivity extends Activity {
         String value = rawValue.trim();
         int maxLength = "cookie".equals(key) ? 8192 : 2048;
         if (value.isEmpty() || value.length() > maxLength
-                || value.contains("\\r") || value.contains("\\n")) return;
+                || value.contains("\r") || value.contains("\n")) return;
         target.put(key, value);
     }
 
