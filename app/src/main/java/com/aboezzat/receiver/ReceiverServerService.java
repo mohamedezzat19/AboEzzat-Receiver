@@ -647,7 +647,16 @@ public class ReceiverServerService extends Service {
             if (!unauthorized && !pairingRequest && !invalidMediaUrl
                     && "POST".equalsIgnoreCase(method) && "/play".equals(target)
                     && !invalidRequestMethod) {
-                    JSONObject payload = new JSONObject(new String(requestBody, StandardCharsets.UTF_8));
+                    // /play is a JSON-only signed API. Reject empty bodies and ambiguous
+                    // content types before parsing so clients and the server agree on framing.
+                    if (requestContentType == null
+                            || !"application/json".equalsIgnoreCase(
+                                    requestContentType.split(";", 2)[0].trim())
+                            || requestBody.length == 0) {
+                        invalidMediaUrl = true;
+                    }
+                    JSONObject payload = invalidMediaUrl ? new JSONObject()
+                            : new JSONObject(new String(requestBody, StandardCharsets.UTF_8));
                     mediaUrl = payload.optString("url", "");
                     // /play POST requests may carry a separate DASH audio-only track.
                     // Preserve it exactly like the legacy GET ?audio=... path.
