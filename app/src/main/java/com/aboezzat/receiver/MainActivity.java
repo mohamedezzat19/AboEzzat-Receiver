@@ -1013,6 +1013,77 @@ public class MainActivity extends Activity {
         return out.toString();
     }
 
+    /**
+     * Web Video Caster and other UPnP controllers may carry origin credentials
+     * inside CurrentURIMetaData instead of HTTP headers on the SOAP request.
+     * Extract only an explicit allow-list; never forward arbitrary metadata fields.
+     */
+    private java.util.Map<String, String> extractDlnaRequestHeaders(String metadata) {
+        java.util.Map<String, String> result = new java.util.LinkedHashMap<>();
+        if (metadata == null || metadata.trim().isEmpty()) return result;
+        java.util.Set<String> allowed = new java.util.HashSet<>(java.util.Arrays.asList(
+                "user-agent", "referer", "origin", "accept", "accept-language", "cookie"));
+        try {
+            org.xmlpull.v1.XmlPullParserFactory factory =
+                    org.xmlpull.v1.XmlPullParserFactory.newInstance();
+            org.xmlpull.v1.XmlPullParser parser = factory.newPullParser();
+            parser.setInput(new java.io.StringReader(metadata));
+            String activeHeader = null;
+            StringBuilder value = new StringBuilder();
+            int event;
+            while ((event = parser.next()) != org.xmlpull.v1.XmlPullParser.END_DOCUMENT) {
+                if (event == org.xmlpull.v1.XmlPullParser.START_TAG) {
+                    String tag = parser.getName() == null ? ""
+                            : parser.getName().toLowerCase(Locale.ROOT);
+                    if (allowed.contains(tag)) {
+                        activeHeader = tag;
+                        value.setLength(0);
+                    } else if ("header".equals(tag) || "http-header".equals(tag)
+                            || "httpheader".equals(tag)) {
+                        String name = parser.getAttributeValue(null, "name");
+                        if (name == null) name = parser.getAttributeValue(null, "key");
+                        if (name == null) name = parser.getAttributeValue(null, "header");
+                        String normalized = name == null ? "" : name.trim().toLowerCase(Locale.ROOT);
+                        String inline = parser.getAttributeValue(null, "value");
+                        if (allowed.contains(normalized) && inline != null && !inline.trim().isEmpty()) {
+                            putSafeDlnaHeader(result, normalized, inline);
+                            activeHeader = null;
+                        } else if (allowed.contains(normalized)) {
+                            activeHeader = normalized;
+                            value.setLength(0);
+                        }
+                    }
+                } else if ((event == org.xmlpull.v1.XmlPullParser.TEXT
+                        || event == org.xmlpull.v1.XmlPullParser.CDSECT) && activeHeader != null) {
+                    value.append(parser.getText() == null ? "" : parser.getText());
+                } else if (event == org.xmlpull.v1.XmlPullParser.END_TAG && activeHeader != null) {
+                    String closing = parser.getName() == null ? ""
+                            : parser.getName().toLowerCase(Locale.ROOT);
+                    if (closing.equals(activeHeader) || "header".equals(closing)
+                            || "http-header".equals(closing) || "httpheader".equals(closing)) {
+                        putSafeDlnaHeader(result, activeHeader, value.toString());
+                        activeHeader = null;
+                        value.setLength(0);
+                    }
+                }
+            }
+        } catch (Exception malformedMetadata) {
+            Log.w(TAG, "Could not parse optional DLNA request headers from metadata");
+        }
+        return result;
+    }
+
+    private void putSafeDlnaHeader(java.util.Map<String, String> target,
+                                   String name, String rawValue) {
+        if (target == null || name == null || rawValue == null) return;
+        String key = name.trim().toLowerCase(Locale.ROOT);
+        String value = rawValue.trim();
+        int maxLength = "cookie".equals(key) ? 8192 : 2048;
+        if (value.isEmpty() || value.length() > maxLength
+                || value.contains("\r") || value.contains("\n")) return;
+        target.put(key, value);
+    }
+
     private void handleExternalIntent(android.content.Intent intent) {
         if (intent == null) return;
         String action = intent.getAction();
@@ -1044,7 +1115,7 @@ public class MainActivity extends Activity {
             } else {
                 Log.i(TAG, "DLNA metadata received: empty");
             }
-            java.util.Map<String, String> incomingHeaders = new java.util.LinkedHashMap<>();
+            java.util.Map<String, String> incomingHeaders = extractDlnaRequestHeaders(dlnaMetadata);
             try {
                 JSONObject headerJson = new JSONObject(intent.getStringExtra("server_headers") == null
                         ? "{}" : intent.getStringExtra("server_headers"));
@@ -3149,6 +3220,24 @@ public class MainActivity extends Activity {
         String targetUrl = mediaUrl;
         if (!isHttpUrl(targetUrl)) targetUrl = originalIncomingMediaUrl;
         if (!isHttpUrl(targetUrl)) targetUrl = currentPlaybackFallbackUrl;
+
+        // VLC does not know Receiver's per-install Cast certificate pin. For
+        // local Cast media, relay through a loopback-only HTTP endpoint whose
+        // upstream HTTPS connection is still verified with that exact pin.
+        try {
+            Uri targetUri = Uri.parse(targetUrl);
+            if ("https".equalsIgnoreCase(targetUri.getScheme()) && targetUri.getPort() == 8088
+                    && isPhoneLocalMediaUrl(targetUrl)) {
+                String mediaHost = targetUri.getHost();
+                targetUrl = PinnedVlcMediaProxy.start(targetUrl,
+                        createPinnedCastMediaClient(mediaHost));
+            }
+        } catch (Exception relayError) {
+            Log.e(TAG, "Could not create pinned local VLC relay", relayError);
+            playbackStatusMessage = "تعذر تجهيز رابط VLC المحلي الآمن؛ سيظل التشغيل داخل الريسيفر.";
+            persistExtractionState();
+            return;
+        }
 
         if (!isVlcInstalled()) {
             Log.i(TAG, "VLC app is not installed; routing to the device's app store.");
