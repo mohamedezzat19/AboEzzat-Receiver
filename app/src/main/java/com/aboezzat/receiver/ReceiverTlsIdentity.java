@@ -12,6 +12,7 @@ import java.security.KeyStore;
 import java.security.SecureRandom;
 import java.security.cert.Certificate;
 import java.security.cert.X509Certificate;
+import java.security.spec.ECGenParameterSpec;
 import java.util.Arrays;
 import java.util.Date;
 
@@ -23,14 +24,19 @@ import javax.security.auth.x500.X500Principal;
 /**
  * Stable, per-install TLS identity for the receiver.
  *
- * The private key is generated and retained by Android Keystore. ECDSA is
- * used instead of RSA because some Android 14/Conscrypt device combinations
- * fail inside the RSA signing path during a TLS server handshake.
+ * Use an Android Keystore P-256 EC key. Android TLS providers can perform the
+ * digest operation outside Android Keystore, so the key must permit DIGEST_NONE
+ * as well as SHA-256. The old EC key was generated with SHA-256 only, which can
+ * still fail during the TLS server CertificateVerify/signing operation on some
+ * Android 14 Conscrypt implementations.
+ *
  * Only the public certificate fingerprint is exposed for pin verification.
  */
 public final class ReceiverTlsIdentity {
-    // v2 deliberately creates a new EC identity; its new fingerprint is shown in the QR.
-    private static final String KEY_ALIAS = "AboEzzatReceiver.TlsIdentity.v2.EC";
+    // v3 forces regeneration with TLS-compatible digest authorizations.
+    private static final String KEY_ALIAS = "AboEzzatReceiver.TlsIdentity.v3.EC";
+    private static final String PREVIOUS_KEY_ALIAS = "AboEzzatReceiver.TlsIdentity.v2.EC";
+    private static final String LEGACY_RSA_KEY_ALIAS = "AboEzzatReceiver.TlsIdentity.v1";
     private static final String KEYSTORE_PROVIDER = "AndroidKeyStore";
 
     private ReceiverTlsIdentity() { }
@@ -45,8 +51,11 @@ public final class ReceiverTlsIdentity {
                     KeyProperties.KEY_ALGORITHM_EC, KEYSTORE_PROVIDER);
             KeyGenParameterSpec spec = new KeyGenParameterSpec.Builder(
                     KEY_ALIAS, KeyProperties.PURPOSE_SIGN)
+                    .setAlgorithmParameterSpec(new ECGenParameterSpec("secp256r1"))
                     .setKeySize(256)
-                    .setDigests(KeyProperties.DIGEST_SHA256)
+                    // DIGEST_NONE is required by TLS providers that pass a precomputed
+                    // digest to the Android Keystore signing operation.
+                    .setDigests(KeyProperties.DIGEST_NONE, KeyProperties.DIGEST_SHA256)
                     .setCertificateSubject(new X500Principal("CN=AboEzzat Receiver"))
                     .setCertificateSerialNumber(BigInteger.valueOf(now))
                     .setCertificateNotBefore(new Date(now - 24L * 60L * 60L * 1000L))
@@ -57,6 +66,21 @@ public final class ReceiverTlsIdentity {
             generator.generateKeyPair();
             keyStore.load(null);
         }
+
+        Certificate generated = keyStore.getCertificate(KEY_ALIAS);
+        if (!(generated instanceof X509Certificate)
+                || !"EC".equalsIgnoreCase(((X509Certificate) generated).getPublicKey().getAlgorithm())) {
+            throw new IllegalStateException("TLS v3 identity is not a valid EC certificate");
+        }
+
+        // Delete older aliases only after the replacement identity is available.
+        if (keyStore.containsAlias(PREVIOUS_KEY_ALIAS)) {
+            keyStore.deleteEntry(PREVIOUS_KEY_ALIAS);
+        }
+        if (keyStore.containsAlias(LEGACY_RSA_KEY_ALIAS)) {
+            keyStore.deleteEntry(LEGACY_RSA_KEY_ALIAS);
+        }
+        keyStore.load(null);
         return keyStore;
     }
 
