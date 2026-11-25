@@ -199,7 +199,7 @@ public class MainActivity extends Activity {
     private final Runnable imageSlideshowRunnable = () -> {
         if (imageSlideshowRunning && imageView != null && imageView.getVisibility() == View.VISIBLE) {
             navigateReceivedImage(1);
-            if (imageSlideshowRunning) imageSlideshowHandler.postDelayed(imageSlideshowRunnable, 5000L);
+            if (imageSlideshowRunning) imageSlideshowHandler.postDelayed(imageSlideshowRunnable, getImageSlideshowIntervalMs());
         }
     };
     private LinearLayout imagePlaybackControls;
@@ -6334,8 +6334,32 @@ public class MainActivity extends Activity {
                 }).setNegativeButton("إلغاء", null).show();
     }
 
+    private long getImageSlideshowIntervalMs() {
+        return getSharedPreferences("AboEzzatReceiverPrefs", MODE_PRIVATE)
+                .getLong("image_slideshow_interval_ms", 5000L);
+    }
+
+    private void showImageSlideshowDurationDialog() {
+        final int[] seconds = {3, 5, 10, 15, 30};
+        String[] labels = {"3 ثوانٍ", "5 ثوانٍ", "10 ثوانٍ", "15 ثانية", "30 ثانية"};
+        long current = getImageSlideshowIntervalMs() / 1000L;
+        int selected = 1;
+        for (int i = 0; i < seconds.length; i++) if (seconds[i] == current) selected = i;
+        new AlertDialog.Builder(this).setTitle("مدة عرض كل صورة")
+                .setSingleChoiceItems(labels, selected, (dialog, which) -> {
+                    getSharedPreferences("AboEzzatReceiverPrefs", MODE_PRIVATE).edit()
+                            .putLong("image_slideshow_interval_ms", seconds[which] * 1000L).apply();
+                    dialog.dismiss();
+                    if (imageSlideshowRunning) {
+                        imageSlideshowHandler.removeCallbacks(imageSlideshowRunnable);
+                        imageSlideshowHandler.postDelayed(imageSlideshowRunnable, getImageSlideshowIntervalMs());
+                    }
+                    showImageControls();
+                }).setNegativeButton("إغلاق", null).show();
+    }
+
     private void showImageSettingsDialog() {
-        String[] options = {"ملاءمة الصورة للشاشة", "ملء الشاشة مع قص الأطراف", "تكبير الصورة", "إعادة ضبط التكبير والتحريك"};
+        String[] options = {"ملاءمة الصورة للشاشة", "ملء الشاشة مع قص الأطراف", "تكبير الصورة", "إعادة ضبط التكبير والتحريك", "مدة عرض الشرائح"};
         new AlertDialog.Builder(this).setTitle("إعدادات عرض الصورة")
                 .setItems(options, (dialog, which) -> {
                     if (imageView == null || imageView.getVisibility() != View.VISIBLE) return;
@@ -6344,6 +6368,7 @@ public class MainActivity extends Activity {
                         case 1: imageView.setScaleType(ImageView.ScaleType.CENTER_CROP); resetImageTransform(); break;
                         case 2: imageZoomScale = Math.min(4.0f, Math.max(1.5f, imageZoomScale * 1.5f)); applyImageTransform(); break;
                         case 3: imageView.setScaleType(ImageView.ScaleType.FIT_CENTER); resetImageTransform(); break;
+                        case 4: showImageSlideshowDurationDialog(); return;
                     }
                     showImageControls();
                 }).setNegativeButton("إغلاق", null).show();
@@ -6383,7 +6408,7 @@ public class MainActivity extends Activity {
         }
         imageSlideshowRunning = !imageSlideshowRunning;
         imageSlideshowHandler.removeCallbacks(imageSlideshowRunnable);
-        if (imageSlideshowRunning) imageSlideshowHandler.postDelayed(imageSlideshowRunnable, 5000L);
+        if (imageSlideshowRunning) imageSlideshowHandler.postDelayed(imageSlideshowRunnable, getImageSlideshowIntervalMs());
         if (imagePlayPauseControl != null) imagePlayPauseControl.setText(imageSlideshowRunning ? "⏸" : "▶");
         showImageControls();
     }
