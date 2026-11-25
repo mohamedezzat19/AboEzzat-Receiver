@@ -628,7 +628,7 @@ public class MainActivity extends Activity {
                 }).setNegativeButton("إغلاق", null).show();
     }
 
-    // A short-lived one-time code for pairing Share with this Receiver.
+    // رمز مؤقت لاقتران أبو عزت كاست مع أبو عزت ريسيفر.
     private void showSharePairingCode() {
         SharedPreferences pairing = getSharedPreferences("AboEzzatPairing", MODE_PRIVATE);
         long expiresAt = pairing.getLong("code_expires_at", 0L);
@@ -817,7 +817,7 @@ public class MainActivity extends Activity {
                 + "\nإصدار أندرويد: " + android.os.Build.VERSION.RELEASE
                 + "\nالجهاز: " + android.os.Build.MANUFACTURER + " " + android.os.Build.MODEL
                 + "\n\nآخر نتيجة لاتصال TLS (" + tlsTime + "):\n" + lastTlsResult
-                + "\n\nلو Share لا يتصل، انسخ التشخيص بعد محاولة الربط وأرسله للمطور.";
+                + "\n\nلو أبو عزت كاست مش بيتصل، انسخ التشخيص بعد محاولة الربط وأرسله للمطور.";
         new AlertDialog.Builder(this).setTitle("تشخيص الاتصال")
                 .setMessage(details)
                 .setPositiveButton("نسخ المعلومات", (d,w) -> {
@@ -899,7 +899,7 @@ public class MainActivity extends Activity {
         field.setInputType(android.text.InputType.TYPE_CLASS_NUMBER);
         field.setText(String.valueOf(getSharedPreferences("receiver_settings", MODE_PRIVATE).getInt("receiver_port", 8081)));
         new AlertDialog.Builder(this).setTitle("إعدادات الاستقبال")
-                .setMessage("غيّر البورت عند الحاجة فقط. يجب أن يكون نفس الرقم مضبوطًا في تطبيق Share.")
+                .setMessage("غيّر البورت عند الحاجة فقط. يجب أن يكون نفس الرقم مضبوطًا في تطبيق أبو عزت كاست.")
                 .setView(field).setNegativeButton("إلغاء", null)
                 .setPositiveButton("حفظ وإعادة التشغيل", (d,w) -> {
                     int port;
@@ -911,7 +911,7 @@ public class MainActivity extends Activity {
                     getSharedPreferences("receiver_settings", MODE_PRIVATE).edit().putInt("receiver_port", port).apply();
                     stopService(new android.content.Intent(this, ReceiverServerService.class));
                     new Handler(Looper.getMainLooper()).postDelayed(this::startReceiverService, 500L);
-                    Toast.makeText(this, "تم حفظ البورت وإعادة تشغيل الخدمة. اضبط نفس الرقم في Share.", Toast.LENGTH_LONG).show();
+                    Toast.makeText(this, "تم حفظ البورت وإعادة تشغيل الخدمة. اضبط نفس الرقم في أبو عزت كاست.", Toast.LENGTH_LONG).show();
                 }).show();
     }
 
