@@ -515,10 +515,18 @@ public class MainActivity extends Activity {
     }
 
     private void persistExtractionState() {
+        boolean videoActive = false;
+        try { videoActive = player != null && player.isPlaying(); } catch (Exception ignored) { }
+        boolean imageActive = !videoActive && currentImageUrl != null && !currentImageUrl.trim().isEmpty()
+                && imageView != null && imageView.getVisibility() == View.VISIBLE
+                && imageView.getDrawable() != null;
         getSharedPreferences("AboEzzatReceiverState", MODE_PRIVATE).edit()
                 .putBoolean("extracting", extractionInProgress)
                 .putInt("attempt", extractionAttemptCount)
                 .putString("status", extractionStatus)
+                .putBoolean("media_active", videoActive || imageActive)
+                .putString("media_type", videoActive ? "video" : imageActive ? "image" : "none")
+                .putLong("media_state_updated_at", System.currentTimeMillis())
                 .apply();
     }
 
@@ -5843,6 +5851,8 @@ public class MainActivity extends Activity {
                                     playbackStatusMessage = "بدأ تشغيل الفيديو على شاشة Receiver.";
                                 }
                                 persistExtractionState();
+                            } else {
+                                persistExtractionState();
                             }
                         }
 
@@ -7605,7 +7615,9 @@ public class MainActivity extends Activity {
                     if (playerDownloadButton != null) playerDownloadButton.bringToFront();
                     if (playerSubtitleButton != null) playerSubtitleButton.bringToFront();
                     showImageControls();
+                    persistExtractionState();
                 } else {
+                    persistExtractionState();
                     showWelcome();
                     Toast.makeText(MainActivity.this,
                             "تعذّر تحميل الصورة من أبو عزت كاست. تأكد أن تطبيق كاست وخادم بث الوسائط يعملان على نفس شبكة Wi-Fi.",
@@ -7629,6 +7641,7 @@ public class MainActivity extends Activity {
         imageView.setVisibility(View.GONE);
         imageLoading.setVisibility(View.GONE);
         imageView.setImageDrawable(null);
+        persistExtractionState();
     }
 
     private void showWelcome() {
