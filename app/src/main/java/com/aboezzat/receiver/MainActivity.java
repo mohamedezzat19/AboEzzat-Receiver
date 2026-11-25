@@ -191,6 +191,19 @@ public class MainActivity extends Activity {
     private String currentImageUrl = "";
     // Invalidates late bitmap callbacks when another image/video session takes over.
     private volatile long imageLoadGeneration = 0L;
+    private final java.util.ArrayList<String> receivedImageQueue = new java.util.ArrayList<>();
+    private int receivedImageIndex = -1;
+    private boolean navigatingImageQueue = false;
+    private boolean imageSlideshowRunning = false;
+    private final Handler imageSlideshowHandler = new Handler(Looper.getMainLooper());
+    private final Runnable imageSlideshowRunnable = () -> {
+        if (imageSlideshowRunning && imageView != null && imageView.getVisibility() == View.VISIBLE) {
+            navigateReceivedImage(1);
+            if (imageSlideshowRunning) imageSlideshowHandler.postDelayed(imageSlideshowRunnable, 5000L);
+        }
+    };
+    private LinearLayout imagePlaybackControls;
+    private TextView imagePreviousControl, imagePlayPauseControl, imageNextControl, imageSettingsControl;
     private String pendingBrowserUrl = "";
     private volatile boolean fallbackStreamCaptured = false;
     private volatile String fallbackPageUrl = "";
@@ -1930,6 +1943,30 @@ public class MainActivity extends Activity {
                 FrameLayout.LayoutParams.MATCH_PARENT,
                 FrameLayout.LayoutParams.MATCH_PARENT
         ));
+
+        // Image transport controls mirror the video control row: previous, play/pause, next, settings.
+        imagePlaybackControls = new LinearLayout(this);
+        imagePlaybackControls.setOrientation(LinearLayout.HORIZONTAL);
+        imagePlaybackControls.setGravity(Gravity.CENTER);
+        imagePlaybackControls.setPadding(dp(10), dp(7), dp(10), dp(7));
+        imagePlaybackControls.setBackground(roundedBackground(Color.argb(225, 18, 22, 30), Color.argb(150, 255, 255, 255), 28));
+        imagePreviousControl = makeImageControl("⏮");
+        imagePlayPauseControl = makeImageControl("▶");
+        imageNextControl = makeImageControl("⏭");
+        imageSettingsControl = makeImageControl("⚙");
+        imagePlaybackControls.addView(imagePreviousControl);
+        imagePlaybackControls.addView(imagePlayPauseControl);
+        imagePlaybackControls.addView(imageNextControl);
+        imagePlaybackControls.addView(imageSettingsControl);
+        FrameLayout.LayoutParams imageControlsParams = new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL);
+        imageControlsParams.bottomMargin = dp(28);
+        root.addView(imagePlaybackControls, imageControlsParams);
+        imagePlaybackControls.setVisibility(View.GONE);
+        imagePreviousControl.setOnClickListener(v -> navigateReceivedImage(-1));
+        imageNextControl.setOnClickListener(v -> navigateReceivedImage(1));
+        imagePlayPauseControl.setOnClickListener(v -> toggleImageSlideshow());
+        imageSettingsControl.setOnClickListener(v -> showImageSettingsDialog());
 
         imageLoading = new ProgressBar(this);
         imageLoading.setVisibility(View.GONE);
@@ -6308,6 +6345,45 @@ public class MainActivity extends Activity {
                 }).setNegativeButton("إغلاق", null).show();
     }
 
+    private TextView makeImageControl(String glyph) {
+        TextView control = new TextView(this);
+        control.setText(glyph);
+        control.setTextColor(Color.WHITE);
+        control.setTextSize(21);
+        control.setGravity(Gravity.CENTER);
+        control.setMinWidth(dp(48));
+        control.setMinHeight(dp(44));
+        control.setFocusable(true);
+        control.setClickable(true);
+        return control;
+    }
+
+    private void navigateReceivedImage(int delta) {
+        if (receivedImageQueue.isEmpty()) return;
+        int next = receivedImageIndex + delta;
+        if (next < 0 || next >= receivedImageQueue.size()) {
+            if (delta > 0 && imageSlideshowRunning) next = 0;
+            else return;
+        }
+        receivedImageIndex = next;
+        navigatingImageQueue = true;
+        showImage(receivedImageQueue.get(receivedImageIndex));
+        navigatingImageQueue = false;
+        showImageControls();
+    }
+
+    private void toggleImageSlideshow() {
+        if (receivedImageQueue.size() < 2) {
+            Toast.makeText(this, "استقبل أكتر من صورة لاستخدام عرض الشرائح", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        imageSlideshowRunning = !imageSlideshowRunning;
+        imageSlideshowHandler.removeCallbacks(imageSlideshowRunnable);
+        if (imageSlideshowRunning) imageSlideshowHandler.postDelayed(imageSlideshowRunnable, 5000L);
+        if (imagePlayPauseControl != null) imagePlayPauseControl.setText(imageSlideshowRunning ? "⏸" : "▶");
+        showImageControls();
+    }
+
     private void showImageControls() {
         if (imageView == null || imageView.getVisibility() != View.VISIBLE) return;
         setImageControlsVisible(true);
@@ -6318,7 +6394,11 @@ public class MainActivity extends Activity {
     private void setImageControlsVisible(boolean visible) {
         imageControlsVisible = visible;
         boolean imageActive = imageView != null && imageView.getVisibility() == View.VISIBLE;
-        if (playerSettingsButton != null) playerSettingsButton.setVisibility(imageActive && visible ? View.VISIBLE : View.GONE);
+        if (playerSettingsButton != null) playerSettingsButton.setVisibility(View.GONE);
+        if (imagePlaybackControls != null) imagePlaybackControls.setVisibility(imageActive && visible ? View.VISIBLE : View.GONE);
+        if (imagePlayPauseControl != null) imagePlayPauseControl.setText(imageSlideshowRunning ? "⏸" : "▶");
+        if (imagePreviousControl != null) imagePreviousControl.setAlpha(receivedImageIndex > 0 ? 1f : 0.45f);
+        if (imageNextControl != null) imageNextControl.setAlpha(receivedImageIndex >= 0 && receivedImageIndex < receivedImageQueue.size() - 1 ? 1f : 0.45f);
         if (playerDownloadButton != null) playerDownloadButton.setVisibility(View.GONE);
     }
 
@@ -7383,6 +7463,13 @@ public class MainActivity extends Activity {
 
     private void showImage(String imageUrl) {
         final long imageRequestGeneration = ++imageLoadGeneration;
+        if (!navigatingImageQueue && imageUrl != null && !imageUrl.trim().isEmpty()) {
+            if (receivedImageIndex < 0 || receivedImageQueue.isEmpty()
+                    || !imageUrl.equals(receivedImageQueue.get(receivedImageQueue.size() - 1))) {
+                receivedImageQueue.add(imageUrl);
+                receivedImageIndex = receivedImageQueue.size() - 1;
+            }
+        }
         if (isCastMediaPortUrl(imageUrl) && !isPhoneLocalMediaUrl(imageUrl)) {
             Toast.makeText(this, "رابط صورة Cast غير مشفر أو غير موثوق.", Toast.LENGTH_LONG).show();
             return;
@@ -7483,6 +7570,7 @@ public class MainActivity extends Activity {
                     imageView.setScaleType(ImageView.ScaleType.FIT_CENTER);
                     imageView.setImageBitmap(result);
                     imageView.setVisibility(View.VISIBLE);
+                    showImageControls();
                     if (playerSettingsButton != null) playerSettingsButton.bringToFront();
                     if (playerDownloadButton != null) playerDownloadButton.bringToFront();
                     if (playerSubtitleButton != null) playerSubtitleButton.bringToFront();
@@ -7501,6 +7589,9 @@ public class MainActivity extends Activity {
 
     private void hideImage() {
         imageLoadGeneration++;
+        imageSlideshowRunning = false;
+        imageSlideshowHandler.removeCallbacks(imageSlideshowRunnable);
+        if (imagePlaybackControls != null) imagePlaybackControls.setVisibility(View.GONE);
         imageControlsHandler.removeCallbacks(hideImageControlsRunnable);
         resetImageTransform();
         imageView.setVisibility(View.GONE);
