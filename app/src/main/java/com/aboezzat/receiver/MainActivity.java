@@ -2128,6 +2128,12 @@ public class MainActivity extends Activity {
     // AboEzzat Cast serves picked phone files on 8088 as /media.jpg or /media.mp4.
     // Share New serves them on 8082 as /media?id=... .
     // Keep both routes out of social-page extraction so local videos play as-is.
+    private boolean isSupportedCastMediaPath(String path) {
+        if (path == null) return false;
+        return path.toLowerCase(Locale.ROOT).matches(
+                "/media\\.(jpg|mp4|m4v|mkv|webm|mov|avi|flv|mpg|mpeg|3gp|ogv|wmv|vob|ts|m2ts|mp3|m4a|aac|ogg|oga|opus|wav|flac|mid|midi)");
+    }
+
     private boolean isPhoneLocalMediaUrl(String value) {
         if (value == null || value.trim().isEmpty()) return false;
         try {
@@ -2139,7 +2145,7 @@ public class MainActivity extends Activity {
             if (port == 8088) {
                 String token = uri.getQueryParameter("token");
                 return "https".equalsIgnoreCase(uri.getScheme())
-                        && ("/media.mp4".equalsIgnoreCase(path) || "/media.jpg".equalsIgnoreCase(path))
+                        && isSupportedCastMediaPath(path)
                         && token != null && token.matches("[A-Za-z0-9_-]{43}");
             }
             return port == 8082 && "http".equalsIgnoreCase(uri.getScheme())
@@ -4632,7 +4638,7 @@ public class MainActivity extends Activity {
         String originalMediaCandidate = mediaUrl;
         externalVlcFallbackLaunched = false;
         extractionStatus = "preparing";
-        playbackStatusMessage = "Receiver استلم الرابط؛ جاري تجهيز مشغّل الفيديو.";
+        playbackStatusMessage = "استلم أبو عزت ريسيفر الرابط؛ جاري تجهيز الفيديو. لم يبدأ التشغيل بعد.";
         persistExtractionState();
         pendingBrowserUrl = "";
         if (browserShortcut != null) browserShortcut.setVisibility(View.GONE);
@@ -7443,6 +7449,9 @@ public class MainActivity extends Activity {
                 connection.setReadTimeout(30000);
                 connection.setInstanceFollowRedirects(true);
                 connection.setRequestProperty("Accept", "image/avif,image/webp,image/apng,image/*,*/*;q=0.8");
+                // The second request downloads the actual bitmap, so it must use
+                // the same pinned Cast certificate validation as the bounds request.
+                configurePinnedCastMediaConnection(connection, imageUrl);
                 connection.connect();
                 int imageResponse = connection.getResponseCode();
                 if (imageResponse < 200 || imageResponse >= 300) {
@@ -7471,7 +7480,7 @@ public class MainActivity extends Activity {
                 } else {
                     showWelcome();
                     Toast.makeText(MainActivity.this,
-                            "تعذّر تحميل الصورة من Share. تأكد أن الجهازين على نفس شبكة Wi-Fi وأن Share ما زال مفتوحًا.",
+                            "تعذّر تحميل الصورة من أبو عزت كاست. تأكد أن تطبيق كاست وخادم بث الوسائط يعملان على نفس شبكة Wi-Fi.",
                             Toast.LENGTH_LONG).show();
                 }
             });
