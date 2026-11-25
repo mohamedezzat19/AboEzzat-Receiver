@@ -189,6 +189,7 @@ public class MainActivity extends Activity {
     private final Runnable hideImageControlsRunnable = () -> setImageControlsVisible(false);
     private boolean imageControlsVisible = false;
     private String currentImageUrl = "";
+    private ImageView imageView;
     // Invalidates late bitmap callbacks when another image/video session takes over.
     private volatile long imageLoadGeneration = 0L;
     private final java.util.ArrayList<String> receivedImageQueue = new java.util.ArrayList<>();
@@ -196,10 +197,12 @@ public class MainActivity extends Activity {
     private boolean navigatingImageQueue = false;
     private boolean imageSlideshowRunning = false;
     private final Handler imageSlideshowHandler = new Handler(Looper.getMainLooper());
-    private final Runnable imageSlideshowRunnable = () -> {
-        if (imageSlideshowRunning && imageView != null && imageView.getVisibility() == View.VISIBLE) {
-            navigateReceivedImage(1);
-            if (imageSlideshowRunning) imageSlideshowHandler.postDelayed(imageSlideshowRunnable, getImageSlideshowIntervalMs());
+    private final Runnable imageSlideshowRunnable = new Runnable() {
+        @Override public void run() {
+            if (imageSlideshowRunning && imageView != null && imageView.getVisibility() == View.VISIBLE) {
+                navigateReceivedImage(1);
+                if (imageSlideshowRunning) imageSlideshowHandler.postDelayed(this, getImageSlideshowIntervalMs());
+            }
         }
     };
     private LinearLayout imagePlaybackControls;
@@ -212,7 +215,6 @@ public class MainActivity extends Activity {
     private final Runnable resetBrowserBackPress = () -> backPressedOnceInBrowser = false;
     private View webFullscreenView;
     private WebChromeClient.CustomViewCallback webFullscreenCallback;
-    private ImageView imageView;
     private float imageZoomScale = 1.0f;
     private float imagePanX = 0f;
     private float imagePanY = 0f;
