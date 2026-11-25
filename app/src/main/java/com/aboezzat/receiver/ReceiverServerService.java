@@ -712,12 +712,17 @@ public class ReceiverServerService extends Service {
                         String existingPin = mediaPins.getString(pinKey, "");
                         // A first pin may be stored only once. Never silently replace an
                         // established certificate pin based on a later network request.
-                        if (existingPin == null || existingPin.isEmpty()) {
+                        // This block is reached only after verifySignedRequest() succeeds.
+                        // The request HMAC covers the complete target (including mediaPin),
+                        // and the media host is constrained to the authenticated sender's IP.
+                        // Therefore a paired Cast installation may rotate its own media TLS
+                        // certificate pin without permitting an unauthenticated LAN client to do so.
+                        if (existingPin == null || !existingPin.equals(mediaTlsPin)) {
                             if (!mediaPins.edit().putString(pinKey, mediaTlsPin).commit()) {
                                 invalidMediaUrl = true;
+                            } else if (existingPin != null && !existingPin.isEmpty()) {
+                                Log.i(TAG, "Updated authenticated Cast media TLS pin for " + mediaHost);
                             }
-                        } else if (!existingPin.equals(mediaTlsPin)) {
-                            invalidMediaUrl = true;
                         }
                     }
                 } catch (Exception invalidPinTarget) {
