@@ -5740,6 +5740,10 @@ public class MainActivity extends Activity {
             return;
         }
 
+        imageSlideshowRunning = false;
+        imageSlideshowHandler.removeCallbacks(imageSlideshowRunnable);
+        receivedImageQueue.clear();
+        receivedImageIndex = -1;
         String playbackUrl = mediaUrl;
 
         // طلب صوت فقط.
@@ -7483,7 +7487,7 @@ public class MainActivity extends Activity {
 
         playerView.setVisibility(View.GONE);
         if (playerSubtitleButton != null) playerSubtitleButton.setVisibility(View.GONE);
-        if (playerSettingsButton != null) playerSettingsButton.setVisibility(View.VISIBLE);
+        if (playerSettingsButton != null) playerSettingsButton.setVisibility(View.GONE);
         if (playerDownloadButton != null) playerDownloadButton.setVisibility(View.GONE);
         currentImageUrl = imageUrl;
         setImageControlsVisible(false);
