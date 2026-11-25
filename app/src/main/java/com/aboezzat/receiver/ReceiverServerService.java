@@ -744,6 +744,11 @@ public class ReceiverServerService extends Service {
                 json.put("extracting", state.getBoolean("extracting", false));
                 json.put("attempt", state.getInt("attempt", 0));
                 json.put("status", state.getString("status", "idle"));
+                // This is the confirmed player session, distinct from URL reception
+                // or background extraction state. Cast uses it before offering Play/Add/Cancel.
+                json.put("mediaActive", state.getBoolean("media_active", false));
+                json.put("mediaType", state.getString("media_type", "none"));
+                json.put("mediaStateUpdatedAt", state.getLong("media_state_updated_at", 0L));
                 body = json.toString();
                 contentType = "application/json; charset=utf-8";
             }
