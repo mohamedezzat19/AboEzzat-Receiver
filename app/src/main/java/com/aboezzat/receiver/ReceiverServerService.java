@@ -890,19 +890,7 @@ public class ReceiverServerService extends Service {
                 body = json.toString();
                 contentType = "application/json; charset=utf-8";
             }
-            byte[] bodyBytes = body.getBytes(StandardCharsets.UTF_8);
-            byte[] responseHeaders = ("HTTP/1.1 " + responseStatus + "\r\n"
-                    + "Content-Type: " + contentType + "\r\n"
-                    + "Cache-Control: no-store, max-age=0\r\n"
-                    + "Pragma: no-cache\r\n"
-                    + "X-Content-Type-Options: nosniff\r\n"
-                    + "Connection: close\r\n"
-                    + "Content-Length: " + bodyBytes.length + "\r\n\r\n")
-                    .getBytes(StandardCharsets.UTF_8);
-            OutputStream output = socket.getOutputStream();
-            output.write(responseHeaders);
-            output.write(bodyBytes);
-            output.flush();
+            // Response is written only after dispatch/persistence below.
         } catch (Exception e) {
             Log.w(TAG, "Request handling failed", e);
             return;
@@ -910,28 +898,40 @@ public class ReceiverServerService extends Service {
 
         if (unauthorized) {
             Log.w(TAG, "Rejected unauthenticated receiver request");
+            writeHttpResponse(socket, responseStatus, contentType, body);
             return;
         }
-        if (pairingRequest) return;
+        if (pairingRequest) {
+            writeHttpResponse(socket, responseStatus, contentType, body);
+            return;
+        }
         if (invalidRequestMethod) {
             Log.w(TAG, "Rejected unsupported HTTP method or endpoint");
+            writeHttpResponse(socket, responseStatus, contentType, body);
             return;
         }
         if (invalidMediaUrl) {
             Log.w(TAG, "Rejected non-HTTP or malformed media URL");
+            writeHttpResponse(socket, responseStatus, contentType, body);
             return;
         }
-        if ("ping".equals(command) || "status".equals(command)) return;
+        if ("ping".equals(command) || "status".equals(command)) {
+            writeHttpResponse(socket, responseStatus, contentType, body);
+            return;
+        }
         if (queueJson == null
                 && (mediaUrl == null || mediaUrl.trim().isEmpty())
                 && (audioUrl == null || audioUrl.trim().isEmpty())
-                && (command == null || command.trim().isEmpty())) return;
+                && (command == null || command.trim().isEmpty())) {
+            writeHttpResponse(socket, responseStatus, contentType, body);
+            return;
+        }
 
         if (queueJson != null) {
             getSharedPreferences("AboEzzatReceiverPending", MODE_PRIVATE).edit()
                     .putString("queue_json", queueJson)
                     .putLong("queue_received_at", System.currentTimeMillis())
-                    .apply();
+                    .commit();
         }
         if ((mediaUrl != null && !mediaUrl.trim().isEmpty())
                 || (audioUrl != null && !audioUrl.trim().isEmpty())) {
@@ -944,7 +944,7 @@ public class ReceiverServerService extends Service {
                     .putString("headers", incomingHeaders.toString())
                     .putBoolean("open_browser", openBrowser)
                     .putLong("received_at", System.currentTimeMillis())
-                    .apply();
+                    .commit();
         }
 
         Intent request = new Intent(this, MainActivity.class);
@@ -963,7 +963,27 @@ public class ReceiverServerService extends Service {
             startActivity(request);
         } catch (Exception e) {
             Log.e(TAG, "OS blocked opening Receiver for incoming request", e);
+            responseStatus = "503 Service Unavailable";
+            body = "Receiver could not open the incoming request";
         }
+        writeHttpResponse(socket, responseStatus, contentType, body);
+    }
+
+    private void writeHttpResponse(Socket socket, String status, String contentType, String body)
+            throws IOException {
+        byte[] bodyBytes = body.getBytes(StandardCharsets.UTF_8);
+        byte[] responseHeaders = ("HTTP/1.1 " + status + "\r\n"
+                + "Content-Type: " + contentType + "\r\n"
+                + "Cache-Control: no-store, max-age=0\r\n"
+                + "Pragma: no-cache\r\n"
+                + "X-Content-Type-Options: nosniff\r\n"
+                + "Connection: close\r\n"
+                + "Content-Length: " + bodyBytes.length + "\r\n\r\n")
+                .getBytes(StandardCharsets.UTF_8);
+        OutputStream output = socket.getOutputStream();
+        output.write(responseHeaders);
+        output.write(bodyBytes);
+        output.flush();
     }
 
     // Never let an untrusted LAN client force an unbounded request-line allocation.
