@@ -836,7 +836,7 @@ public class ReceiverServerService extends Service {
                     || (audioUrl != null && !audioUrl.trim().isEmpty() && !isHttpUrl(audioUrl))
                     || (castMediaPortUrl && (!validCastTlsMediaUrl
                             || mediaTlsPin == null || !mediaTlsPin.matches("[A-Za-z0-9_-]{43}")))
-                    || (mediaTlsPin != null && !validCastTlsMediaUrl);
+                    || (mediaTlsPin != null && !mediaTlsPin.isEmpty() && !validCastTlsMediaUrl);
             if (!invalidMediaUrl && validCastTlsMediaUrl) {
                 try {
                     String mediaHost = new java.net.URL(mediaUrl).getHost().toLowerCase(java.util.Locale.ROOT);
