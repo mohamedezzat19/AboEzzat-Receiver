@@ -378,7 +378,9 @@ public class ReceiverServerService extends Service {
     }
 
     // Serialize pairing attempts so concurrent requests cannot consume the same one-time code.
-    private synchronized String createPairingResponse(String suppliedCode) {
+    private synchronized String createPairingResponse(String suppliedCode, String clientId) {
+        if (clientId != null && !clientId.isEmpty()
+                && !clientId.matches("[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}")) return null;
         SharedPreferences pairing = getSharedPreferences("AboEzzatPairing", MODE_PRIVATE);
         String expectedCode = pairing.getString("pairing_code", "");
         long expiresAt = pairing.getLong("code_expires_at", 0L);
@@ -411,10 +413,27 @@ public class ReceiverServerService extends Service {
             Log.e(TAG, "Could not protect new receiver pairing key", encryptionError);
             return null;
         }
-        // Persist the one-time code consumption and new encrypted key before returning the secret.
-        // This prevents a process restart from reopening the same pairing window.
-        boolean committed = pairing.edit().putString("receiver_secret_enc", protectedSecret)
-                .remove("receiver_secret").remove("pairing_code")
+        // Keep a separate encrypted key for every paired Cast installation. The legacy
+        // single key remains intact so already-paired older Cast versions keep working.
+        SharedPreferences.Editor pairingEdit = pairing.edit();
+        if (clientId != null && !clientId.isEmpty()) {
+            try {
+                JSONObject clients = new JSONObject(pairing.getString("receiver_clients_json", "{}"));
+                if (!clients.has(clientId) && clients.length() >= 24) {
+                    Log.w(TAG, "Receiver pairing limit reached; refusing an additional client");
+                    return null;
+                }
+                clients.put(clientId, protectedSecret);
+                pairingEdit.putString("receiver_clients_json", clients.toString());
+            } catch (Exception invalidClientStore) {
+                Log.e(TAG, "Could not update paired client keys", invalidClientStore);
+                return null;
+            }
+        } else {
+            pairingEdit.putString("receiver_secret_enc", protectedSecret);
+        }
+        // Persist key and one-time code consumption atomically before returning the secret.
+        boolean committed = pairingEdit.remove("receiver_secret").remove("pairing_code")
                 .remove("code_expires_at").remove("failed_attempts").commit();
         if (!committed) {
             Log.e(TAG, "Could not persist receiver pairing state");
@@ -447,15 +466,25 @@ public class ReceiverServerService extends Service {
     }
 
     private synchronized boolean verifySignedRequest(String method, String target, byte[] requestBody,
-                                                      String timestamp, String nonce, String suppliedSignature) {
+                                                      String timestamp, String nonce, String suppliedSignature,
+                                                      String clientId) {
         if (timestamp == null || nonce == null || suppliedSignature == null
                 || nonce.length() < 16 || nonce.length() > 80 || suppliedSignature.length() > 128) return false;
         long requestTime;
         try { requestTime = Long.parseLong(timestamp); } catch (Exception e) { return false; }
         long now = System.currentTimeMillis();
         if (requestTime < now - 90000L || requestTime > now + 90000L) return false;
-        String secret = decryptPairingSecret(getSharedPreferences("AboEzzatPairing", MODE_PRIVATE)
-                .getString("receiver_secret_enc", ""));
+        SharedPreferences pairing = getSharedPreferences("AboEzzatPairing", MODE_PRIVATE);
+        String encryptedSecret = "";
+        if (clientId != null && clientId.matches("[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}")) {
+            try {
+                encryptedSecret = new JSONObject(pairing.getString("receiver_clients_json", "{}"))
+                        .optString(clientId, "");
+            } catch (Exception ignored) { }
+        }
+        // Existing paired phones can continue using the legacy key while upgrading.
+        if (encryptedSecret.isEmpty()) encryptedSecret = pairing.getString("receiver_secret_enc", "");
+        String secret = decryptPairingSecret(encryptedSecret);
         if (secret.isEmpty()) return false;
         try {
             byte[] safeBody = requestBody == null ? new byte[0] : requestBody;
@@ -463,7 +492,8 @@ public class ReceiverServerService extends Service {
                     MessageDigest.getInstance("SHA-256").digest(safeBody),
                     android.util.Base64.URL_SAFE | android.util.Base64.NO_WRAP | android.util.Base64.NO_PADDING);
             String canonical = method.toUpperCase(java.util.Locale.ROOT) + "\n"
-                    + target + "\n" + bodyHash + "\n" + timestamp + "\n" + nonce;
+                    + target + "\n" + bodyHash + "\n" + timestamp + "\n" + nonce
+                    + (clientId == null || clientId.isEmpty() ? "" : "\n" + clientId);
             Mac mac = Mac.getInstance("HmacSHA256");
             mac.init(new SecretKeySpec(secret.getBytes(StandardCharsets.UTF_8), "HmacSHA256"));
             String expected = android.util.Base64.encodeToString(
@@ -668,6 +698,7 @@ public class ReceiverServerService extends Service {
             String authTime = null;
             String authNonce = null;
             String authSignature = null;
+            String authClientId = null;
             String requestContentType = null;
             String headerLine;
             while ((headerLine = readBoundedRequestLine(input)) != null && !headerLine.isEmpty()) {
@@ -696,6 +727,7 @@ public class ReceiverServerService extends Service {
                     else if ("x-aboezzat-time".equalsIgnoreCase(headerName)) authTime = headerValue;
                     else if ("x-aboezzat-nonce".equalsIgnoreCase(headerName)) authNonce = headerValue;
                     else if ("x-aboezzat-signature".equalsIgnoreCase(headerName)) authSignature = headerValue;
+                    else if ("x-aboezzat-client".equalsIgnoreCase(headerName)) authClientId = headerValue;
                 }
             }
 
@@ -732,19 +764,20 @@ public class ReceiverServerService extends Service {
                     try {
                         JSONObject pairingPayload = new JSONObject(new String(requestBody, StandardCharsets.UTF_8));
                         suppliedCode = pairingPayload.optString("code", "");
+                        authClientId = pairingPayload.optString("client_id", "");
                     } catch (Exception malformedPairingBody) {
                         suppliedCode = "";
                     }
                     if (!suppliedCode.matches("[0-9]{8}")) {
                         invalidMediaUrl = true;
                     } else {
-                        pairingResponse = createPairingResponse(suppliedCode);
+                        pairingResponse = createPairingResponse(suppliedCode, authClientId);
                         unauthorized = pairingResponse == null;
                     }
                 }
             } else if (!invalidRequestMethod && !invalidMediaUrl) {
                 unauthorized = !verifySignedRequest(method, target, requestBody,
-                        authTime, authNonce, authSignature);
+                        authTime, authNonce, authSignature, authClientId);
             }
 
             if (!unauthorized && queueRequest && !invalidMediaUrl && !invalidRequestMethod) {
