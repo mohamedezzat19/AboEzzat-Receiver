@@ -31,6 +31,7 @@ public final class DlnaMediaRenderer {
 
     private final String uuid;
     private final Listener listener;
+    private final Context appContext;
     private final File diagnosticsFile;
     private volatile boolean running;
     private volatile String currentUri = "";
@@ -56,6 +57,7 @@ public final class DlnaMediaRenderer {
     public DlnaMediaRenderer(Context context, String stableUuid, Listener listener) {
         this.uuid = stableUuid.startsWith("uuid:") ? stableUuid : "uuid:" + stableUuid;
         this.listener = listener;
+        this.appContext = context.getApplicationContext();
         this.diagnosticsFile = new File(context.getCacheDir(), "dlna-diagnostics.txt");
         diagnostic("Renderer initialized; HTTP port=" + HTTP_PORT);
     }
@@ -364,15 +366,37 @@ public final class DlnaMediaRenderer {
                         + "</CurrentTransportState><CurrentTransportStatus>OK</CurrentTransportStatus><CurrentSpeed>1</CurrentSpeed>");
                 break;
             case "GetPositionInfo":
-                response = soapResponse(action, AVT, "<Track>1</Track><TrackDuration>00:00:00</TrackDuration>"
+                long positionMs = playbackValue("position_ms", 0L);
+                String positionTime = upnpTime(positionMs);
+                String durationTime = upnpTime(playbackValue("duration_ms", 0L));
+                response = soapResponse(action, AVT, "<Track>1</Track><TrackDuration>" + durationTime + "</TrackDuration>"
                         + "<TrackMetaData></TrackMetaData><TrackURI>" + xml(currentUri) + "</TrackURI>"
-                        + "<RelTime>00:00:00</RelTime><AbsTime>00:00:00</AbsTime><RelCount>0</RelCount><AbsCount>0</AbsCount>");
+                        + "<RelTime>" + positionTime + "</RelTime><AbsTime>" + positionTime + "</AbsTime><RelCount>0</RelCount><AbsCount>0</AbsCount>");
                 break;
             case "GetMediaInfo":
                 response = soapResponse(action, AVT, "<NrTracks>" + (currentUri.isEmpty() ? "0" : "1")
-                        + "</NrTracks><MediaDuration>00:00:00</MediaDuration><CurrentURI>" + xml(currentUri)
+                        + "</NrTracks><MediaDuration>" + upnpTime(playbackValue("duration_ms", 0L)) + "</MediaDuration><CurrentURI>" + xml(currentUri)
                         + "</CurrentURI><CurrentURIMetaData></CurrentURIMetaData><PlayMedium>NETWORK</PlayMedium>"
                         + "<RecordMedium>NOT_IMPLEMENTED</RecordMedium><WriteStatus>NOT_IMPLEMENTED</WriteStatus>");
+                break;
+            case "GetVolume":
+                response = soapResponse(action, RCS, "<CurrentVolume>" + playbackValue("volume_percent", 100L) + "</CurrentVolume>");
+                break;
+            case "SetVolume":
+                int requestedVolume;
+                try { requestedVolume = Integer.parseInt(args.getOrDefault("DesiredVolume", "100")); }
+                catch (Exception invalid) { soapFault(client, 402, "Invalid DesiredVolume"); return; }
+                requestedVolume = Math.max(0, Math.min(100, requestedVolume));
+                listener.onCommand("dlna_volume:" + requestedVolume);
+                response = soapResponse(action, RCS, "");
+                break;
+            case "GetMute":
+                response = soapResponse(action, RCS, "<CurrentMute>" + (playbackValue("volume_percent", 100L) == 0L ? "1" : "0") + "</CurrentMute>");
+                break;
+            case "SetMute":
+                boolean requestedMute = "1".equals(args.get("DesiredMute")) || "true".equalsIgnoreCase(args.get("DesiredMute"));
+                listener.onCommand("dlna_volume:" + (requestedMute ? "0" : "100"));
+                response = soapResponse(action, RCS, "");
                 break;
             case "GetCurrentConnectionIDs":
                 response = soapResponse(action, CM, "<ConnectionIDs>0</ConnectionIDs>");
@@ -573,7 +597,17 @@ public final class DlnaMediaRenderer {
         return b.append("</action>").toString();
     }
     private String rcsScpd() {
-        return "<?xml version=\"1.0\"?><scpd xmlns=\"urn:schemas-upnp-org:service-1-0\"><specVersion><major>1</major><minor>0</minor></specVersion><actionList></actionList><serviceStateTable></serviceStateTable></scpd>";
+        return "<?xml version=\"1.0\"?><scpd xmlns=\"urn:schemas-upnp-org:service-1-0\"><specVersion><major>1</major><minor>0</minor></specVersion><actionList>"
+                + action("GetVolume", "InstanceID:in:A_ARG_TYPE_InstanceID Channel:in:A_ARG_TYPE_Channel CurrentVolume:out:Volume")
+                + action("SetVolume", "InstanceID:in:A_ARG_TYPE_InstanceID Channel:in:A_ARG_TYPE_Channel DesiredVolume:in:Volume")
+                + action("GetMute", "InstanceID:in:A_ARG_TYPE_InstanceID Channel:in:A_ARG_TYPE_Channel CurrentMute:out:Mute")
+                + action("SetMute", "InstanceID:in:A_ARG_TYPE_InstanceID Channel:in:A_ARG_TYPE_Channel DesiredMute:in:Mute")
+                + "</actionList><serviceStateTable>"
+                + "<stateVariable sendEvents=\"no\"><name>A_ARG_TYPE_InstanceID</name><dataType>ui4</dataType></stateVariable>"
+                + "<stateVariable sendEvents=\"no\"><name>A_ARG_TYPE_Channel</name><dataType>string</dataType><allowedValueList><allowedValue>Master</allowedValue></allowedValueList></stateVariable>"
+                + "<stateVariable sendEvents=\"yes\"><name>Volume</name><dataType>ui2</dataType><allowedValueRange><minimum>0</minimum><maximum>100</maximum></allowedValueRange></stateVariable>"
+                + "<stateVariable sendEvents=\"yes\"><name>Mute</name><dataType>boolean</dataType></stateVariable>"
+                + "</serviceStateTable></scpd>";
     }
     private String cmScpd() {
         return "<?xml version=\"1.0\"?><scpd xmlns=\"urn:schemas-upnp-org:service-1-0\"><specVersion><major>1</major><minor>0</minor></specVersion><actionList>"
@@ -654,6 +688,14 @@ public final class DlnaMediaRenderer {
             }
         } catch (Exception ignored) {}
         return null;
+    }
+    private long playbackValue(String key, long fallback) {
+        try { return appContext.getSharedPreferences("AboEzzatDlnaState", Context.MODE_PRIVATE).getLong(key, fallback); }
+        catch (Exception ignored) { return fallback; }
+    }
+    private String upnpTime(long millis) {
+        long seconds = Math.max(0L, millis) / 1000L;
+        return String.format(Locale.US, "%02d:%02d:%02d", seconds / 3600L, (seconds / 60L) % 60L, seconds % 60L);
     }
     private long parseTime(String value) {
         if (value == null) return -1;
