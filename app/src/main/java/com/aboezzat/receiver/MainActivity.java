@@ -7763,7 +7763,15 @@ public class MainActivity extends Activity {
             }
         }
         stopTikTokFfmpegPipeline();
-        
+
+        // The Activity owns the player and releases it above. Clear the shared
+        // playback status synchronously so Cast cannot mistake a destroyed
+        // player/image session for active playback during the freshness window.
+        getSharedPreferences("AboEzzatReceiverState", MODE_PRIVATE).edit()
+                .putBoolean("media_active", false)
+                .putString("media_type", "none")
+                .putLong("media_state_updated_at", System.currentTimeMillis())
+                .commit();
 
         super.onDestroy();
     }
