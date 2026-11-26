@@ -101,6 +101,8 @@ public class MainActivity extends Activity {
     // even when the server gives them a misleading .json suffix or MIME type.
     private final java.util.Set<String> detectedHlsManifestUrls =
             java.util.Collections.newSetFromMap(new java.util.concurrent.ConcurrentHashMap<String, Boolean>());
+    // MIME type advertised by a DLNA controller's DIDL-Lite <res protocolInfo="...">.
+    private volatile String currentDlnaMimeType = "";
     private volatile String lastIncomingIntentDiagnostic = "";
     private volatile String playbackStatusMessage = "";
     private volatile String originalIncomingMediaUrl = "";
@@ -1084,6 +1086,30 @@ public class MainActivity extends Activity {
         }
     }
 
+    // Read the media resource MIME type advertised by Web Video Caster in DIDL-Lite.
+    // This lets extension-less HLS/DASH endpoints select the right Media3 parser.
+    private String extractDlnaMimeType(String metadata) {
+        if (metadata == null || metadata.trim().isEmpty()) return "";
+        try {
+            org.xmlpull.v1.XmlPullParser parser =
+                    org.xmlpull.v1.XmlPullParserFactory.newInstance().newPullParser();
+            parser.setInput(new java.io.StringReader(metadata));
+            while (parser.next() != org.xmlpull.v1.XmlPullParser.END_DOCUMENT) {
+                if (parser.getEventType() != org.xmlpull.v1.XmlPullParser.START_TAG
+                        || !"res".equalsIgnoreCase(parser.getName())) continue;
+                String protocolInfo = parser.getAttributeValue(null, "protocolInfo");
+                if (protocolInfo == null) continue;
+                String[] fields = protocolInfo.split(":", 4);
+                if (fields.length < 3) continue;
+                String mime = fields[2].trim().toLowerCase(Locale.ROOT);
+                if (mime.matches("[a-z0-9.+-]+/[a-z0-9.+-]+")) return mime;
+            }
+        } catch (Exception malformedMetadata) {
+            Log.w(TAG, "Could not read MIME type from DLNA resource metadata");
+        }
+        return "";
+    }
+
     // Log only DLNA metadata structure; never log values that may contain credentials.
     private String summarizeDlnaMetadataShape(String metadata) {
         if (metadata == null || metadata.trim().isEmpty()) return "empty";
@@ -1416,6 +1442,7 @@ public class MainActivity extends Activity {
             String incomingSourceUrl = intent.getStringExtra(ReceiverServerService.EXTRA_SOURCE_URL);
             boolean openIncomingInBrowser = intent.getBooleanExtra(ReceiverServerService.EXTRA_OPEN_BROWSER, false);
             String dlnaMetadata = intent.getStringExtra(ReceiverServerService.EXTRA_METADATA);
+            currentDlnaMimeType = extractDlnaMimeType(dlnaMetadata);
             // Internal remote-control/status commands arrive through the same Activity
             // action as media requests. Do not let them overwrite the last real share
             // diagnostic before a failed-media report is generated.
@@ -5375,10 +5402,31 @@ public class MainActivity extends Activity {
 
             if (command.startsWith("dlna_volume:")) {
                 try {
-                    int percent = Math.max(0, Math.min(100, Integer.parseInt(command.substring("dlna_volume:".length()))));
-                    if (player != null) player.setVolume(percent / 100f);
-                    getSharedPreferences("AboEzzatDlnaState", MODE_PRIVATE).edit().putLong("volume_percent", percent).apply();
-                } catch (Exception ignored) { }
+                    int percent = Math.max(0, Math.min(100,
+                            Integer.parseInt(command.substring("dlna_volume:".length()))));
+                    android.media.AudioManager audioManager =
+                            (android.media.AudioManager) getSystemService(AUDIO_SERVICE);
+                    boolean systemVolumeApplied = false;
+                    if (audioManager != null && !audioManager.isVolumeFixed()) {
+                        int maxVolume = audioManager.getStreamMaxVolume(
+                                android.media.AudioManager.STREAM_MUSIC);
+                        int targetVolume = Math.round(maxVolume * (percent / 100f));
+                        audioManager.setStreamVolume(android.media.AudioManager.STREAM_MUSIC,
+                                targetVolume,
+                                android.media.AudioManager.FLAG_SHOW_UI
+                                        | android.media.AudioManager.FLAG_PLAY_SOUND);
+                        systemVolumeApplied = true;
+                    }
+                    // Use Fire TV's system media-volume path whenever the device exposes
+                    // adjustable system volume. Only fixed-volume devices need player gain.
+                    if (player != null) player.setVolume(systemVolumeApplied ? 1f : percent / 100f);
+                    getSharedPreferences("AboEzzatDlnaState", MODE_PRIVATE).edit()
+                            .putLong("volume_percent", percent).apply();
+                    Log.i(TAG, "DLNA volume applied: percent=" + percent
+                            + ", systemVolume=" + systemVolumeApplied);
+                } catch (Exception volumeError) {
+                    Log.w(TAG, "Could not apply DLNA volume", volumeError);
+                }
                 return;
             }
 
@@ -6160,7 +6208,7 @@ public class MainActivity extends Activity {
                             .setLoadControl(new DefaultLoadControl.Builder()
                                     // Low startup threshold keeps fast direct links responsive.
                                     // YouTube is separately held until its adaptive 8-second startup buffer is ready.
-                                    .setBufferDurationsMs(12000, 90000, 1500, 5000)
+                                    .setBufferDurationsMs(20000, 120000, 2500, 8000)
                                     .build())
                             .build();
                     applySavedPlayerSettings();
@@ -6372,13 +6420,17 @@ public class MainActivity extends Activity {
 
             // Some providers expose a manifest at an extension-less URL and
             // identify its format only through MIME/format query parameters.
+            String dlnaMime = currentDlnaMimeType == null ? ""
+                    : currentDlnaMimeType.toLowerCase(Locale.ROOT);
             boolean hlsManifest = lowerPath.endsWith(".m3u8")
                     || lowerUrl.contains("application/vnd.apple.mpegurl")
                     || lowerUrl.contains("application/x-mpegurl")
+                    || dlnaMime.contains("mpegurl")
                     || lowerUrl.contains("format=m3u8")
                     || lowerUrl.contains("playlist.m3u8")
                     || lowerUrl.contains("chunklist");
             boolean dashManifest = lowerUrl.contains("application/dash+xml")
+                    || dlnaMime.contains("dash+xml")
                     || lowerUrl.contains("format=mpd") || lowerPath.endsWith(".mpd");
             boolean smoothManifest = lowerPath.endsWith(".ism") || lowerPath.endsWith(".ismc")
                     || lowerUrl.contains(".ism/manifest") || lowerUrl.contains("format=smoothstreaming");
@@ -6394,6 +6446,9 @@ public class MainActivity extends Activity {
             } else if (smoothManifest) {
                 builder.setMimeType(MimeTypes.APPLICATION_SS);
                 Log.i(TAG, "Treating URL as a SmoothStreaming manifest");
+            } else if ("video/mp4".equals(dlnaMime) || "video/x-m4v".equals(dlnaMime)) {
+                builder.setMimeType(MimeTypes.VIDEO_MP4);
+                Log.i(TAG, "Using MP4 MIME type advertised by DLNA metadata");
             }
         } catch (Exception e) {
             Log.w(TAG, "Could not inspect playback URL for playlist MIME override", e);
@@ -7525,7 +7580,7 @@ public class MainActivity extends Activity {
 
     private DefaultMediaSourceFactory createMediaSourceFactory(java.util.Map<String, String> requestHeaders) {
         DefaultHttpDataSource.Factory httpFactory = new DefaultHttpDataSource.Factory()
-                .setConnectTimeoutMs(15000).setReadTimeoutMs(30000)
+                .setConnectTimeoutMs(20000).setReadTimeoutMs(60000)
                 .setTransferListener(new androidx.media3.datasource.TransferListener() {
                     @Override
                     public void onTransferInitializing(androidx.media3.datasource.DataSource source,
