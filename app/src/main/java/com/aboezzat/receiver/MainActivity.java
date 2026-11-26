@@ -7581,7 +7581,6 @@ public class MainActivity extends Activity {
     private DefaultMediaSourceFactory createMediaSourceFactory(java.util.Map<String, String> requestHeaders) {
         DefaultHttpDataSource.Factory httpFactory = new DefaultHttpDataSource.Factory()
                 .setConnectTimeoutMs(20000).setReadTimeoutMs(60000)
-                .setAllowCrossProtocolRedirects(true)
                 .setTransferListener(new androidx.media3.datasource.TransferListener() {
                     @Override
                     public void onTransferInitializing(androidx.media3.datasource.DataSource source,
