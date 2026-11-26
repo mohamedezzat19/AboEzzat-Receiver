@@ -357,6 +357,12 @@ public class MainActivity extends Activity {
                 if (player != null && player.isPlaying()) {
                     savePlaybackPositionLocked();
                 }
+                long pos = player == null ? 0L : Math.max(0L, player.getCurrentPosition());
+                long dur = player == null || player.getDuration() == C.TIME_UNSET ? 0L : Math.max(0L, player.getDuration());
+                int vol = player == null ? 100 : Math.round(player.getVolume() * 100f);
+                getSharedPreferences("AboEzzatDlnaState", MODE_PRIVATE).edit()
+                        .putLong("position_ms", pos).putLong("duration_ms", dur)
+                        .putLong("volume_percent", Math.max(0, Math.min(100, vol))).apply();
             }
             // Keep the authenticated status endpoint's active-session timestamp fresh
             // while a video, audio track, or still image is genuinely on screen.
@@ -5272,6 +5278,15 @@ public class MainActivity extends Activity {
                             android.media.AudioManager.FLAG_SHOW_UI
                                     | android.media.AudioManager.FLAG_PLAY_SOUND);
                 }
+                return;
+            }
+
+            if (command.startsWith("dlna_volume:")) {
+                try {
+                    int percent = Math.max(0, Math.min(100, Integer.parseInt(command.substring("dlna_volume:".length()))));
+                    if (player != null) player.setVolume(percent / 100f);
+                    getSharedPreferences("AboEzzatDlnaState", MODE_PRIVATE).edit().putLong("volume_percent", percent).apply();
+                } catch (Exception ignored) { }
                 return;
             }
 
