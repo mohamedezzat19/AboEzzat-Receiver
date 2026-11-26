@@ -7954,6 +7954,11 @@ public class MainActivity extends Activity {
         // Stop image-session callbacks before the Activity and its views are destroyed.
         // Otherwise an active slideshow can keep reposting itself against a dead Activity.
         imageLoadGeneration++;
+        managedQueueHandler.removeCallbacksAndMessages(null);
+        managedQueueActive = false;
+        managedPlaybackQueue.clear();
+        managedPlaybackQueueIndex = -1;
+        managedQueueSessionId++;
         imageSlideshowRunning = false;
         imageSlideshowHandler.removeCallbacks(imageSlideshowRunnable);
         imageControlsHandler.removeCallbacks(hideImageControlsRunnable);
