@@ -5933,6 +5933,7 @@ public class MainActivity extends Activity {
                 }, getImageSlideshowIntervalMs());
             }
             if (audioUrl != null && !audioUrl.trim().isEmpty()) {
+                if (managedQueueActive) managedQueueCurrentItemStarted = true;
                 playAudioAlongsideImage(audioUrl);
             }
             return;
