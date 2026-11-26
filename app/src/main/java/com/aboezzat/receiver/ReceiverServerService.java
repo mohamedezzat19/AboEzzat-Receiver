@@ -927,8 +927,9 @@ public class ReceiverServerService extends Service {
             return;
         }
 
+        boolean pendingStateSaved = true;
         if (queueJson != null) {
-            getSharedPreferences("AboEzzatReceiverPending", MODE_PRIVATE).edit()
+            pendingStateSaved = getSharedPreferences("AboEzzatReceiverPending", MODE_PRIVATE).edit()
                     .putString("queue_json", queueJson)
                     .putLong("queue_received_at", System.currentTimeMillis())
                     .commit();
@@ -937,14 +938,19 @@ public class ReceiverServerService extends Service {
                 || (audioUrl != null && !audioUrl.trim().isEmpty())) {
             // Persist the URL, audio track, and their matching headers atomically.
             // An empty header object intentionally clears credentials from any older request.
-            getSharedPreferences("AboEzzatReceiverPending", MODE_PRIVATE).edit()
+            pendingStateSaved = getSharedPreferences("AboEzzatReceiverPending", MODE_PRIVATE).edit()
                     .putString("url", mediaUrl == null ? "" : mediaUrl)
                     .putString("audio", audioUrl == null ? "" : audioUrl)
                     .putString("source_url", sourceUrl == null ? "" : sourceUrl)
                     .putString("headers", incomingHeaders.toString())
                     .putBoolean("open_browser", openBrowser)
                     .putLong("received_at", System.currentTimeMillis())
-                    .commit();
+                    .commit() && pendingStateSaved;
+        }
+        if (!pendingStateSaved) {
+            writeHttpResponse(socket, "507 Insufficient Storage", contentType,
+                    "Receiver could not save the incoming request");
+            return;
         }
 
         Intent request = new Intent(this, MainActivity.class);
