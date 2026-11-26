@@ -921,7 +921,8 @@ public class ReceiverServerService extends Service {
             return;
         }
         if ("ping".equals(command) || "status".equals(command)) return;
-        if ((mediaUrl == null || mediaUrl.trim().isEmpty())
+        if (queueJson == null
+                && (mediaUrl == null || mediaUrl.trim().isEmpty())
                 && (audioUrl == null || audioUrl.trim().isEmpty())
                 && (command == null || command.trim().isEmpty())) return;
 
