@@ -5375,10 +5375,31 @@ public class MainActivity extends Activity {
 
             if (command.startsWith("dlna_volume:")) {
                 try {
-                    int percent = Math.max(0, Math.min(100, Integer.parseInt(command.substring("dlna_volume:".length()))));
-                    if (player != null) player.setVolume(percent / 100f);
-                    getSharedPreferences("AboEzzatDlnaState", MODE_PRIVATE).edit().putLong("volume_percent", percent).apply();
-                } catch (Exception ignored) { }
+                    int percent = Math.max(0, Math.min(100,
+                            Integer.parseInt(command.substring("dlna_volume:".length()))));
+                    android.media.AudioManager audioManager =
+                            (android.media.AudioManager) getSystemService(AUDIO_SERVICE);
+                    boolean systemVolumeApplied = false;
+                    if (audioManager != null && !audioManager.isVolumeFixed()) {
+                        int maxVolume = audioManager.getStreamMaxVolume(
+                                android.media.AudioManager.STREAM_MUSIC);
+                        int targetVolume = Math.round(maxVolume * (percent / 100f));
+                        audioManager.setStreamVolume(android.media.AudioManager.STREAM_MUSIC,
+                                targetVolume,
+                                android.media.AudioManager.FLAG_SHOW_UI
+                                        | android.media.AudioManager.FLAG_PLAY_SOUND);
+                        systemVolumeApplied = true;
+                    }
+                    // Use Fire TV's system media-volume path whenever the device exposes
+                    // adjustable system volume. Only fixed-volume devices need player gain.
+                    if (player != null) player.setVolume(systemVolumeApplied ? 1f : percent / 100f);
+                    getSharedPreferences("AboEzzatDlnaState", MODE_PRIVATE).edit()
+                            .putLong("volume_percent", percent).apply();
+                    Log.i(TAG, "DLNA volume applied: percent=" + percent
+                            + ", systemVolume=" + systemVolumeApplied);
+                } catch (Exception volumeError) {
+                    Log.w(TAG, "Could not apply DLNA volume", volumeError);
+                }
                 return;
             }
 
@@ -6160,7 +6181,7 @@ public class MainActivity extends Activity {
                             .setLoadControl(new DefaultLoadControl.Builder()
                                     // Low startup threshold keeps fast direct links responsive.
                                     // YouTube is separately held until its adaptive 8-second startup buffer is ready.
-                                    .setBufferDurationsMs(12000, 90000, 1500, 5000)
+                                    .setBufferDurationsMs(20000, 120000, 2500, 8000)
                                     .build())
                             .build();
                     applySavedPlayerSettings();
@@ -7525,7 +7546,8 @@ public class MainActivity extends Activity {
 
     private DefaultMediaSourceFactory createMediaSourceFactory(java.util.Map<String, String> requestHeaders) {
         DefaultHttpDataSource.Factory httpFactory = new DefaultHttpDataSource.Factory()
-                .setConnectTimeoutMs(15000).setReadTimeoutMs(30000)
+                .setConnectTimeoutMs(20000).setReadTimeoutMs(60000)
+                .setAllowCrossProtocolRedirects(true)
                 .setTransferListener(new androidx.media3.datasource.TransferListener() {
                     @Override
                     public void onTransferInitializing(androidx.media3.datasource.DataSource source,
