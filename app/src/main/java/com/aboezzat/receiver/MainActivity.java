@@ -1171,6 +1171,12 @@ public class MainActivity extends Activity {
             boolean appendAfterCurrentPlayback = "append".equals(mode) && !managedQueueActive;
             if ("replace".equals(mode) || appendAfterCurrentPlayback) {
                 managedQueueHandler.removeCallbacksAndMessages(null);
+                if ("replace".equals(mode)) {
+                    imageSlideshowRunning = false;
+                    imageSlideshowHandler.removeCallbacks(imageSlideshowRunnable);
+                    receivedImageQueue.clear();
+                    receivedImageIndex = -1;
+                }
                 managedPlaybackQueue.clear();
                 managedPlaybackQueueIndex = -1;
                 managedQueueActive = true;
@@ -1254,10 +1260,11 @@ public class MainActivity extends Activity {
         String audio = item.optString("audio", "");
         String source = item.optString("sourceUrl", "");
         if (!url.isEmpty() && isImageUrl(url) && audio.isEmpty()) {
+            imageSlideshowRunning = false;
+            imageSlideshowHandler.removeCallbacks(imageSlideshowRunnable);
+            receivedImageQueue.clear();
+            receivedImageIndex = -1;
             queueIncomingMedia(url, null, headers, source);
-            managedQueueHandler.postDelayed(() -> {
-                if (managedQueueActive && managedQueueSessionId == session) advanceManagedQueue();
-            }, getImageSlideshowIntervalMs());
         } else {
             queueIncomingMedia(url.isEmpty() ? null : url, audio.isEmpty() ? null : audio, headers, source);
         }
@@ -7718,7 +7725,7 @@ public class MainActivity extends Activity {
             Toast.makeText(this, "رابط صورة Cast غير مشفر أو غير موثوق.", Toast.LENGTH_LONG).show();
             return;
         }
-        if (!navigatingImageQueue && imageUrl != null && !imageUrl.trim().isEmpty()) {
+        if (!managedQueueActive && !navigatingImageQueue && imageUrl != null && !imageUrl.trim().isEmpty()) {
             if (receivedImageIndex < 0 || receivedImageQueue.isEmpty()
                     || !imageUrl.equals(receivedImageQueue.get(receivedImageQueue.size() - 1))) {
                 receivedImageQueue.add(imageUrl);
