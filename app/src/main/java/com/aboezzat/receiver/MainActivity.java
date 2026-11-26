@@ -210,6 +210,15 @@ public class MainActivity extends Activity {
     private final Runnable imageSlideshowRunnable = new Runnable() {
         @Override public void run() {
             if (imageSlideshowRunning && imageView != null && imageView.getVisibility() == View.VISIBLE) {
+                // When Add is waiting behind a pre-existing image session, finish one
+                // complete pass through that group before starting the appended queue.
+                if (managedQueueActive && managedPlaybackQueueIndex < 0
+                        && receivedImageIndex >= receivedImageQueue.size() - 1) {
+                    imageSlideshowRunning = false;
+                    if (imagePlayPauseControl != null) imagePlayPauseControl.setText("▶");
+                    advanceManagedQueue();
+                    return;
+                }
                 navigateReceivedImage(1);
                 if (imageSlideshowRunning) imageSlideshowHandler.postDelayed(this, getImageSlideshowIntervalMs());
             }
@@ -1188,7 +1197,7 @@ public class MainActivity extends Activity {
                     managedQueueCurrentItemStarted = true;
                     String currentType = getSharedPreferences("AboEzzatReceiverState", MODE_PRIVATE)
                             .getString("media_type", "none");
-                    if ("image".equals(currentType)) {
+                    if ("image".equals(currentType) && !imageSlideshowRunning) {
                         final long session = managedQueueSessionId;
                         managedQueueHandler.postDelayed(() -> {
                             if (managedQueueActive && managedQueueSessionId == session) advanceManagedQueue();
