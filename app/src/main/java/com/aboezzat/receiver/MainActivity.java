@@ -206,6 +206,7 @@ public class MainActivity extends Activity {
     private long managedQueueSessionId = 0L;
     private boolean managedQueueActive = false;
     private boolean managedQueueItemAdvanced = false;
+    private boolean managedQueueCurrentItemStarted = false;
     private final Runnable imageSlideshowRunnable = new Runnable() {
         @Override public void run() {
             if (imageSlideshowRunning && imageView != null && imageView.getVisibility() == View.VISIBLE) {
@@ -1136,6 +1137,7 @@ public class MainActivity extends Activity {
         managedQueueSessionId++;
         managedQueueActive = false;
         managedQueueItemAdvanced = false;
+        managedQueueCurrentItemStarted = false;
         managedPlaybackQueue.clear();
         managedPlaybackQueueIndex = -1;
     }
@@ -1162,6 +1164,7 @@ public class MainActivity extends Activity {
                 managedQueueActive = true;
                 managedQueueSessionId++;
                 managedQueueItemAdvanced = false;
+                managedQueueCurrentItemStarted = false;
             }
             if (managedPlaybackQueue.size() + items.length() > 100) {
                 Toast.makeText(this, "القائمة أكبر من الحد المسموح (100 عنصر)", Toast.LENGTH_LONG).show();
@@ -1182,6 +1185,7 @@ public class MainActivity extends Activity {
                 boolean waitForCurrent = appendAfterCurrentPlayback
                         && isFreshConfirmedPlaybackActive();
                 if (waitForCurrent) {
+                    managedQueueCurrentItemStarted = true;
                     String currentType = getSharedPreferences("AboEzzatReceiverState", MODE_PRIVATE)
                             .getString("media_type", "none");
                     if ("image".equals(currentType)) {
@@ -1218,6 +1222,7 @@ public class MainActivity extends Activity {
         }
         managedQueueHandler.removeCallbacksAndMessages(null);
         managedQueueItemAdvanced = false;
+        managedQueueCurrentItemStarted = false;
         long session = managedQueueSessionId;
         JSONObject item = managedPlaybackQueue.get(managedPlaybackQueueIndex);
         java.util.Map<String, String> headers = new java.util.LinkedHashMap<>();
@@ -5955,6 +5960,7 @@ public class MainActivity extends Activity {
         smartTubeFallbackAttempted = false;
         externalVlcFallbackLaunched = false;
         currentPlaybackUrl = playbackUrl;
+        if (managedQueueActive) managedQueueCurrentItemStarted = true;
         currentPlaybackHasVideo = mediaUrl != null && !mediaUrl.trim().isEmpty() && !isImageUrl(mediaUrl);
         currentPlaybackAudioUrl = audioUrl == null ? "" : audioUrl;
         if (!currentPlaybackHasVideo && currentPlaybackAudioUrl.isEmpty()) currentPlaybackAudioUrl = playbackUrl;
@@ -6103,7 +6109,8 @@ public class MainActivity extends Activity {
                             // Refresh the confirmed-active status at natural end so a later Cast
                             // request cannot mistake a finished item for ongoing playback.
                             persistExtractionState();
-                            if (managedQueueActive) {
+                            if (managedQueueActive && managedQueueCurrentItemStarted
+                                    && endedUrl.equals(currentPlaybackUrl)) {
                                 advanceManagedQueue();
                                 return;
                             }
