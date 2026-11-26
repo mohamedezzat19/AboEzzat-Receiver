@@ -1241,7 +1241,6 @@ public class MainActivity extends Activity {
         managedQueueHandler.removeCallbacksAndMessages(null);
         managedQueueItemAdvanced = false;
         managedQueueCurrentItemStarted = false;
-        long session = managedQueueSessionId;
         JSONObject item = managedPlaybackQueue.get(managedPlaybackQueueIndex);
         java.util.Map<String, String> headers = new java.util.LinkedHashMap<>();
         JSONObject headerJson = item.optJSONObject("headers");
@@ -1259,12 +1258,12 @@ public class MainActivity extends Activity {
         String url = item.optString("url", "");
         String audio = item.optString("audio", "");
         String source = item.optString("sourceUrl", "");
-        if (!url.isEmpty() && isImageUrl(url) && audio.isEmpty()) {
+        if (!url.isEmpty() && isImageUrl(url)) {
             imageSlideshowRunning = false;
             imageSlideshowHandler.removeCallbacks(imageSlideshowRunnable);
             receivedImageQueue.clear();
             receivedImageIndex = -1;
-            queueIncomingMedia(url, null, headers, source);
+            queueIncomingMedia(url, audio.isEmpty() ? null : audio, headers, source);
         } else {
             queueIncomingMedia(url.isEmpty() ? null : url, audio.isEmpty() ? null : audio, headers, source);
         }
