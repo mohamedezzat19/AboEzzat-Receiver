@@ -207,6 +207,7 @@ public class MainActivity extends Activity {
     private boolean managedQueueActive = false;
     private boolean managedQueueItemAdvanced = false;
     private boolean managedQueueCurrentItemStarted = false;
+    private String managedQueueExpectedPlayerUrl = "";
     private final Runnable imageSlideshowRunnable = new Runnable() {
         @Override public void run() {
             if (imageSlideshowRunning && imageView != null && imageView.getVisibility() == View.VISIBLE) {
@@ -1150,6 +1151,7 @@ public class MainActivity extends Activity {
         managedQueueActive = false;
         managedQueueItemAdvanced = false;
         managedQueueCurrentItemStarted = false;
+        managedQueueExpectedPlayerUrl = "";
         managedPlaybackQueue.clear();
         managedPlaybackQueueIndex = -1;
     }
@@ -1183,6 +1185,7 @@ public class MainActivity extends Activity {
                 managedQueueSessionId++;
                 managedQueueItemAdvanced = false;
                 managedQueueCurrentItemStarted = false;
+                managedQueueExpectedPlayerUrl = "";
             }
             if (managedPlaybackQueue.size() + items.length() > 100) {
                 Toast.makeText(this, "القائمة أكبر من الحد المسموح (100 عنصر)", Toast.LENGTH_LONG).show();
@@ -1204,6 +1207,14 @@ public class MainActivity extends Activity {
                         && isFreshConfirmedPlaybackActive();
                 if (waitForCurrent) {
                     managedQueueCurrentItemStarted = true;
+                    managedQueueExpectedPlayerUrl = "";
+                    try {
+                        if (player != null && player.getCurrentMediaItem() != null
+                                && player.getCurrentMediaItem().localConfiguration != null) {
+                            managedQueueExpectedPlayerUrl = player.getCurrentMediaItem()
+                                    .localConfiguration.uri.toString();
+                        }
+                    } catch (Exception ignored) { }
                     String currentType = getSharedPreferences("AboEzzatReceiverState", MODE_PRIVATE)
                             .getString("media_type", "none");
                     if ("image".equals(currentType) && !imageSlideshowRunning) {
@@ -1241,6 +1252,7 @@ public class MainActivity extends Activity {
         managedQueueHandler.removeCallbacksAndMessages(null);
         managedQueueItemAdvanced = false;
         managedQueueCurrentItemStarted = false;
+        managedQueueExpectedPlayerUrl = "";
         JSONObject item = managedPlaybackQueue.get(managedPlaybackQueueIndex);
         java.util.Map<String, String> headers = new java.util.LinkedHashMap<>();
         JSONObject headerJson = item.optJSONObject("headers");
@@ -5979,7 +5991,10 @@ public class MainActivity extends Activity {
         smartTubeFallbackAttempted = false;
         externalVlcFallbackLaunched = false;
         currentPlaybackUrl = playbackUrl;
-        if (managedQueueActive) managedQueueCurrentItemStarted = true;
+        if (managedQueueActive) {
+            managedQueueCurrentItemStarted = true;
+            managedQueueExpectedPlayerUrl = "";
+        }
         currentPlaybackHasVideo = mediaUrl != null && !mediaUrl.trim().isEmpty() && !isImageUrl(mediaUrl);
         currentPlaybackAudioUrl = audioUrl == null ? "" : audioUrl;
         if (!currentPlaybackHasVideo && currentPlaybackAudioUrl.isEmpty()) currentPlaybackAudioUrl = playbackUrl;
@@ -6049,6 +6064,15 @@ public class MainActivity extends Activity {
                         @Override
                         public void onIsPlayingChanged(boolean isPlaying) {
                             if (isPlaying) {
+                                if (managedQueueActive && managedQueueCurrentItemStarted) {
+                                    try {
+                                        if (player != null && player.getCurrentMediaItem() != null
+                                                && player.getCurrentMediaItem().localConfiguration != null) {
+                                            managedQueueExpectedPlayerUrl = player.getCurrentMediaItem()
+                                                    .localConfiguration.uri.toString();
+                                        }
+                                    } catch (Exception ignored) { }
+                                }
                                 setPlayerBufferingVisible(false);
                                 extractionStatus = "playing";
                                 if (isTikTokLiveCdnVideoUrl(currentPlaybackUrl)
@@ -6129,7 +6153,8 @@ public class MainActivity extends Activity {
                             // request cannot mistake a finished item for ongoing playback.
                             persistExtractionState();
                             if (managedQueueActive && managedQueueCurrentItemStarted
-                                    && endedUrl.equals(currentPlaybackUrl)) {
+                                    && !managedQueueExpectedPlayerUrl.isEmpty()
+                                    && endedUrl.equals(managedQueueExpectedPlayerUrl)) {
                                 advanceManagedQueue();
                                 return;
                             }
@@ -6182,6 +6207,15 @@ public class MainActivity extends Activity {
                     }
 
                     player.prepare();
+                    if (managedQueueActive && managedQueueCurrentItemStarted) {
+                        try {
+                            if (player.getCurrentMediaItem() != null
+                                    && player.getCurrentMediaItem().localConfiguration != null) {
+                                managedQueueExpectedPlayerUrl = player.getCurrentMediaItem()
+                                        .localConfiguration.uri.toString();
+                            }
+                        } catch (Exception ignored) { }
+                    }
                     long savedPosition = playbackPrefs == null ? 0L
                             : playbackPrefs.getLong("position_" + playbackUrl.hashCode(), 0L);
                     if (savedPosition > 5000L) {
@@ -7676,6 +7710,11 @@ public class MainActivity extends Activity {
                 player.stop();
                 player.clearMediaItems();
                 player.setMediaItem(MediaItem.fromUri(audioUrl));
+                if (managedQueueActive && managedQueueCurrentItemStarted) {
+                    managedQueueExpectedPlayerUrl = player.getCurrentMediaItem() != null
+                            && player.getCurrentMediaItem().localConfiguration != null
+                            ? player.getCurrentMediaItem().localConfiguration.uri.toString() : "";
+                }
                 player.prepare();
                 long savedPosition = playbackPrefs == null ? 0L
                         : playbackPrefs.getLong("position_" + audioUrl.hashCode(), 0L);
