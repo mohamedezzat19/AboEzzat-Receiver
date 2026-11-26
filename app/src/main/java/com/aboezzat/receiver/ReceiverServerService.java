@@ -58,6 +58,7 @@ public class ReceiverServerService extends Service {
     public static final String EXTRA_SOURCE_URL = "server_source_url";
     public static final String EXTRA_COMMAND = "server_command";
     public static final String EXTRA_OPEN_BROWSER = "server_open_browser";
+    public static final String EXTRA_QUEUE_JSON = "server_queue_json";
 
     private static final int DEFAULT_PORT = 8081;
     private volatile int activePort = DEFAULT_PORT;
@@ -490,6 +491,94 @@ public class ReceiverServerService extends Service {
         }
     }
 
+    // Validate every playlist entry before accepting any part of the batch.
+    // Local Cast media entries carry their own TLS pin; pins are committed only
+    // after the complete bounded payload has passed validation.
+    private JSONObject validateQueuePayload(byte[] requestBody, InetAddress sender) throws Exception {
+        if (requestBody == null || requestBody.length == 0 || requestBody.length > 65536) {
+            throw new IOException("Invalid queue body size");
+        }
+        JSONObject supplied = new JSONObject(new String(requestBody, StandardCharsets.UTF_8));
+        String mode = supplied.optString("mode", "replace");
+        if (!"replace".equals(mode) && !"append".equals(mode)) throw new IOException("Invalid queue mode");
+        org.json.JSONArray entries = supplied.optJSONArray("items");
+        if (entries == null || entries.length() < 1 || entries.length() > 50) {
+            throw new IOException("Queue must contain 1 to 50 items");
+        }
+        org.json.JSONArray safeEntries = new org.json.JSONArray();
+        SharedPreferences.Editor pinEdit = getSharedPreferences(
+                "AboEzzatReceiverMediaTlsPins", MODE_PRIVATE).edit();
+        String[] allowed = {"user-agent", "referer", "origin", "accept", "accept-language", "cookie",
+                "sec-fetch-site", "sec-fetch-mode", "sec-fetch-dest", "sec-ch-ua",
+                "sec-ch-ua-mobile", "sec-ch-ua-platform", "priority"};
+        for (int i = 0; i < entries.length(); i++) {
+            JSONObject item = entries.optJSONObject(i);
+            if (item == null) throw new IOException("Invalid queue item");
+            String url = item.optString("url", "").trim();
+            String audio = item.optString("audio", "").trim();
+            String source = item.optString("sourceUrl", "").trim();
+            String mediaPin = item.optString("mediaPin", "");
+            String audioPin = item.optString("audioPin", "");
+            if ((url.isEmpty() && audio.isEmpty())
+                    || (!url.isEmpty() && !isHttpUrl(url))
+                    || (!audio.isEmpty() && !isHttpUrl(audio))
+                    || (!source.isEmpty() && !isHttpUrl(source))) {
+                throw new IOException("Queue item contains an invalid URL");
+            }
+            JSONObject safe = new JSONObject();
+            if (!url.isEmpty()) safe.put("url", url);
+            if (!audio.isEmpty()) safe.put("audio", audio);
+            if (!source.isEmpty()) safe.put("sourceUrl", source);
+            validateQueueMediaPin(url, mediaPin, sender, pinEdit);
+            validateQueueMediaPin(audio, audioPin, sender, pinEdit);
+            if (!mediaPin.isEmpty()) safe.put("mediaPin", mediaPin);
+            if (!audioPin.isEmpty()) safe.put("audioPin", audioPin);
+            JSONObject suppliedHeaders = item.optJSONObject("headers");
+            JSONObject safeHeaders = new JSONObject();
+            if (suppliedHeaders != null) {
+                for (String key : allowed) {
+                    String value = suppliedHeaders.optString(key, "");
+                    int max = "cookie".equals(key) ? 8192 : 2048;
+                    if (!value.isEmpty() && value.length() <= max
+                            && !value.contains("\r") && !value.contains("\n")) {
+                        safeHeaders.put(key, value);
+                    }
+                }
+            }
+            safe.put("headers", safeHeaders);
+            safeEntries.put(safe);
+        }
+        if (!pinEdit.commit()) throw new IOException("Could not persist media TLS pins");
+        JSONObject result = new JSONObject();
+        result.put("mode", mode);
+        result.put("items", safeEntries);
+        result.put("receivedAt", System.currentTimeMillis());
+        return result;
+    }
+
+    private void validateQueueMediaPin(String value, String suppliedPin, InetAddress sender,
+                                        SharedPreferences.Editor pinEdit) throws Exception {
+        if (value == null || value.isEmpty()) {
+            if (suppliedPin != null && !suppliedPin.isEmpty()) throw new IOException("Unexpected media pin");
+            return;
+        }
+        boolean castPort = isCastMediaPortUrl(value);
+        boolean validCast = isValidCastTlsMediaUrl(value);
+        if (!castPort) {
+            if (suppliedPin != null && !suppliedPin.isEmpty()) throw new IOException("Unexpected media pin");
+            return;
+        }
+        if (!validCast || suppliedPin == null || !suppliedPin.matches("[A-Za-z0-9_-]{43}")) {
+            throw new IOException("Invalid local media TLS pin");
+        }
+        String host = new java.net.URL(value).getHost().toLowerCase(java.util.Locale.ROOT);
+        InetAddress address = InetAddress.getByName(host);
+        if (!(address instanceof java.net.Inet4Address) || !address.equals(sender)) {
+            throw new IOException("Local media host does not match authenticated sender");
+        }
+        pinEdit.putString("pin_" + host, suppliedPin);
+    }
+
     private void handleRequest(Socket client) {
         String mediaUrl = null;
         String audioUrl = null;
@@ -500,6 +589,8 @@ public class ReceiverServerService extends Service {
         boolean invalidRequestMethod = false;
         boolean unauthorized = false;
         boolean pairingRequest = false;
+        boolean queueRequest = false;
+        String queueJson = null;
         boolean openBrowser = false;
         String pairingResponse = null;
         JSONObject incomingHeaders = new JSONObject();
@@ -552,7 +643,7 @@ public class ReceiverServerService extends Service {
             invalidRequestMethod = !("GET".equalsIgnoreCase(method)
                     || "POST".equalsIgnoreCase(method));
             if ("POST".equalsIgnoreCase(method)
-                    && !"/play".equals(target) && !"/pair".equals(target)) {
+                    && !"/play".equals(target) && !"/queue".equals(target) && !"/pair".equals(target)) {
                 invalidRequestMethod = true;
             }
             if ("GET".equalsIgnoreCase(method) && target.startsWith("/pair")) {
@@ -599,9 +690,10 @@ public class ReceiverServerService extends Service {
 
             String requestPath = target.split("\\?", 2)[0];
             pairingRequest = "POST".equalsIgnoreCase(method) && "/pair".equals(target);
+            queueRequest = "POST".equalsIgnoreCase(method) && "/queue".equals(target);
             byte[] requestBody = new byte[0];
             if ("POST".equalsIgnoreCase(method)
-                    && ("/play".equals(target) || pairingRequest)
+                    && ("/play".equals(target) || queueRequest || pairingRequest)
                     && !invalidRequestMethod) {
                 int maxBodyLength = pairingRequest ? 1024 : 65536;
                 if (contentLength < 0 || contentLength > maxBodyLength) {
@@ -642,6 +734,23 @@ public class ReceiverServerService extends Service {
             } else if (!invalidRequestMethod && !invalidMediaUrl) {
                 unauthorized = !verifySignedRequest(method, target, requestBody,
                         authTime, authNonce, authSignature);
+            }
+
+            if (!unauthorized && queueRequest && !invalidMediaUrl && !invalidRequestMethod) {
+                if (requestContentType == null
+                        || !"application/json".equalsIgnoreCase(
+                                requestContentType.split(";", 2)[0].trim())
+                        || requestBody.length == 0) {
+                    invalidMediaUrl = true;
+                } else {
+                    try {
+                        JSONObject validatedQueue = validateQueuePayload(requestBody, client.getInetAddress());
+                        queueJson = validatedQueue.toString();
+                    } catch (Exception invalidQueue) {
+                        Log.w(TAG, "Rejected invalid authenticated queue payload", invalidQueue);
+                        invalidMediaUrl = true;
+                    }
+                }
             }
 
             if (!unauthorized && !pairingRequest && !invalidMediaUrl
@@ -809,6 +918,12 @@ public class ReceiverServerService extends Service {
                 && (audioUrl == null || audioUrl.trim().isEmpty())
                 && (command == null || command.trim().isEmpty())) return;
 
+        if (queueJson != null) {
+            getSharedPreferences("AboEzzatReceiverPending", MODE_PRIVATE).edit()
+                    .putString("queue_json", queueJson)
+                    .putLong("queue_received_at", System.currentTimeMillis())
+                    .apply();
+        }
         if ((mediaUrl != null && !mediaUrl.trim().isEmpty())
                 || (audioUrl != null && !audioUrl.trim().isEmpty())) {
             // Persist the URL, audio track, and their matching headers atomically.
@@ -830,6 +945,7 @@ public class ReceiverServerService extends Service {
         request.putExtra(EXTRA_SOURCE_URL, sourceUrl);
         request.putExtra(EXTRA_COMMAND, command);
         request.putExtra(EXTRA_OPEN_BROWSER, openBrowser);
+        if (queueJson != null) request.putExtra(EXTRA_QUEUE_JSON, queueJson);
         request.putExtra("server_headers", incomingHeaders.toString());
         request.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK
                 | Intent.FLAG_ACTIVITY_CLEAR_TOP
