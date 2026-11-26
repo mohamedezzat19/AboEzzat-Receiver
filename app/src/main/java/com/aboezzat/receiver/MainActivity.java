@@ -357,6 +357,9 @@ public class MainActivity extends Activity {
                     savePlaybackPositionLocked();
                 }
             }
+            // Keep the authenticated status endpoint's active-session timestamp fresh
+            // while a video, audio track, or still image is genuinely on screen.
+            persistExtractionState();
             playbackProgressHandler.postDelayed(this, 3000L);
         }
     };
