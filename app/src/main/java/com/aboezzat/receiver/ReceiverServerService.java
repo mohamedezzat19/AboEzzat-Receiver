@@ -402,6 +402,22 @@ public class ReceiverServerService extends Service {
             }
             return null;
         }
+        // Older Cast builds do not send an installation ID. Reuse the existing
+        // legacy key for them instead of replacing it and invalidating another phone.
+        if (clientId == null || clientId.isEmpty()) {
+            String existingLegacySecret = decryptPairingSecret(pairing.getString("receiver_secret_enc", ""));
+            if (!existingLegacySecret.isEmpty()) {
+                boolean consumed = pairing.edit().remove("pairing_code")
+                        .remove("code_expires_at").remove("failed_attempts").commit();
+                if (!consumed) return null;
+                JSONObject legacyResult = new JSONObject();
+                try {
+                    legacyResult.put("paired", true);
+                    legacyResult.put("secret", existingLegacySecret);
+                    return legacyResult.toString();
+                } catch (Exception ignored) { return null; }
+            }
+        }
         byte[] secretBytes = new byte[32];
         new java.security.SecureRandom().nextBytes(secretBytes);
         String secret = android.util.Base64.encodeToString(secretBytes,
