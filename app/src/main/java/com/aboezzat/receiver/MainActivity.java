@@ -1960,16 +1960,21 @@ public class MainActivity extends Activity {
         imagePlaybackControls = new LinearLayout(this);
         imagePlaybackControls.setOrientation(LinearLayout.HORIZONTAL);
         imagePlaybackControls.setGravity(Gravity.CENTER);
-        imagePlaybackControls.setPadding(dp(10), dp(7), dp(10), dp(7));
-        imagePlaybackControls.setBackground(roundedBackground(Color.argb(225, 18, 22, 30), Color.argb(150, 255, 255, 255), 28));
+        imagePlaybackControls.setPadding(dp(10), dp(8), dp(10), dp(8));
+        imagePlaybackControls.setBackground(roundedBackground(
+                Color.argb(242, 8, 15, 29), Color.argb(210, 38, 215, 232), 22));
         imagePreviousControl = makeImageControl("⏮");
         imagePlayPauseControl = makeImageControl("▶");
         imageNextControl = makeImageControl("⏭");
         imageSettingsControl = makeImageControl("⚙");
-        imagePlaybackControls.addView(imagePreviousControl);
-        imagePlaybackControls.addView(imagePlayPauseControl);
-        imagePlaybackControls.addView(imageNextControl);
-        imagePlaybackControls.addView(imageSettingsControl);
+        imagePlayPauseControl.setBackground(roundedBackground(
+                Color.argb(255, 20, 73, 87), Color.rgb(38, 215, 232), 14));
+        LinearLayout.LayoutParams imageControlParams = new LinearLayout.LayoutParams(dp(50), dp(46));
+        imageControlParams.setMargins(dp(3), 0, dp(3), 0);
+        imagePlaybackControls.addView(imagePreviousControl, new LinearLayout.LayoutParams(imageControlParams));
+        imagePlaybackControls.addView(imagePlayPauseControl, new LinearLayout.LayoutParams(imageControlParams));
+        imagePlaybackControls.addView(imageNextControl, new LinearLayout.LayoutParams(imageControlParams));
+        imagePlaybackControls.addView(imageSettingsControl, new LinearLayout.LayoutParams(imageControlParams));
         FrameLayout.LayoutParams imageControlsParams = new FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL);
         imageControlsParams.bottomMargin = dp(28);
@@ -6391,10 +6396,11 @@ public class MainActivity extends Activity {
         TextView control = new TextView(this);
         control.setText(glyph);
         control.setTextColor(Color.WHITE);
-        control.setTextSize(21);
+        control.setTextSize(20);
         control.setGravity(Gravity.CENTER);
-        control.setMinWidth(dp(48));
-        control.setMinHeight(dp(44));
+        control.setBackground(roundedBackground(
+                Color.argb(255, 25, 43, 64), Color.argb(180, 75, 112, 137), 14));
+        control.setElevation(dp(2));
         control.setFocusable(true);
         control.setClickable(true);
         return control;
