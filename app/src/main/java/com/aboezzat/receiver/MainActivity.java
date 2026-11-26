@@ -1121,6 +1121,16 @@ public class MainActivity extends Activity {
         target.put(key, value);
     }
 
+    private boolean isFreshConfirmedPlaybackActive() {
+        SharedPreferences state = getSharedPreferences("AboEzzatReceiverState", MODE_PRIVATE);
+        long updated = state.getLong("media_state_updated_at", 0L);
+        long age = System.currentTimeMillis() - updated;
+        String type = state.getString("media_type", "none");
+        return state.getBoolean("media_active", false) && updated > 0L
+                && age >= -5000L && age <= 60000L
+                && ("video".equals(type) || "audio".equals(type) || "image".equals(type));
+    }
+
     private void cancelManagedPlaybackQueue() {
         managedQueueHandler.removeCallbacksAndMessages(null);
         managedQueueSessionId++;
@@ -1144,7 +1154,8 @@ public class MainActivity extends Activity {
                 Toast.makeText(this, "القائمة أكبر من الحد المسموح (100 عنصر)", Toast.LENGTH_LONG).show();
                 return;
             }
-            if ("replace".equals(mode) || !managedQueueActive) {
+            boolean appendAfterCurrentPlayback = "append".equals(mode) && !managedQueueActive;
+            if ("replace".equals(mode) || appendAfterCurrentPlayback) {
                 managedQueueHandler.removeCallbacksAndMessages(null);
                 managedPlaybackQueue.clear();
                 managedPlaybackQueueIndex = -1;
@@ -1168,8 +1179,23 @@ public class MainActivity extends Activity {
                 managedPlaybackQueue.add(new JSONObject(item.toString()));
             }
             if (managedPlaybackQueueIndex < 0) {
-                managedPlaybackQueueIndex = 0;
-                playManagedQueueItem();
+                boolean waitForCurrent = appendAfterCurrentPlayback
+                        && isFreshConfirmedPlaybackActive();
+                if (waitForCurrent) {
+                    String currentType = getSharedPreferences("AboEzzatReceiverState", MODE_PRIVATE)
+                            .getString("media_type", "none");
+                    if ("image".equals(currentType)) {
+                        final long session = managedQueueSessionId;
+                        managedQueueHandler.postDelayed(() -> {
+                            if (managedQueueActive && managedQueueSessionId == session) advanceManagedQueue();
+                        }, getImageSlideshowIntervalMs());
+                    }
+                    Toast.makeText(this, "تمت إضافة القائمة بعد المحتوى الجاري",
+                            Toast.LENGTH_SHORT).show();
+                } else {
+                    managedPlaybackQueueIndex = 0;
+                    playManagedQueueItem();
+                }
             } else {
                 Toast.makeText(this, "تمت إضافة " + items.length() + " عنصر إلى قائمة التشغيل",
                         Toast.LENGTH_SHORT).show();
