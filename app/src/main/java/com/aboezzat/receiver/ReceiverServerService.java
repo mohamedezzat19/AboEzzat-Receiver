@@ -508,6 +508,7 @@ public class ReceiverServerService extends Service {
         org.json.JSONArray safeEntries = new org.json.JSONArray();
         SharedPreferences.Editor pinEdit = getSharedPreferences(
                 "AboEzzatReceiverMediaTlsPins", MODE_PRIVATE).edit();
+        java.util.HashMap<String, String> stagedPins = new java.util.HashMap<>();
         String[] allowed = {"user-agent", "referer", "origin", "accept", "accept-language", "cookie",
                 "sec-fetch-site", "sec-fetch-mode", "sec-fetch-dest", "sec-ch-ua",
                 "sec-ch-ua-mobile", "sec-ch-ua-platform", "priority"};
@@ -529,8 +530,8 @@ public class ReceiverServerService extends Service {
             if (!url.isEmpty()) safe.put("url", url);
             if (!audio.isEmpty()) safe.put("audio", audio);
             if (!source.isEmpty()) safe.put("sourceUrl", source);
-            validateQueueMediaPin(url, mediaPin, sender, pinEdit);
-            validateQueueMediaPin(audio, audioPin, sender, pinEdit);
+            validateQueueMediaPin(url, mediaPin, sender, pinEdit, stagedPins);
+            validateQueueMediaPin(audio, audioPin, sender, pinEdit, stagedPins);
             if (!mediaPin.isEmpty()) safe.put("mediaPin", mediaPin);
             if (!audioPin.isEmpty()) safe.put("audioPin", audioPin);
             JSONObject suppliedHeaders = item.optJSONObject("headers");
@@ -557,7 +558,8 @@ public class ReceiverServerService extends Service {
     }
 
     private void validateQueueMediaPin(String value, String suppliedPin, InetAddress sender,
-                                        SharedPreferences.Editor pinEdit) throws Exception {
+                                        SharedPreferences.Editor pinEdit,
+                                        java.util.Map<String, String> stagedPins) throws Exception {
         if (value == null || value.isEmpty()) {
             if (suppliedPin != null && !suppliedPin.isEmpty()) throw new IOException("Unexpected media pin");
             return;
@@ -576,6 +578,11 @@ public class ReceiverServerService extends Service {
         if (!(address instanceof java.net.Inet4Address) || !address.equals(sender)) {
             throw new IOException("Local media host does not match authenticated sender");
         }
+        String previousBatchPin = stagedPins.get(host);
+        if (previousBatchPin != null && !previousBatchPin.equals(suppliedPin)) {
+            throw new IOException("Conflicting TLS pins for one local media host");
+        }
+        stagedPins.put(host, suppliedPin);
         pinEdit.putString("pin_" + host, suppliedPin);
     }
 
