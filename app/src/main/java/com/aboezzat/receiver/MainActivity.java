@@ -192,6 +192,8 @@ public class MainActivity extends Activity {
     private ImageView imageView;
     // Invalidates late bitmap callbacks when another image/video session takes over.
     private volatile long imageLoadGeneration = 0L;
+    // Bound the in-memory image-session history so a long slideshow cannot grow without limit.
+    private static final int MAX_RECEIVED_IMAGE_HISTORY = 200;
     private final java.util.ArrayList<String> receivedImageQueue = new java.util.ArrayList<>();
     private int receivedImageIndex = -1;
     private boolean navigatingImageQueue = false;
@@ -7512,6 +7514,10 @@ public class MainActivity extends Activity {
                     || !imageUrl.equals(receivedImageQueue.get(receivedImageQueue.size() - 1))) {
                 receivedImageQueue.add(imageUrl);
                 receivedImageIndex = receivedImageQueue.size() - 1;
+                while (receivedImageQueue.size() > MAX_RECEIVED_IMAGE_HISTORY) {
+                    receivedImageQueue.remove(0);
+                    receivedImageIndex = Math.max(0, receivedImageIndex - 1);
+                }
             }
         }
         if (settingsHomeButton != null) settingsHomeButton.setVisibility(View.GONE);
