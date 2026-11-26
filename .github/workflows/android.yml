@@ -79,6 +79,8 @@ jobs:
           echo "Receiver signing configuration detected; secret values are not printed."
 
       - name: Build and merge FFmpegKit armeabi-v7a libraries
+        env:
+          GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
           set -euo pipefail
@@ -88,6 +90,7 @@ jobs:
           # source on every app update while keeping the exact same 8.1.9 ABI.
           API="https://api.github.com/repos/${GITHUB_REPOSITORY}/releases/latest"
           HTTP_STATUS="$(curl -sS -o "$RUNNER_TEMP/latest-release.json" -w '%{http_code}' \
+            -H "Authorization: Bearer $GH_TOKEN" \
             -H "Accept: application/vnd.github+json" "$API")"
           if [[ "$HTTP_STATUS" != "200" ]]; then
             echo "::error::Could not download the last Receiver release to reuse its verified ARMv7 libraries (HTTP $HTTP_STATUS)."
@@ -99,7 +102,7 @@ jobs:
             echo "::error::The latest Receiver release has no app-release.apk."
             exit 1
           fi
-          curl -fL --retry 3 "$PREVIOUS_APK_URL" -o "$RUNNER_TEMP/previous-release.apk"
+          curl -fL --retry 3 -H "Authorization: Bearer $GH_TOKEN" "$PREVIOUS_APK_URL" -o "$RUNNER_TEMP/previous-release.apk"
 
           mkdir -p "$RUNNER_TEMP/previous-apk-libs" "$RUNNER_TEMP/ffmpeg-base" "$GITHUB_WORKSPACE/app/libs"
           unzip -q "$RUNNER_TEMP/previous-release.apk" 'lib/armeabi-v7a/*' -d "$RUNNER_TEMP/previous-apk-libs"
@@ -214,7 +217,7 @@ jobs:
             exit 1
           fi
 
-          curl -fL --retry 3 "$PREVIOUS_APK_URL" -o "$RUNNER_TEMP/previous-release.apk"
+          curl -fL --retry 3 -H "Authorization: Bearer $GH_TOKEN" "$PREVIOUS_APK_URL" -o "$RUNNER_TEMP/previous-release.apk"
           BUILD_TOOLS="$ANDROID_HOME/build-tools/$(ls -1 "$ANDROID_HOME/build-tools" | sort -V | tail -n 1)"
           "$BUILD_TOOLS/apksigner" verify --verbose --print-certs "$RUNNER_TEMP/previous-release.apk" > "$RUNNER_TEMP/previous-apk-signature.txt"
           PREVIOUS_CERT="$(sed -n 's/.*certificate SHA-256 digest: *//p' "$RUNNER_TEMP/previous-apk-signature.txt" | head -n 1 | tr -d ':' | tr '[:upper:]' '[:lower:]')"
