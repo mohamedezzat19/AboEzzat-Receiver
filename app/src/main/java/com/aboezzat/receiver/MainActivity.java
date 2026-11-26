@@ -1121,6 +1121,15 @@ public class MainActivity extends Activity {
         target.put(key, value);
     }
 
+    private void cancelManagedPlaybackQueue() {
+        managedQueueHandler.removeCallbacksAndMessages(null);
+        managedQueueSessionId++;
+        managedQueueActive = false;
+        managedQueueItemAdvanced = false;
+        managedPlaybackQueue.clear();
+        managedPlaybackQueueIndex = -1;
+    }
+
     private void startManagedPlaybackQueue(String queueJson) {
         try {
             JSONObject payload = new JSONObject(queueJson);
@@ -1129,6 +1138,10 @@ public class MainActivity extends Activity {
             if (items == null || items.length() < 1 || items.length() > 50
                     || (!"replace".equals(mode) && !"append".equals(mode))) {
                 Toast.makeText(this, "قائمة التشغيل المستلمة غير صالحة", Toast.LENGTH_LONG).show();
+                return;
+            }
+            if (items.length() > 100) {
+                Toast.makeText(this, "القائمة أكبر من الحد المسموح (100 عنصر)", Toast.LENGTH_LONG).show();
                 return;
             }
             if ("replace".equals(mode) || !managedQueueActive) {
@@ -1293,6 +1306,10 @@ public class MainActivity extends Activity {
                 openTvBrowser();
             } else {
                 clearPendingServerMedia();
+                if ((incomingUrl != null && !incomingUrl.trim().isEmpty())
+                        || (incomingAudio != null && !incomingAudio.trim().isEmpty())) {
+                    cancelManagedPlaybackQueue();
+                }
                 queueIncomingMedia(incomingUrl, incomingAudio, incomingHeaders, incomingSourceUrl);
             }
             return;
@@ -1327,6 +1344,7 @@ public class MainActivity extends Activity {
 
         if (url != null && !url.trim().isEmpty()) {
             clearPendingServerMedia();
+            cancelManagedPlaybackQueue();
             queueIncomingMedia(url, null);
             return;
         }
@@ -1393,6 +1411,8 @@ public class MainActivity extends Activity {
                 .remove("headers")
                 .remove("open_browser")
                 .remove("received_at")
+                .remove("queue_json")
+                .remove("queue_received_at")
                 .apply();
     }
 
