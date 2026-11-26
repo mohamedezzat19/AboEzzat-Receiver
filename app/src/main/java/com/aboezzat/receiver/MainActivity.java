@@ -6100,6 +6100,9 @@ public class MainActivity extends Activity {
                                         .remove("position_" + endedUrl.hashCode())
                                         .apply();
                             }
+                            // Refresh the confirmed-active status at natural end so a later Cast
+                            // request cannot mistake a finished item for ongoing playback.
+                            persistExtractionState();
                             if (managedQueueActive) {
                                 advanceManagedQueue();
                                 return;
