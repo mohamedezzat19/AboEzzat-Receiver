@@ -639,7 +639,7 @@ public class MainActivity extends Activity {
     }
 
     private void showReceiverSettings() {
-        String[] options = {
+        final String[] options = {
                 "🔄  البحث عن التحديثات",
                 "🌐  إعدادات استخراج الفيديو",
                 "🔌  إعدادات الاستقبال والبورت",
@@ -651,35 +651,127 @@ public class MainActivity extends Activity {
                 "🚀  فتح الفيديو تلقائيًا: " + ((android.os.Build.VERSION.SDK_INT < 23 || android.provider.Settings.canDrawOverlays(this)) ? "مسموح" : "يحتاج إذن"),
                 "🔐  إظهار كود الربط مع كاست"
         };
-        new AlertDialog.Builder(this)
-                .setTitle("⚙ إعدادات الريسيفر")
-                .setItems(options, (dialog, which) -> {
-                    switch (which) {
-                        case 0: checkReceiverUpdate(); break;
-                        case 1: showExtractorSettings(); break;
-                        case 2: showReceiverPortSettings(); break;
-                        case 3:
-                            stopService(new android.content.Intent(this, ReceiverServerService.class));
-                            new Handler(Looper.getMainLooper()).postDelayed(this::startReceiverService, 500L);
-                            Toast.makeText(this, "جارٍ إعادة تشغيل خدمة الاستقبال…", Toast.LENGTH_LONG).show();
-                            break;
-                        case 4: showConnectionDiagnostics(); break;
-                        case 5: showPlaybackHistory(); break;
-                        case 6: showFailedMediaLog(); break;
-                        case 7:
-                            try {
-                                android.content.pm.PackageInfo info = getPackageManager().getPackageInfo(getPackageName(), 0);
-                                String version = info.versionName == null ? "غير معروف" : info.versionName;
-                                long code = android.os.Build.VERSION.SDK_INT >= 28 ? info.getLongVersionCode() : info.versionCode;
-                                new AlertDialog.Builder(this).setTitle("معلومات الريسيفر")
-                                        .setMessage("AboEzzat Receiver\nالإصدار: " + version + "\nرقم البناء: " + code)
-                                        .setPositiveButton("حسنًا", null).show();
-                            } catch (Exception e) { Toast.makeText(this, "تعذّر قراءة معلومات الإصدار", Toast.LENGTH_SHORT).show(); }
-                            break;
-                        case 8: configureAutoForegroundPlayback(); break;
-                        case 9: showSharePairingCode(); break;
+        final Runnable[] actions = new Runnable[] {
+                () -> checkReceiverUpdate(),
+                () -> showExtractorSettings(),
+                () -> showReceiverPortSettings(),
+                () -> {
+                    stopService(new android.content.Intent(this, ReceiverServerService.class));
+                    new Handler(Looper.getMainLooper()).postDelayed(this::startReceiverService, 500L);
+                    Toast.makeText(this, "جارٍ إعادة تشغيل خدمة الاستقبال…", Toast.LENGTH_LONG).show();
+                },
+                () -> showConnectionDiagnostics(),
+                () -> showPlaybackHistory(),
+                () -> showFailedMediaLog(),
+                () -> {
+                    try {
+                        android.content.pm.PackageInfo info = getPackageManager().getPackageInfo(getPackageName(), 0);
+                        String version = info.versionName == null ? "غير معروف" : info.versionName;
+                        long code = android.os.Build.VERSION.SDK_INT >= 28 ? info.getLongVersionCode() : info.versionCode;
+                        new AlertDialog.Builder(this).setTitle("معلومات الريسيفر")
+                                .setMessage("AboEzzat Receiver\\nالإصدار: " + version + "\\nرقم البناء: " + code)
+                                .setPositiveButton("حسنًا", null).show();
+                    } catch (Exception e) {
+                        Toast.makeText(this, "تعذّر قراءة معلومات الإصدار", Toast.LENGTH_SHORT).show();
                     }
-                }).setNegativeButton("إغلاق", null).show();
+                },
+                () -> configureAutoForegroundPlayback(),
+                () -> showSharePairingCode()
+        };
+
+        final int navy = Color.rgb(13, 29, 53);
+        final int card = Color.rgb(25, 49, 79);
+        final int cyan = Color.rgb(0, 205, 235);
+        final int white = Color.rgb(248, 252, 255);
+        final int muted = Color.rgb(151, 183, 207);
+        final int pad = dp(16);
+
+        android.widget.LinearLayout content = new android.widget.LinearLayout(this);
+        content.setOrientation(android.widget.LinearLayout.VERTICAL);
+        content.setPadding(pad, dp(8), pad, dp(4));
+        content.setBackgroundColor(navy);
+
+        android.widget.ScrollView scroll = new android.widget.ScrollView(this);
+        scroll.setFillViewport(false);
+        android.widget.LinearLayout list = new android.widget.LinearLayout(this);
+        list.setOrientation(android.widget.LinearLayout.VERTICAL);
+
+        for (int i = 0; i < options.length; i++) {
+            final int index = i;
+            android.widget.TextView item = new android.widget.TextView(this);
+            item.setText(options[i]);
+            item.setTextColor(white);
+            item.setTextSize(18);
+            item.setGravity(android.view.Gravity.CENTER_VERTICAL | android.view.Gravity.RIGHT);
+            item.setTextDirection(android.view.View.TEXT_DIRECTION_FIRST_STRONG);
+            item.setPadding(dp(18), dp(14), dp(18), dp(14));
+            item.setMinHeight(dp(62));
+            item.setFocusable(true);
+            item.setClickable(true);
+            item.setBackground(makeReceiverSettingsItemBackground(card, cyan));
+            item.setOnClickListener(v -> {
+                android.app.Dialog parent = (android.app.Dialog) v.getTag();
+                if (parent != null) parent.dismiss();
+                actions[index].run();
+            });
+            android.widget.LinearLayout.LayoutParams rowParams =
+                    new android.widget.LinearLayout.LayoutParams(
+                            android.view.ViewGroup.LayoutParams.MATCH_PARENT,
+                            android.view.ViewGroup.LayoutParams.WRAP_CONTENT);
+            rowParams.bottomMargin = dp(7);
+            list.addView(item, rowParams);
+
+            android.view.View divider = new android.view.View(this);
+            divider.setBackgroundColor(Color.rgb(54, 78, 105));
+            android.widget.LinearLayout.LayoutParams dividerParams =
+                    new android.widget.LinearLayout.LayoutParams(
+                            android.view.ViewGroup.LayoutParams.MATCH_PARENT, dp(1));
+            dividerParams.leftMargin = dp(8);
+            dividerParams.rightMargin = dp(8);
+            list.addView(divider, dividerParams);
+        }
+        scroll.addView(list);
+        content.addView(scroll, new android.widget.LinearLayout.LayoutParams(
+                android.view.ViewGroup.LayoutParams.MATCH_PARENT,
+                Math.min(getResources().getDisplayMetrics().heightPixels * 3 / 4, dp(570))));
+
+        AlertDialog dialog = new AlertDialog.Builder(this)
+                .setTitle("⚙ إعدادات الريسيفر")
+                .setView(content)
+                .setNegativeButton("إغلاق", null)
+                .create();
+        for (int i = 0; i < list.getChildCount(); i++) {
+            android.view.View child = list.getChildAt(i);
+            if (child instanceof android.widget.TextView) child.setTag(dialog);
+        }
+        dialog.setOnShowListener(d -> {
+            android.widget.Button close = dialog.getButton(AlertDialog.BUTTON_NEGATIVE);
+            if (close != null) {
+                close.setTextColor(white);
+                close.setTextSize(16);
+                close.setBackground(makeReceiverSettingsItemBackground(card, cyan));
+                close.setPadding(dp(24), dp(8), dp(24), dp(8));
+            }
+            if (list.getChildCount() > 0) list.getChildAt(0).requestFocus();
+        });
+        dialog.show();
+        dialog.getWindow().setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(navy));
+    }
+
+    private android.graphics.drawable.Drawable makeReceiverSettingsItemBackground(int normalColor, int focusColor) {
+        android.graphics.drawable.StateListDrawable states = new android.graphics.drawable.StateListDrawable();
+        android.graphics.drawable.GradientDrawable focused = new android.graphics.drawable.GradientDrawable();
+        focused.setColor(focusColor);
+        focused.setCornerRadius(dp(12));
+        focused.setStroke(dp(2), Color.rgb(117, 240, 255));
+        android.graphics.drawable.GradientDrawable normal = new android.graphics.drawable.GradientDrawable();
+        normal.setColor(normalColor);
+        normal.setCornerRadius(dp(12));
+        normal.setStroke(dp(1), Color.rgb(57, 91, 122));
+        states.addState(new int[] { android.R.attr.state_focused }, focused);
+        states.addState(new int[] { android.R.attr.state_pressed }, focused);
+        states.addState(new int[] {}, normal);
+        return states;
     }
 
     // رمز مؤقت لاقتران أبو عزت كاست مع أبو عزت ريسيفر.
