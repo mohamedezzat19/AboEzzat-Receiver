@@ -520,7 +520,8 @@ public class ReceiverServerService extends Service {
             String source = item.optString("sourceUrl", "").trim();
             String mediaPin = item.optString("mediaPin", "");
             String audioPin = item.optString("audioPin", "");
-            if ((url.isEmpty() && audio.isEmpty())
+            if ((url.isEmpty() && audio.isEmpty()) || url.length() > 8192 || audio.length() > 8192
+                    || source.length() > 8192
                     || (!url.isEmpty() && !isHttpUrl(url))
                     || (!audio.isEmpty() && !isHttpUrl(audio))
                     || (!source.isEmpty() && !isHttpUrl(source))) {
