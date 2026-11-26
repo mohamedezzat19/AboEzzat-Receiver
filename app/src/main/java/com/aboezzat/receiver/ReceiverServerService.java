@@ -602,6 +602,9 @@ public class ReceiverServerService extends Service {
         boolean openBrowser = false;
         String pairingResponse = null;
         JSONObject incomingHeaders = new JSONObject();
+        String body = "OK";
+        String responseStatus = "200 OK";
+        String contentType = "text/plain; charset=utf-8";
         try (Socket socket = client) {
             // The listener is TLS-only. Complete the handshake explicitly before
             // parsing HTTP so TLS failures are reported at their true boundary.
@@ -867,14 +870,14 @@ public class ReceiverServerService extends Service {
                     invalidMediaUrl = true;
                 }
             }
-            String body = unauthorized ? "Unauthorized"
+            body = unauthorized ? "Unauthorized"
                     : pairingRequest ? (pairingResponse == null ? "Pairing code invalid or expired" : pairingResponse)
                     : invalidRequestMethod ? "Method not allowed"
                     : invalidMediaUrl ? "Invalid media URL" : "OK";
-            String responseStatus = unauthorized ? "401 Unauthorized"
+            responseStatus = unauthorized ? "401 Unauthorized"
                     : invalidRequestMethod ? "405 Method Not Allowed"
                     : invalidMediaUrl ? "400 Bad Request" : "200 OK";
-            String contentType = pairingRequest && !unauthorized
+            contentType = pairingRequest && !unauthorized
                     ? "application/json; charset=utf-8" : "text/plain; charset=utf-8";
             if ("status".equals(command)) {
                 SharedPreferences state = getSharedPreferences("AboEzzatReceiverState", MODE_PRIVATE);
@@ -890,61 +893,63 @@ public class ReceiverServerService extends Service {
                 body = json.toString();
                 contentType = "application/json; charset=utf-8";
             }
-            byte[] bodyBytes = body.getBytes(StandardCharsets.UTF_8);
-            byte[] responseHeaders = ("HTTP/1.1 " + responseStatus + "\r\n"
-                    + "Content-Type: " + contentType + "\r\n"
-                    + "Cache-Control: no-store, max-age=0\r\n"
-                    + "Pragma: no-cache\r\n"
-                    + "X-Content-Type-Options: nosniff\r\n"
-                    + "Connection: close\r\n"
-                    + "Content-Length: " + bodyBytes.length + "\r\n\r\n")
-                    .getBytes(StandardCharsets.UTF_8);
-            OutputStream output = socket.getOutputStream();
-            output.write(responseHeaders);
-            output.write(bodyBytes);
-            output.flush();
-        } catch (Exception e) {
-            Log.w(TAG, "Request handling failed", e);
-            return;
-        }
+            // Response is written only after dispatch/persistence below.
 
         if (unauthorized) {
             Log.w(TAG, "Rejected unauthenticated receiver request");
+            writeHttpResponse(socket, responseStatus, contentType, body);
             return;
         }
-        if (pairingRequest) return;
+        if (pairingRequest) {
+            writeHttpResponse(socket, responseStatus, contentType, body);
+            return;
+        }
         if (invalidRequestMethod) {
             Log.w(TAG, "Rejected unsupported HTTP method or endpoint");
+            writeHttpResponse(socket, responseStatus, contentType, body);
             return;
         }
         if (invalidMediaUrl) {
             Log.w(TAG, "Rejected non-HTTP or malformed media URL");
+            writeHttpResponse(socket, responseStatus, contentType, body);
             return;
         }
-        if ("ping".equals(command) || "status".equals(command)) return;
+        if ("ping".equals(command) || "status".equals(command)) {
+            writeHttpResponse(socket, responseStatus, contentType, body);
+            return;
+        }
         if (queueJson == null
                 && (mediaUrl == null || mediaUrl.trim().isEmpty())
                 && (audioUrl == null || audioUrl.trim().isEmpty())
-                && (command == null || command.trim().isEmpty())) return;
+                && (command == null || command.trim().isEmpty())) {
+            writeHttpResponse(socket, responseStatus, contentType, body);
+            return;
+        }
 
+        boolean pendingStateSaved = true;
         if (queueJson != null) {
-            getSharedPreferences("AboEzzatReceiverPending", MODE_PRIVATE).edit()
+            pendingStateSaved = getSharedPreferences("AboEzzatReceiverPending", MODE_PRIVATE).edit()
                     .putString("queue_json", queueJson)
                     .putLong("queue_received_at", System.currentTimeMillis())
-                    .apply();
+                    .commit();
         }
         if ((mediaUrl != null && !mediaUrl.trim().isEmpty())
                 || (audioUrl != null && !audioUrl.trim().isEmpty())) {
             // Persist the URL, audio track, and their matching headers atomically.
             // An empty header object intentionally clears credentials from any older request.
-            getSharedPreferences("AboEzzatReceiverPending", MODE_PRIVATE).edit()
+            pendingStateSaved = getSharedPreferences("AboEzzatReceiverPending", MODE_PRIVATE).edit()
                     .putString("url", mediaUrl == null ? "" : mediaUrl)
                     .putString("audio", audioUrl == null ? "" : audioUrl)
                     .putString("source_url", sourceUrl == null ? "" : sourceUrl)
                     .putString("headers", incomingHeaders.toString())
                     .putBoolean("open_browser", openBrowser)
                     .putLong("received_at", System.currentTimeMillis())
-                    .apply();
+                    .commit() && pendingStateSaved;
+        }
+        if (!pendingStateSaved) {
+            writeHttpResponse(socket, "507 Insufficient Storage", contentType,
+                    "Receiver could not save the incoming request");
+            return;
         }
 
         Intent request = new Intent(this, MainActivity.class);
@@ -963,7 +968,30 @@ public class ReceiverServerService extends Service {
             startActivity(request);
         } catch (Exception e) {
             Log.e(TAG, "OS blocked opening Receiver for incoming request", e);
+            responseStatus = "503 Service Unavailable";
+            body = "Receiver could not open the incoming request";
         }
+        writeHttpResponse(socket, responseStatus, contentType, body);
+        } catch (Exception e) {
+            Log.w(TAG, "Request handling failed", e);
+        }
+    }
+
+    private void writeHttpResponse(Socket socket, String status, String contentType, String body)
+            throws IOException {
+        byte[] bodyBytes = body.getBytes(StandardCharsets.UTF_8);
+        byte[] responseHeaders = ("HTTP/1.1 " + status + "\r\n"
+                + "Content-Type: " + contentType + "\r\n"
+                + "Cache-Control: no-store, max-age=0\r\n"
+                + "Pragma: no-cache\r\n"
+                + "X-Content-Type-Options: nosniff\r\n"
+                + "Connection: close\r\n"
+                + "Content-Length: " + bodyBytes.length + "\r\n\r\n")
+                .getBytes(StandardCharsets.UTF_8);
+        OutputStream output = socket.getOutputStream();
+        output.write(responseHeaders);
+        output.write(bodyBytes);
+        output.flush();
     }
 
     // Never let an untrusted LAN client force an unbounded request-line allocation.
