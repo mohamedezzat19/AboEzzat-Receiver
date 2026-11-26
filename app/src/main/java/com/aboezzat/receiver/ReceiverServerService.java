@@ -602,6 +602,9 @@ public class ReceiverServerService extends Service {
         boolean openBrowser = false;
         String pairingResponse = null;
         JSONObject incomingHeaders = new JSONObject();
+        String body = "OK";
+        String responseStatus = "200 OK";
+        String contentType = "text/plain; charset=utf-8";
         try (Socket socket = client) {
             // The listener is TLS-only. Complete the handshake explicitly before
             // parsing HTTP so TLS failures are reported at their true boundary.
@@ -867,14 +870,14 @@ public class ReceiverServerService extends Service {
                     invalidMediaUrl = true;
                 }
             }
-            String body = unauthorized ? "Unauthorized"
+            body = unauthorized ? "Unauthorized"
                     : pairingRequest ? (pairingResponse == null ? "Pairing code invalid or expired" : pairingResponse)
                     : invalidRequestMethod ? "Method not allowed"
                     : invalidMediaUrl ? "Invalid media URL" : "OK";
-            String responseStatus = unauthorized ? "401 Unauthorized"
+            responseStatus = unauthorized ? "401 Unauthorized"
                     : invalidRequestMethod ? "405 Method Not Allowed"
                     : invalidMediaUrl ? "400 Bad Request" : "200 OK";
-            String contentType = pairingRequest && !unauthorized
+            contentType = pairingRequest && !unauthorized
                     ? "application/json; charset=utf-8" : "text/plain; charset=utf-8";
             if ("status".equals(command)) {
                 SharedPreferences state = getSharedPreferences("AboEzzatReceiverState", MODE_PRIVATE);
@@ -891,10 +894,6 @@ public class ReceiverServerService extends Service {
                 contentType = "application/json; charset=utf-8";
             }
             // Response is written only after dispatch/persistence below.
-        } catch (Exception e) {
-            Log.w(TAG, "Request handling failed", e);
-            return;
-        }
 
         if (unauthorized) {
             Log.w(TAG, "Rejected unauthenticated receiver request");
@@ -973,6 +972,9 @@ public class ReceiverServerService extends Service {
             body = "Receiver could not open the incoming request";
         }
         writeHttpResponse(socket, responseStatus, contentType, body);
+        } catch (Exception e) {
+            Log.w(TAG, "Request handling failed", e);
+        }
     }
 
     private void writeHttpResponse(Socket socket, String status, String contentType, String body)
