@@ -387,6 +387,17 @@ public final class DlnaMediaRenderer {
                 try { requestedVolume = Integer.parseInt(args.getOrDefault("DesiredVolume", "100")); }
                 catch (Exception invalid) { soapFault(client, 402, "Invalid DesiredVolume"); return; }
                 requestedVolume = Math.max(0, Math.min(100, requestedVolume));
+                android.content.SharedPreferences volumePrefs =
+                        appContext.getSharedPreferences("AboEzzatDlnaState", Context.MODE_PRIVATE);
+                long previousVolume = playbackValue("volume_percent", 100L);
+                android.content.SharedPreferences.Editor volumeEdit = volumePrefs.edit()
+                        .putLong("volume_percent", requestedVolume);
+                if (requestedVolume > 0) {
+                    volumeEdit.putLong("volume_before_mute_percent", requestedVolume);
+                } else if (previousVolume > 0) {
+                    volumeEdit.putLong("volume_before_mute_percent", previousVolume);
+                }
+                volumeEdit.apply();
                 listener.onCommand("volume:" + requestedVolume);
                 response = soapResponse(action, RCS, "");
                 break;
@@ -395,7 +406,21 @@ public final class DlnaMediaRenderer {
                 break;
             case "SetMute":
                 boolean requestedMute = "1".equals(args.get("DesiredMute")) || "true".equalsIgnoreCase(args.get("DesiredMute"));
-                listener.onCommand("volume:" + (requestedMute ? "0" : "100"));
+                android.content.SharedPreferences mutePrefs =
+                        appContext.getSharedPreferences("AboEzzatDlnaState", Context.MODE_PRIVATE);
+                long currentVolume = playbackValue("volume_percent", 100L);
+                long restoredVolume = Math.max(1L, Math.min(100L,
+                        playbackValue("volume_before_mute_percent", 100L)));
+                if (requestedMute) {
+                    android.content.SharedPreferences.Editor muteEdit = mutePrefs.edit().putLong("volume_percent", 0L);
+                    if (currentVolume > 0L) muteEdit.putLong("volume_before_mute_percent", currentVolume);
+                    muteEdit.apply();
+                    listener.onCommand("volume:0");
+                } else {
+                    mutePrefs.edit().putLong("volume_percent", restoredVolume)
+                            .putLong("volume_before_mute_percent", restoredVolume).apply();
+                    listener.onCommand("volume:" + restoredVolume);
+                }
                 response = soapResponse(action, RCS, "");
                 break;
             case "GetCurrentConnectionIDs":
