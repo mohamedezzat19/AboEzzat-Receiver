@@ -189,6 +189,44 @@ public class MainActivity extends Activity {
     private final Runnable hideImageControlsRunnable = () -> setImageControlsVisible(false);
     private boolean imageControlsVisible = false;
     private String currentImageUrl = "";
+    private ImageView imageView;
+    // Invalidates late bitmap callbacks when another image/video session takes over.
+    private volatile long imageLoadGeneration = 0L;
+    // Bound the in-memory image-session history so a long slideshow cannot grow without limit.
+    private static final int MAX_RECEIVED_IMAGE_HISTORY = 200;
+    private final java.util.ArrayList<String> receivedImageQueue = new java.util.ArrayList<>();
+    private int receivedImageIndex = -1;
+    private boolean navigatingImageQueue = false;
+    private boolean imageSlideshowRunning = false;
+    private final Handler imageSlideshowHandler = new Handler(Looper.getMainLooper());
+    // General Cast playlist state is deliberately separate from playback history and image history.
+    private final java.util.ArrayList<JSONObject> managedPlaybackQueue = new java.util.ArrayList<>();
+    private final Handler managedQueueHandler = new Handler(Looper.getMainLooper());
+    private int managedPlaybackQueueIndex = -1;
+    private long managedQueueSessionId = 0L;
+    private boolean managedQueueActive = false;
+    private boolean managedQueueItemAdvanced = false;
+    private boolean managedQueueCurrentItemStarted = false;
+    private String managedQueueExpectedPlayerUrl = "";
+    private final Runnable imageSlideshowRunnable = new Runnable() {
+        @Override public void run() {
+            if (imageSlideshowRunning && imageView != null && imageView.getVisibility() == View.VISIBLE) {
+                // When Add is waiting behind a pre-existing image session, finish one
+                // complete pass through that group before starting the appended queue.
+                if (managedQueueActive && managedPlaybackQueueIndex < 0
+                        && receivedImageIndex >= receivedImageQueue.size() - 1) {
+                    imageSlideshowRunning = false;
+                    if (imagePlayPauseControl != null) imagePlayPauseControl.setText("▶");
+                    advanceManagedQueue();
+                    return;
+                }
+                navigateReceivedImage(1);
+                if (imageSlideshowRunning) imageSlideshowHandler.postDelayed(this, getImageSlideshowIntervalMs());
+            }
+        }
+    };
+    private LinearLayout imagePlaybackControls;
+    private TextView imagePreviousControl, imagePlayPauseControl, imageNextControl, imageSettingsControl;
     private String pendingBrowserUrl = "";
     private volatile boolean fallbackStreamCaptured = false;
     private volatile String fallbackPageUrl = "";
@@ -197,7 +235,6 @@ public class MainActivity extends Activity {
     private final Runnable resetBrowserBackPress = () -> backPressedOnceInBrowser = false;
     private View webFullscreenView;
     private WebChromeClient.CustomViewCallback webFullscreenCallback;
-    private ImageView imageView;
     private float imageZoomScale = 1.0f;
     private float imagePanX = 0f;
     private float imagePanY = 0f;
@@ -321,6 +358,9 @@ public class MainActivity extends Activity {
                     savePlaybackPositionLocked();
                 }
             }
+            // Keep the authenticated status endpoint's active-session timestamp fresh
+            // while a video, audio track, or still image is genuinely on screen.
+            persistExtractionState();
             playbackProgressHandler.postDelayed(this, 3000L);
         }
     };
@@ -498,10 +538,18 @@ public class MainActivity extends Activity {
     }
 
     private void persistExtractionState() {
+        boolean videoActive = false;
+        try { videoActive = player != null && player.isPlaying(); } catch (Exception ignored) { }
+        boolean imageActive = !videoActive && currentImageUrl != null && !currentImageUrl.trim().isEmpty()
+                && imageView != null && imageView.getVisibility() == View.VISIBLE
+                && imageView.getDrawable() != null;
         getSharedPreferences("AboEzzatReceiverState", MODE_PRIVATE).edit()
                 .putBoolean("extracting", extractionInProgress)
                 .putInt("attempt", extractionAttemptCount)
                 .putString("status", extractionStatus)
+                .putBoolean("media_active", videoActive || imageActive)
+                .putString("media_type", videoActive ? (currentPlaybackHasVideo ? "video" : "audio") : imageActive ? "image" : "none")
+                .putLong("media_state_updated_at", System.currentTimeMillis())
                 .apply();
     }
 
@@ -1087,10 +1135,183 @@ public class MainActivity extends Activity {
         target.put(key, value);
     }
 
+    private boolean isFreshConfirmedPlaybackActive() {
+        SharedPreferences state = getSharedPreferences("AboEzzatReceiverState", MODE_PRIVATE);
+        long updated = state.getLong("media_state_updated_at", 0L);
+        long age = System.currentTimeMillis() - updated;
+        String type = state.getString("media_type", "none");
+        return state.getBoolean("media_active", false) && updated > 0L
+                && age >= -5000L && age <= 60000L
+                && ("video".equals(type) || "audio".equals(type) || "image".equals(type));
+    }
+
+    private void cancelManagedPlaybackQueue() {
+        managedQueueHandler.removeCallbacksAndMessages(null);
+        managedQueueSessionId++;
+        managedQueueActive = false;
+        managedQueueItemAdvanced = false;
+        managedQueueCurrentItemStarted = false;
+        managedQueueExpectedPlayerUrl = "";
+        managedPlaybackQueue.clear();
+        managedPlaybackQueueIndex = -1;
+    }
+
+    private void startManagedPlaybackQueue(String queueJson) {
+        try {
+            JSONObject payload = new JSONObject(queueJson);
+            org.json.JSONArray items = payload.optJSONArray("items");
+            String mode = payload.optString("mode", "replace");
+            if (items == null || items.length() < 1 || items.length() > 50
+                    || (!"replace".equals(mode) && !"append".equals(mode))) {
+                Toast.makeText(this, "قائمة التشغيل المستلمة غير صالحة", Toast.LENGTH_LONG).show();
+                return;
+            }
+            if (items.length() > 100) {
+                Toast.makeText(this, "القائمة أكبر من الحد المسموح (100 عنصر)", Toast.LENGTH_LONG).show();
+                return;
+            }
+            boolean appendAfterCurrentPlayback = "append".equals(mode) && !managedQueueActive;
+            if ("replace".equals(mode) || appendAfterCurrentPlayback) {
+                managedQueueHandler.removeCallbacksAndMessages(null);
+                if ("replace".equals(mode)) {
+                    imageSlideshowRunning = false;
+                    imageSlideshowHandler.removeCallbacks(imageSlideshowRunnable);
+                    receivedImageQueue.clear();
+                    receivedImageIndex = -1;
+                }
+                managedPlaybackQueue.clear();
+                managedPlaybackQueueIndex = -1;
+                managedQueueActive = true;
+                managedQueueSessionId++;
+                managedQueueItemAdvanced = false;
+                managedQueueCurrentItemStarted = false;
+                managedQueueExpectedPlayerUrl = "";
+            }
+            if (managedPlaybackQueue.size() + items.length() > 100) {
+                Toast.makeText(this, "القائمة أكبر من الحد المسموح (100 عنصر)", Toast.LENGTH_LONG).show();
+                return;
+            }
+            for (int i = 0; i < items.length(); i++) {
+                JSONObject item = items.optJSONObject(i);
+                if (item == null) throw new IllegalArgumentException("Invalid queue item");
+                String url = item.optString("url", "");
+                String audio = item.optString("audio", "");
+                if ((url.isEmpty() && audio.isEmpty()) || (!url.isEmpty() && !isHttpUrl(url))
+                        || (!audio.isEmpty() && !isHttpUrl(audio))) {
+                    throw new IllegalArgumentException("Invalid queue media URL");
+                }
+                managedPlaybackQueue.add(new JSONObject(item.toString()));
+            }
+            if (managedPlaybackQueueIndex < 0) {
+                boolean alreadyWaitingForCurrent = managedQueueActive
+                        && managedQueueCurrentItemStarted && !appendAfterCurrentPlayback;
+                boolean waitForCurrent = alreadyWaitingForCurrent
+                        || (appendAfterCurrentPlayback && isFreshConfirmedPlaybackActive());
+                if (waitForCurrent) {
+                    if (!alreadyWaitingForCurrent) {
+                        managedQueueCurrentItemStarted = true;
+                        managedQueueExpectedPlayerUrl = "";
+                        try {
+                            if (player != null && player.getCurrentMediaItem() != null
+                                    && player.getCurrentMediaItem().localConfiguration != null) {
+                                managedQueueExpectedPlayerUrl = player.getCurrentMediaItem()
+                                        .localConfiguration.uri.toString();
+                            }
+                        } catch (Exception ignored) { }
+                        String currentType = getSharedPreferences("AboEzzatReceiverState", MODE_PRIVATE)
+                                .getString("media_type", "none");
+                        if ("image".equals(currentType) && !imageSlideshowRunning) {
+                            final long session = managedQueueSessionId;
+                            managedQueueHandler.postDelayed(() -> {
+                                if (managedQueueActive && managedQueueSessionId == session) advanceManagedQueue();
+                            }, getImageSlideshowIntervalMs());
+                        }
+                    }
+                    Toast.makeText(this, "تمت إضافة القائمة بعد المحتوى الجاري",
+                            Toast.LENGTH_SHORT).show();
+                } else {
+                    managedPlaybackQueueIndex = 0;
+                    playManagedQueueItem();
+                }
+            } else {
+                Toast.makeText(this, "تمت إضافة " + items.length() + " عنصر إلى قائمة التشغيل",
+                        Toast.LENGTH_SHORT).show();
+            }
+        } catch (Exception invalidQueue) {
+            Log.w(TAG, "Could not start authenticated playback queue", invalidQueue);
+            Toast.makeText(this, "تعذر قراءة قائمة التشغيل المستلمة", Toast.LENGTH_LONG).show();
+        }
+    }
+
+    private void playManagedQueueItem() {
+        if (!managedQueueActive || managedPlaybackQueueIndex < 0
+                || managedPlaybackQueueIndex >= managedPlaybackQueue.size()) {
+            managedQueueActive = false;
+            managedPlaybackQueue.clear();
+            managedPlaybackQueueIndex = -1;
+            managedQueueHandler.removeCallbacksAndMessages(null);
+            Toast.makeText(this, "انتهت قائمة التشغيل", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        managedQueueHandler.removeCallbacksAndMessages(null);
+        managedQueueItemAdvanced = false;
+        managedQueueCurrentItemStarted = false;
+        managedQueueExpectedPlayerUrl = "";
+        JSONObject item = managedPlaybackQueue.get(managedPlaybackQueueIndex);
+        java.util.Map<String, String> headers = new java.util.LinkedHashMap<>();
+        JSONObject headerJson = item.optJSONObject("headers");
+        if (headerJson != null) {
+            java.util.Iterator<String> keys = headerJson.keys();
+            while (keys.hasNext()) {
+                String key = keys.next();
+                String value = headerJson.optString(key, "");
+                if (!value.isEmpty() && value.length() <= ("cookie".equals(key) ? 8192 : 2048)
+                        && !value.contains("\r") && !value.contains("\n")) {
+                    headers.put(key, value);
+                }
+            }
+        }
+        String url = item.optString("url", "");
+        String audio = item.optString("audio", "");
+        String source = item.optString("sourceUrl", "");
+        if (!url.isEmpty() && isImageUrl(url)) {
+            imageSlideshowRunning = false;
+            imageSlideshowHandler.removeCallbacks(imageSlideshowRunnable);
+            receivedImageQueue.clear();
+            receivedImageIndex = -1;
+            queueIncomingMedia(url, audio.isEmpty() ? null : audio, headers, source);
+        } else {
+            queueIncomingMedia(url.isEmpty() ? null : url, audio.isEmpty() ? null : audio, headers, source);
+        }
+        Toast.makeText(this, "تشغيل العنصر " + (managedPlaybackQueueIndex + 1)
+                + " من " + managedPlaybackQueue.size(), Toast.LENGTH_SHORT).show();
+    }
+
+    private void advanceManagedQueue() {
+        if (!managedQueueActive || managedQueueItemAdvanced) return;
+        managedQueueItemAdvanced = true;
+        managedPlaybackQueueIndex++;
+        if (managedPlaybackQueueIndex >= managedPlaybackQueue.size()) {
+            managedQueueActive = false;
+            managedPlaybackQueue.clear();
+            managedPlaybackQueueIndex = -1;
+            managedQueueHandler.removeCallbacksAndMessages(null);
+            Toast.makeText(this, "انتهت قائمة التشغيل", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        playManagedQueueItem();
+    }
+
     private void handleExternalIntent(android.content.Intent intent) {
         if (intent == null) return;
         String action = intent.getAction();
         if (ReceiverServerService.ACTION_SERVER_REQUEST.equals(action)) {
+            String incomingQueueJson = intent.getStringExtra(ReceiverServerService.EXTRA_QUEUE_JSON);
+            if (incomingQueueJson != null && !incomingQueueJson.trim().isEmpty()) {
+                clearPendingServerMedia();
+                startManagedPlaybackQueue(incomingQueueJson);
+                return;
+            }
             String command = intent.getStringExtra(ReceiverServerService.EXTRA_COMMAND);
             String incomingUrl = intent.getStringExtra(ReceiverServerService.EXTRA_URL);
             String incomingAudio = intent.getStringExtra(ReceiverServerService.EXTRA_AUDIO);
@@ -1150,6 +1371,10 @@ public class MainActivity extends Activity {
                 openTvBrowser();
             } else {
                 clearPendingServerMedia();
+                if ((incomingUrl != null && !incomingUrl.trim().isEmpty())
+                        || (incomingAudio != null && !incomingAudio.trim().isEmpty())) {
+                    cancelManagedPlaybackQueue();
+                }
                 queueIncomingMedia(incomingUrl, incomingAudio, incomingHeaders, incomingSourceUrl);
             }
             return;
@@ -1184,6 +1409,7 @@ public class MainActivity extends Activity {
 
         if (url != null && !url.trim().isEmpty()) {
             clearPendingServerMedia();
+            cancelManagedPlaybackQueue();
             queueIncomingMedia(url, null);
             return;
         }
@@ -1191,6 +1417,13 @@ public class MainActivity extends Activity {
         // If the OS prevented a background launch, process the last received link
         // when the user next opens Receiver. Ignore stale pending requests after 10 minutes.
         SharedPreferences pending = getSharedPreferences("AboEzzatReceiverPending", MODE_PRIVATE);
+        String pendingQueue = pending.getString("queue_json", "");
+        long pendingQueueAt = pending.getLong("queue_received_at", 0L);
+        if (!pendingQueue.isEmpty() && System.currentTimeMillis() - pendingQueueAt <= 10 * 60 * 1000L) {
+            clearPendingServerMedia();
+            startManagedPlaybackQueue(pendingQueue);
+            return;
+        }
         String pendingUrl = pending.getString("url", "");
         String pendingAudio = pending.getString("audio", "");
         String pendingSourceUrl = pending.getString("source_url", "");
@@ -1243,6 +1476,8 @@ public class MainActivity extends Activity {
                 .remove("headers")
                 .remove("open_browser")
                 .remove("received_at")
+                .remove("queue_json")
+                .remove("queue_received_at")
                 .apply();
     }
 
@@ -1928,6 +2163,35 @@ public class MainActivity extends Activity {
                 FrameLayout.LayoutParams.MATCH_PARENT,
                 FrameLayout.LayoutParams.MATCH_PARENT
         ));
+
+        // Image transport controls mirror the video control row: previous, play/pause, next, settings.
+        imagePlaybackControls = new LinearLayout(this);
+        imagePlaybackControls.setOrientation(LinearLayout.HORIZONTAL);
+        imagePlaybackControls.setGravity(Gravity.CENTER);
+        imagePlaybackControls.setPadding(dp(10), dp(8), dp(10), dp(8));
+        imagePlaybackControls.setBackground(roundedBackground(
+                Color.argb(242, 8, 15, 29), Color.argb(210, 38, 215, 232), 22));
+        imagePreviousControl = makeImageControl("⏮");
+        imagePlayPauseControl = makeImageControl("▶");
+        imageNextControl = makeImageControl("⏭");
+        imageSettingsControl = makeImageControl("⚙");
+        imagePlayPauseControl.setBackground(roundedBackground(
+                Color.argb(255, 20, 73, 87), Color.rgb(38, 215, 232), 14));
+        LinearLayout.LayoutParams imageControlParams = new LinearLayout.LayoutParams(dp(50), dp(46));
+        imageControlParams.setMargins(dp(3), 0, dp(3), 0);
+        imagePlaybackControls.addView(imagePreviousControl, new LinearLayout.LayoutParams(imageControlParams));
+        imagePlaybackControls.addView(imagePlayPauseControl, new LinearLayout.LayoutParams(imageControlParams));
+        imagePlaybackControls.addView(imageNextControl, new LinearLayout.LayoutParams(imageControlParams));
+        imagePlaybackControls.addView(imageSettingsControl, new LinearLayout.LayoutParams(imageControlParams));
+        FrameLayout.LayoutParams imageControlsParams = new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL);
+        imageControlsParams.bottomMargin = dp(28);
+        root.addView(imagePlaybackControls, imageControlsParams);
+        imagePlaybackControls.setVisibility(View.GONE);
+        imagePreviousControl.setOnClickListener(v -> navigateReceivedImage(-1));
+        imageNextControl.setOnClickListener(v -> navigateReceivedImage(1));
+        imagePlayPauseControl.setOnClickListener(v -> toggleImageSlideshow());
+        imageSettingsControl.setOnClickListener(v -> showImageSettingsDialog());
 
         imageLoading = new ProgressBar(this);
         imageLoading.setVisibility(View.GONE);
@@ -5696,11 +5960,16 @@ public class MainActivity extends Activity {
 
             showImage(mediaUrl);
             if (audioUrl != null && !audioUrl.trim().isEmpty()) {
+                if (managedQueueActive) managedQueueCurrentItemStarted = true;
                 playAudioAlongsideImage(audioUrl);
             }
             return;
         }
 
+        imageSlideshowRunning = false;
+        imageSlideshowHandler.removeCallbacks(imageSlideshowRunnable);
+        receivedImageQueue.clear();
+        receivedImageIndex = -1;
         String playbackUrl = mediaUrl;
 
         // طلب صوت فقط.
@@ -5719,6 +5988,10 @@ public class MainActivity extends Activity {
         smartTubeFallbackAttempted = false;
         externalVlcFallbackLaunched = false;
         currentPlaybackUrl = playbackUrl;
+        if (managedQueueActive) {
+            managedQueueCurrentItemStarted = true;
+            managedQueueExpectedPlayerUrl = "";
+        }
         currentPlaybackHasVideo = mediaUrl != null && !mediaUrl.trim().isEmpty() && !isImageUrl(mediaUrl);
         currentPlaybackAudioUrl = audioUrl == null ? "" : audioUrl;
         if (!currentPlaybackHasVideo && currentPlaybackAudioUrl.isEmpty()) currentPlaybackAudioUrl = playbackUrl;
@@ -5788,6 +6061,15 @@ public class MainActivity extends Activity {
                         @Override
                         public void onIsPlayingChanged(boolean isPlaying) {
                             if (isPlaying) {
+                                if (managedQueueActive && managedQueueCurrentItemStarted) {
+                                    try {
+                                        if (player != null && player.getCurrentMediaItem() != null
+                                                && player.getCurrentMediaItem().localConfiguration != null) {
+                                            managedQueueExpectedPlayerUrl = player.getCurrentMediaItem()
+                                                    .localConfiguration.uri.toString();
+                                        }
+                                    } catch (Exception ignored) { }
+                                }
                                 setPlayerBufferingVisible(false);
                                 extractionStatus = "playing";
                                 if (isTikTokLiveCdnVideoUrl(currentPlaybackUrl)
@@ -5797,6 +6079,8 @@ public class MainActivity extends Activity {
                                 } else {
                                     playbackStatusMessage = "بدأ تشغيل الفيديو على شاشة Receiver.";
                                 }
+                                persistExtractionState();
+                            } else {
                                 persistExtractionState();
                             }
                         }
@@ -5862,6 +6146,15 @@ public class MainActivity extends Activity {
                                         .remove("position_" + endedUrl.hashCode())
                                         .apply();
                             }
+                            // Refresh the confirmed-active status at natural end so a later Cast
+                            // request cannot mistake a finished item for ongoing playback.
+                            persistExtractionState();
+                            if (managedQueueActive && managedQueueCurrentItemStarted
+                                    && !managedQueueExpectedPlayerUrl.isEmpty()
+                                    && endedUrl.equals(managedQueueExpectedPlayerUrl)) {
+                                advanceManagedQueue();
+                                return;
+                            }
                             if (player.getRepeatMode() == Player.REPEAT_MODE_OFF
                                     && getPlaybackRepeatMode() == Player.REPEAT_MODE_ALL
                                     && playbackQueue.size() > 1) {
@@ -5911,6 +6204,15 @@ public class MainActivity extends Activity {
                     }
 
                     player.prepare();
+                    if (managedQueueActive && managedQueueCurrentItemStarted) {
+                        try {
+                            if (player.getCurrentMediaItem() != null
+                                    && player.getCurrentMediaItem().localConfiguration != null) {
+                                managedQueueExpectedPlayerUrl = player.getCurrentMediaItem()
+                                        .localConfiguration.uri.toString();
+                            }
+                        } catch (Exception ignored) { }
+                    }
                     long savedPosition = playbackPrefs == null ? 0L
                             : playbackPrefs.getLong("position_" + playbackUrl.hashCode(), 0L);
                     if (savedPosition > 5000L) {
@@ -6291,8 +6593,31 @@ public class MainActivity extends Activity {
                 }).setNegativeButton("إلغاء", null).show();
     }
 
+    private long getImageSlideshowIntervalMs() {
+        return getPlayerSettingsPrefs().getLong("image_slideshow_interval_ms", 5000L);
+    }
+
+    private void showImageSlideshowDurationDialog() {
+        final int[] seconds = {3, 5, 10, 15, 30};
+        String[] labels = {"3 ثوانٍ", "5 ثوانٍ", "10 ثوانٍ", "15 ثانية", "30 ثانية"};
+        long current = getImageSlideshowIntervalMs() / 1000L;
+        int selected = 1;
+        for (int i = 0; i < seconds.length; i++) if (seconds[i] == current) selected = i;
+        new AlertDialog.Builder(this).setTitle("مدة عرض كل صورة")
+                .setSingleChoiceItems(labels, selected, (dialog, which) -> {
+                    getPlayerSettingsPrefs().edit()
+                            .putLong("image_slideshow_interval_ms", seconds[which] * 1000L).apply();
+                    dialog.dismiss();
+                    if (imageSlideshowRunning) {
+                        imageSlideshowHandler.removeCallbacks(imageSlideshowRunnable);
+                        imageSlideshowHandler.postDelayed(imageSlideshowRunnable, getImageSlideshowIntervalMs());
+                    }
+                    showImageControls();
+                }).setNegativeButton("إغلاق", null).show();
+    }
+
     private void showImageSettingsDialog() {
-        String[] options = {"ملاءمة الصورة للشاشة", "ملء الشاشة مع قص الأطراف", "تكبير الصورة", "إعادة ضبط التكبير والتحريك"};
+        String[] options = {"ملاءمة الصورة للشاشة", "ملء الشاشة مع قص الأطراف", "تكبير الصورة", "إعادة ضبط التكبير والتحريك", "مدة عرض الشرائح"};
         new AlertDialog.Builder(this).setTitle("إعدادات عرض الصورة")
                 .setItems(options, (dialog, which) -> {
                     if (imageView == null || imageView.getVisibility() != View.VISIBLE) return;
@@ -6301,9 +6626,50 @@ public class MainActivity extends Activity {
                         case 1: imageView.setScaleType(ImageView.ScaleType.CENTER_CROP); resetImageTransform(); break;
                         case 2: imageZoomScale = Math.min(4.0f, Math.max(1.5f, imageZoomScale * 1.5f)); applyImageTransform(); break;
                         case 3: imageView.setScaleType(ImageView.ScaleType.FIT_CENTER); resetImageTransform(); break;
+                        case 4: showImageSlideshowDurationDialog(); return;
                     }
                     showImageControls();
                 }).setNegativeButton("إغلاق", null).show();
+    }
+
+    private TextView makeImageControl(String glyph) {
+        TextView control = new TextView(this);
+        control.setText(glyph);
+        control.setTextColor(Color.WHITE);
+        control.setTextSize(20);
+        control.setGravity(Gravity.CENTER);
+        control.setBackground(roundedBackground(
+                Color.argb(255, 25, 43, 64), Color.argb(180, 75, 112, 137), 14));
+        control.setElevation(dp(2));
+        control.setFocusable(true);
+        control.setClickable(true);
+        return control;
+    }
+
+    private void navigateReceivedImage(int delta) {
+        if (receivedImageQueue.isEmpty()) return;
+        int next = receivedImageIndex + delta;
+        if (next < 0 || next >= receivedImageQueue.size()) {
+            if (delta > 0 && imageSlideshowRunning) next = 0;
+            else return;
+        }
+        receivedImageIndex = next;
+        navigatingImageQueue = true;
+        showImage(receivedImageQueue.get(receivedImageIndex));
+        navigatingImageQueue = false;
+        showImageControls();
+    }
+
+    private void toggleImageSlideshow() {
+        if (receivedImageQueue.size() < 2) {
+            Toast.makeText(this, "استقبل أكتر من صورة لاستخدام عرض الشرائح", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        imageSlideshowRunning = !imageSlideshowRunning;
+        imageSlideshowHandler.removeCallbacks(imageSlideshowRunnable);
+        if (imageSlideshowRunning) imageSlideshowHandler.postDelayed(imageSlideshowRunnable, getImageSlideshowIntervalMs());
+        if (imagePlayPauseControl != null) imagePlayPauseControl.setText(imageSlideshowRunning ? "⏸" : "▶");
+        showImageControls();
     }
 
     private void showImageControls() {
@@ -6316,7 +6682,11 @@ public class MainActivity extends Activity {
     private void setImageControlsVisible(boolean visible) {
         imageControlsVisible = visible;
         boolean imageActive = imageView != null && imageView.getVisibility() == View.VISIBLE;
-        if (playerSettingsButton != null) playerSettingsButton.setVisibility(imageActive && visible ? View.VISIBLE : View.GONE);
+        if (playerSettingsButton != null) playerSettingsButton.setVisibility(View.GONE);
+        if (imagePlaybackControls != null) imagePlaybackControls.setVisibility(imageActive && visible ? View.VISIBLE : View.GONE);
+        if (imagePlayPauseControl != null) imagePlayPauseControl.setText(imageSlideshowRunning ? "⏸" : "▶");
+        if (imagePreviousControl != null) imagePreviousControl.setAlpha(receivedImageIndex > 0 ? 1f : 0.45f);
+        if (imageNextControl != null) imageNextControl.setAlpha(receivedImageIndex >= 0 && receivedImageIndex < receivedImageQueue.size() - 1 ? 1f : 0.45f);
         if (playerDownloadButton != null) playerDownloadButton.setVisibility(View.GONE);
     }
 
@@ -7337,6 +7707,11 @@ public class MainActivity extends Activity {
                 player.stop();
                 player.clearMediaItems();
                 player.setMediaItem(MediaItem.fromUri(audioUrl));
+                if (managedQueueActive && managedQueueCurrentItemStarted) {
+                    managedQueueExpectedPlayerUrl = player.getCurrentMediaItem() != null
+                            && player.getCurrentMediaItem().localConfiguration != null
+                            ? player.getCurrentMediaItem().localConfiguration.uri.toString() : "";
+                }
                 player.prepare();
                 long savedPosition = playbackPrefs == null ? 0L
                         : playbackPrefs.getLong("position_" + audioUrl.hashCode(), 0L);
@@ -7380,9 +7755,21 @@ public class MainActivity extends Activity {
     }
 
     private void showImage(String imageUrl) {
+        final long imageRequestGeneration = ++imageLoadGeneration;
         if (isCastMediaPortUrl(imageUrl) && !isPhoneLocalMediaUrl(imageUrl)) {
             Toast.makeText(this, "رابط صورة Cast غير مشفر أو غير موثوق.", Toast.LENGTH_LONG).show();
             return;
+        }
+        if (!managedQueueActive && !navigatingImageQueue && imageUrl != null && !imageUrl.trim().isEmpty()) {
+            if (receivedImageIndex < 0 || receivedImageQueue.isEmpty()
+                    || !imageUrl.equals(receivedImageQueue.get(receivedImageQueue.size() - 1))) {
+                receivedImageQueue.add(imageUrl);
+                receivedImageIndex = receivedImageQueue.size() - 1;
+                while (receivedImageQueue.size() > MAX_RECEIVED_IMAGE_HISTORY) {
+                    receivedImageQueue.remove(0);
+                    receivedImageIndex = Math.max(0, receivedImageIndex - 1);
+                }
+            }
         }
         if (settingsHomeButton != null) settingsHomeButton.setVisibility(View.GONE);
         if (browserHomeButton != null) browserHomeButton.setVisibility(View.GONE);
@@ -7393,7 +7780,7 @@ public class MainActivity extends Activity {
 
         playerView.setVisibility(View.GONE);
         if (playerSubtitleButton != null) playerSubtitleButton.setVisibility(View.GONE);
-        if (playerSettingsButton != null) playerSettingsButton.setVisibility(View.VISIBLE);
+        if (playerSettingsButton != null) playerSettingsButton.setVisibility(View.GONE);
         if (playerDownloadButton != null) playerDownloadButton.setVisibility(View.GONE);
         currentImageUrl = imageUrl;
         setImageControlsVisible(false);
@@ -7471,17 +7858,46 @@ public class MainActivity extends Activity {
 
             final Bitmap result = bitmap;
             runOnUiThread(() -> {
+                if (imageRequestGeneration != imageLoadGeneration || isFinishing() || isDestroyed()) {
+                    if (result != null && !result.isRecycled()) result.recycle();
+                    return;
+                }
                 imageLoading.setVisibility(View.GONE);
                 if (result != null && !isFinishing()) {
                     imageView.setScaleType(ImageView.ScaleType.FIT_CENTER);
                     imageView.setImageBitmap(result);
                     imageView.setVisibility(View.VISIBLE);
+                    showImageControls();
                     if (playerSettingsButton != null) playerSettingsButton.bringToFront();
                     if (playerDownloadButton != null) playerDownloadButton.bringToFront();
                     if (playerSubtitleButton != null) playerSubtitleButton.bringToFront();
                     showImageControls();
+                    persistExtractionState();
+                    if (managedQueueActive && managedPlaybackQueueIndex >= 0
+                            && managedPlaybackQueueIndex < managedPlaybackQueue.size()) {
+                        JSONObject currentQueueItem = managedPlaybackQueue.get(managedPlaybackQueueIndex);
+                        if (currentQueueItem.optString("audio", "").isEmpty()) {
+                            final long queueSession = managedQueueSessionId;
+                            managedQueueHandler.removeCallbacksAndMessages(null);
+                            managedQueueHandler.postDelayed(() -> {
+                                if (managedQueueActive && managedQueueSessionId == queueSession) {
+                                    advanceManagedQueue();
+                                }
+                            }, getImageSlideshowIntervalMs());
+                        }
+                    }
                 } else {
+                    persistExtractionState();
+                    boolean skipFailedQueueImage = managedQueueActive && managedPlaybackQueueIndex >= 0;
+                    final long failedQueueSession = managedQueueSessionId;
                     showWelcome();
+                    if (skipFailedQueueImage) {
+                        managedQueueHandler.postDelayed(() -> {
+                            if (managedQueueActive && managedQueueSessionId == failedQueueSession) {
+                                advanceManagedQueue();
+                            }
+                        }, 1000L);
+                    }
                     Toast.makeText(MainActivity.this,
                             "تعذّر تحميل الصورة من أبو عزت كاست. تأكد أن تطبيق كاست وخادم بث الوسائط يعملان على نفس شبكة Wi-Fi.",
                             Toast.LENGTH_LONG).show();
@@ -7493,10 +7909,18 @@ public class MainActivity extends Activity {
     }
 
     private void hideImage() {
+        imageLoadGeneration++;
+        imageSlideshowRunning = false;
+        imageSlideshowHandler.removeCallbacks(imageSlideshowRunnable);
+        receivedImageQueue.clear();
+        receivedImageIndex = -1;
+        if (imagePlaybackControls != null) imagePlaybackControls.setVisibility(View.GONE);
+        imageControlsHandler.removeCallbacks(hideImageControlsRunnable);
         resetImageTransform();
         imageView.setVisibility(View.GONE);
         imageLoading.setVisibility(View.GONE);
         imageView.setImageDrawable(null);
+        persistExtractionState();
     }
 
     private void showWelcome() {
@@ -7585,6 +8009,17 @@ public class MainActivity extends Activity {
 
     @Override
     protected void onDestroy() {
+        // Stop image-session callbacks before the Activity and its views are destroyed.
+        // Otherwise an active slideshow can keep reposting itself against a dead Activity.
+        imageLoadGeneration++;
+        managedQueueHandler.removeCallbacksAndMessages(null);
+        managedQueueActive = false;
+        managedPlaybackQueue.clear();
+        managedPlaybackQueueIndex = -1;
+        managedQueueSessionId++;
+        imageSlideshowRunning = false;
+        imageSlideshowHandler.removeCallbacks(imageSlideshowRunnable);
+        imageControlsHandler.removeCallbacks(hideImageControlsRunnable);
         backPressHandler.removeCallbacks(resetBrowserBackPress);
         playbackProgressHandler.removeCallbacks(playbackProgressRunnable);
         if (sleepTimerRunnable != null) sleepTimerHandler.removeCallbacks(sleepTimerRunnable);
@@ -7612,7 +8047,15 @@ public class MainActivity extends Activity {
             }
         }
         stopTikTokFfmpegPipeline();
-        
+
+        // The Activity owns the player and releases it above. Clear the shared
+        // playback status synchronously so Cast cannot mistake a destroyed
+        // player/image session for active playback during the freshness window.
+        getSharedPreferences("AboEzzatReceiverState", MODE_PRIVATE).edit()
+                .putBoolean("media_active", false)
+                .putString("media_type", "none")
+                .putLong("media_state_updated_at", System.currentTimeMillis())
+                .commit();
 
         super.onDestroy();
     }

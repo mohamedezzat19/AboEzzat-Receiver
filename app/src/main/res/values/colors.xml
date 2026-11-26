@@ -1,11 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="background">#0B1017</color>
-    <color name="surface">#151E29</color>
-    <color name="surface_light">#202D3B</color>
-    <color name="primary">#00D6B2</color>
-    <color name="primary_dark">#00A88C</color>
-    <color name="text_primary">#FFFFFF</color>
-    <color name="text_secondary">#A8B4C3</color>
-    <color name="error">#FF5252</color>
+    <color name="background">#080F1D</color>
+    <color name="surface">#111D30</color>
+    <color name="surface_light">#1B2B43</color>
+    <color name="primary">#26D7E8</color>
+    <color name="primary_dark">#159EAF</color>
+    <color name="text_primary">#F4F8FF</color>
+    <color name="text_secondary">#A9B9CC</color>
+    <color name="error">#FF647C</color>
 </resources>
