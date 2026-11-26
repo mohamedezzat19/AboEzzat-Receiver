@@ -199,6 +199,13 @@ public class MainActivity extends Activity {
     private boolean navigatingImageQueue = false;
     private boolean imageSlideshowRunning = false;
     private final Handler imageSlideshowHandler = new Handler(Looper.getMainLooper());
+    // General Cast playlist state is deliberately separate from playback history and image history.
+    private final java.util.ArrayList<JSONObject> managedPlaybackQueue = new java.util.ArrayList<>();
+    private final Handler managedQueueHandler = new Handler(Looper.getMainLooper());
+    private int managedPlaybackQueueIndex = -1;
+    private long managedQueueSessionId = 0L;
+    private boolean managedQueueActive = false;
+    private boolean managedQueueItemAdvanced = false;
     private final Runnable imageSlideshowRunnable = new Runnable() {
         @Override public void run() {
             if (imageSlideshowRunning && imageView != null && imageView.getVisibility() == View.VISIBLE) {
@@ -1114,10 +1121,119 @@ public class MainActivity extends Activity {
         target.put(key, value);
     }
 
+    private void startManagedPlaybackQueue(String queueJson) {
+        try {
+            JSONObject payload = new JSONObject(queueJson);
+            org.json.JSONArray items = payload.optJSONArray("items");
+            String mode = payload.optString("mode", "replace");
+            if (items == null || items.length() < 1 || items.length() > 50
+                    || (!"replace".equals(mode) && !"append".equals(mode))) {
+                Toast.makeText(this, "قائمة التشغيل المستلمة غير صالحة", Toast.LENGTH_LONG).show();
+                return;
+            }
+            if ("replace".equals(mode) || !managedQueueActive) {
+                managedQueueHandler.removeCallbacksAndMessages(null);
+                managedPlaybackQueue.clear();
+                managedPlaybackQueueIndex = -1;
+                managedQueueActive = true;
+                managedQueueSessionId++;
+                managedQueueItemAdvanced = false;
+            }
+            if (managedPlaybackQueue.size() + items.length() > 100) {
+                Toast.makeText(this, "القائمة أكبر من الحد المسموح (100 عنصر)", Toast.LENGTH_LONG).show();
+                return;
+            }
+            for (int i = 0; i < items.length(); i++) {
+                JSONObject item = items.optJSONObject(i);
+                if (item == null) throw new IllegalArgumentException("Invalid queue item");
+                String url = item.optString("url", "");
+                String audio = item.optString("audio", "");
+                if ((url.isEmpty() && audio.isEmpty()) || (!url.isEmpty() && !isHttpUrl(url))
+                        || (!audio.isEmpty() && !isHttpUrl(audio))) {
+                    throw new IllegalArgumentException("Invalid queue media URL");
+                }
+                managedPlaybackQueue.add(new JSONObject(item.toString()));
+            }
+            if (managedPlaybackQueueIndex < 0) {
+                managedPlaybackQueueIndex = 0;
+                playManagedQueueItem();
+            } else {
+                Toast.makeText(this, "تمت إضافة " + items.length() + " عنصر إلى قائمة التشغيل",
+                        Toast.LENGTH_SHORT).show();
+            }
+        } catch (Exception invalidQueue) {
+            Log.w(TAG, "Could not start authenticated playback queue", invalidQueue);
+            Toast.makeText(this, "تعذر قراءة قائمة التشغيل المستلمة", Toast.LENGTH_LONG).show();
+        }
+    }
+
+    private void playManagedQueueItem() {
+        if (!managedQueueActive || managedPlaybackQueueIndex < 0
+                || managedPlaybackQueueIndex >= managedPlaybackQueue.size()) {
+            managedQueueActive = false;
+            managedPlaybackQueue.clear();
+            managedPlaybackQueueIndex = -1;
+            managedQueueHandler.removeCallbacksAndMessages(null);
+            Toast.makeText(this, "انتهت قائمة التشغيل", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        managedQueueHandler.removeCallbacksAndMessages(null);
+        managedQueueItemAdvanced = false;
+        long session = managedQueueSessionId;
+        JSONObject item = managedPlaybackQueue.get(managedPlaybackQueueIndex);
+        java.util.Map<String, String> headers = new java.util.LinkedHashMap<>();
+        JSONObject headerJson = item.optJSONObject("headers");
+        if (headerJson != null) {
+            java.util.Iterator<String> keys = headerJson.keys();
+            while (keys.hasNext()) {
+                String key = keys.next();
+                String value = headerJson.optString(key, "");
+                if (!value.isEmpty() && value.length() <= ("cookie".equals(key) ? 8192 : 2048)
+                        && !value.contains("\r") && !value.contains("\n")) {
+                    headers.put(key, value);
+                }
+            }
+        }
+        String url = item.optString("url", "");
+        String audio = item.optString("audio", "");
+        String source = item.optString("sourceUrl", "");
+        if (!url.isEmpty() && isImageUrl(url) && audio.isEmpty()) {
+            queueIncomingMedia(url, null, headers, source);
+            managedQueueHandler.postDelayed(() -> {
+                if (managedQueueActive && managedQueueSessionId == session) advanceManagedQueue();
+            }, getImageSlideshowIntervalMs());
+        } else {
+            queueIncomingMedia(url.isEmpty() ? null : url, audio.isEmpty() ? null : audio, headers, source);
+        }
+        Toast.makeText(this, "تشغيل العنصر " + (managedPlaybackQueueIndex + 1)
+                + " من " + managedPlaybackQueue.size(), Toast.LENGTH_SHORT).show();
+    }
+
+    private void advanceManagedQueue() {
+        if (!managedQueueActive || managedQueueItemAdvanced) return;
+        managedQueueItemAdvanced = true;
+        managedPlaybackQueueIndex++;
+        if (managedPlaybackQueueIndex >= managedPlaybackQueue.size()) {
+            managedQueueActive = false;
+            managedPlaybackQueue.clear();
+            managedPlaybackQueueIndex = -1;
+            managedQueueHandler.removeCallbacksAndMessages(null);
+            Toast.makeText(this, "انتهت قائمة التشغيل", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        playManagedQueueItem();
+    }
+
     private void handleExternalIntent(android.content.Intent intent) {
         if (intent == null) return;
         String action = intent.getAction();
         if (ReceiverServerService.ACTION_SERVER_REQUEST.equals(action)) {
+            String incomingQueueJson = intent.getStringExtra(ReceiverServerService.EXTRA_QUEUE_JSON);
+            if (incomingQueueJson != null && !incomingQueueJson.trim().isEmpty()) {
+                clearPendingServerMedia();
+                startManagedPlaybackQueue(incomingQueueJson);
+                return;
+            }
             String command = intent.getStringExtra(ReceiverServerService.EXTRA_COMMAND);
             String incomingUrl = intent.getStringExtra(ReceiverServerService.EXTRA_URL);
             String incomingAudio = intent.getStringExtra(ReceiverServerService.EXTRA_AUDIO);
@@ -1218,6 +1334,13 @@ public class MainActivity extends Activity {
         // If the OS prevented a background launch, process the last received link
         // when the user next opens Receiver. Ignore stale pending requests after 10 minutes.
         SharedPreferences pending = getSharedPreferences("AboEzzatReceiverPending", MODE_PRIVATE);
+        String pendingQueue = pending.getString("queue_json", "");
+        long pendingQueueAt = pending.getLong("queue_received_at", 0L);
+        if (!pendingQueue.isEmpty() && System.currentTimeMillis() - pendingQueueAt <= 10 * 60 * 1000L) {
+            clearPendingServerMedia();
+            startManagedPlaybackQueue(pendingQueue);
+            return;
+        }
         String pendingUrl = pending.getString("url", "");
         String pendingAudio = pending.getString("audio", "");
         String pendingSourceUrl = pending.getString("source_url", "");
@@ -5751,6 +5874,13 @@ public class MainActivity extends Activity {
                 && isImageUrl(mediaUrl)) {
 
             showImage(mediaUrl);
+            if (managedQueueActive && (audioUrl == null || audioUrl.trim().isEmpty())) {
+                final long queueSession = managedQueueSessionId;
+                managedQueueHandler.removeCallbacksAndMessages(null);
+                managedQueueHandler.postDelayed(() -> {
+                    if (managedQueueActive && managedQueueSessionId == queueSession) advanceManagedQueue();
+                }, getImageSlideshowIntervalMs());
+            }
             if (audioUrl != null && !audioUrl.trim().isEmpty()) {
                 playAudioAlongsideImage(audioUrl);
             }
@@ -5923,6 +6053,10 @@ public class MainActivity extends Activity {
                                 playbackPrefs.edit()
                                         .remove("position_" + endedUrl.hashCode())
                                         .apply();
+                            }
+                            if (managedQueueActive) {
+                                advanceManagedQueue();
+                                return;
                             }
                             if (player.getRepeatMode() == Player.REPEAT_MODE_OFF
                                     && getPlaybackRepeatMode() == Player.REPEAT_MODE_ALL
