@@ -5955,13 +5955,6 @@ public class MainActivity extends Activity {
                 && isImageUrl(mediaUrl)) {
 
             showImage(mediaUrl);
-            if (managedQueueActive && (audioUrl == null || audioUrl.trim().isEmpty())) {
-                final long queueSession = managedQueueSessionId;
-                managedQueueHandler.removeCallbacksAndMessages(null);
-                managedQueueHandler.postDelayed(() -> {
-                    if (managedQueueActive && managedQueueSessionId == queueSession) advanceManagedQueue();
-                }, getImageSlideshowIntervalMs());
-            }
             if (audioUrl != null && !audioUrl.trim().isEmpty()) {
                 if (managedQueueActive) managedQueueCurrentItemStarted = true;
                 playAudioAlongsideImage(audioUrl);
@@ -7876,9 +7869,31 @@ public class MainActivity extends Activity {
                     if (playerSubtitleButton != null) playerSubtitleButton.bringToFront();
                     showImageControls();
                     persistExtractionState();
+                    if (managedQueueActive && managedPlaybackQueueIndex >= 0
+                            && managedPlaybackQueueIndex < managedPlaybackQueue.size()) {
+                        JSONObject currentQueueItem = managedPlaybackQueue.get(managedPlaybackQueueIndex);
+                        if (currentQueueItem.optString("audio", "").isEmpty()) {
+                            final long queueSession = managedQueueSessionId;
+                            managedQueueHandler.removeCallbacksAndMessages(null);
+                            managedQueueHandler.postDelayed(() -> {
+                                if (managedQueueActive && managedQueueSessionId == queueSession) {
+                                    advanceManagedQueue();
+                                }
+                            }, getImageSlideshowIntervalMs());
+                        }
+                    }
                 } else {
                     persistExtractionState();
+                    boolean skipFailedQueueImage = managedQueueActive && managedPlaybackQueueIndex >= 0;
+                    final long failedQueueSession = managedQueueSessionId;
                     showWelcome();
+                    if (skipFailedQueueImage) {
+                        managedQueueHandler.postDelayed(() -> {
+                            if (managedQueueActive && managedQueueSessionId == failedQueueSession) {
+                                advanceManagedQueue();
+                            }
+                        }, 1000L);
+                    }
                     Toast.makeText(MainActivity.this,
                             "تعذّر تحميل الصورة من أبو عزت كاست. تأكد أن تطبيق كاست وخادم بث الوسائط يعملان على نفس شبكة Wi-Fi.",
                             Toast.LENGTH_LONG).show();
