@@ -387,7 +387,7 @@ public final class DlnaMediaRenderer {
                 try { requestedVolume = Integer.parseInt(args.getOrDefault("DesiredVolume", "100")); }
                 catch (Exception invalid) { soapFault(client, 402, "Invalid DesiredVolume"); return; }
                 requestedVolume = Math.max(0, Math.min(100, requestedVolume));
-                listener.onCommand("dlna_volume:" + requestedVolume);
+                listener.onCommand("volume:" + requestedVolume);
                 response = soapResponse(action, RCS, "");
                 break;
             case "GetMute":
@@ -395,7 +395,7 @@ public final class DlnaMediaRenderer {
                 break;
             case "SetMute":
                 boolean requestedMute = "1".equals(args.get("DesiredMute")) || "true".equalsIgnoreCase(args.get("DesiredMute"));
-                listener.onCommand("dlna_volume:" + (requestedMute ? "0" : "100"));
+                listener.onCommand("volume:" + (requestedMute ? "0" : "100"));
                 response = soapResponse(action, RCS, "");
                 break;
             case "GetCurrentConnectionIDs":
