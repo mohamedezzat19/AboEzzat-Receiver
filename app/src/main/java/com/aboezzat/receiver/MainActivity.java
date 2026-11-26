@@ -1203,25 +1203,29 @@ public class MainActivity extends Activity {
                 managedPlaybackQueue.add(new JSONObject(item.toString()));
             }
             if (managedPlaybackQueueIndex < 0) {
-                boolean waitForCurrent = appendAfterCurrentPlayback
-                        && isFreshConfirmedPlaybackActive();
+                boolean alreadyWaitingForCurrent = managedQueueActive
+                        && managedQueueCurrentItemStarted && !appendAfterCurrentPlayback;
+                boolean waitForCurrent = alreadyWaitingForCurrent
+                        || (appendAfterCurrentPlayback && isFreshConfirmedPlaybackActive());
                 if (waitForCurrent) {
-                    managedQueueCurrentItemStarted = true;
-                    managedQueueExpectedPlayerUrl = "";
-                    try {
-                        if (player != null && player.getCurrentMediaItem() != null
-                                && player.getCurrentMediaItem().localConfiguration != null) {
-                            managedQueueExpectedPlayerUrl = player.getCurrentMediaItem()
-                                    .localConfiguration.uri.toString();
+                    if (!alreadyWaitingForCurrent) {
+                        managedQueueCurrentItemStarted = true;
+                        managedQueueExpectedPlayerUrl = "";
+                        try {
+                            if (player != null && player.getCurrentMediaItem() != null
+                                    && player.getCurrentMediaItem().localConfiguration != null) {
+                                managedQueueExpectedPlayerUrl = player.getCurrentMediaItem()
+                                        .localConfiguration.uri.toString();
+                            }
+                        } catch (Exception ignored) { }
+                        String currentType = getSharedPreferences("AboEzzatReceiverState", MODE_PRIVATE)
+                                .getString("media_type", "none");
+                        if ("image".equals(currentType) && !imageSlideshowRunning) {
+                            final long session = managedQueueSessionId;
+                            managedQueueHandler.postDelayed(() -> {
+                                if (managedQueueActive && managedQueueSessionId == session) advanceManagedQueue();
+                            }, getImageSlideshowIntervalMs());
                         }
-                    } catch (Exception ignored) { }
-                    String currentType = getSharedPreferences("AboEzzatReceiverState", MODE_PRIVATE)
-                            .getString("media_type", "none");
-                    if ("image".equals(currentType) && !imageSlideshowRunning) {
-                        final long session = managedQueueSessionId;
-                        managedQueueHandler.postDelayed(() -> {
-                            if (managedQueueActive && managedQueueSessionId == session) advanceManagedQueue();
-                        }, getImageSlideshowIntervalMs());
                     }
                     Toast.makeText(this, "تمت إضافة القائمة بعد المحتوى الجاري",
                             Toast.LENGTH_SHORT).show();
