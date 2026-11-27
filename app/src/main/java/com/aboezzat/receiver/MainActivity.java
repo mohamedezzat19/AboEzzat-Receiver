@@ -8206,6 +8206,17 @@ public class MainActivity extends Activity {
     }
 
     private void showWelcome() {
+        // Leaving playback for Home is an explicit stop: invalidate the managed
+        // queue session and discard any delayed server media so a later item
+        // cannot reopen itself after the user has returned to the home screen.
+        cancelManagedPlaybackQueue();
+        clearPendingServerMedia();
+        if (pendingPlayback != null) mediaHandler.removeCallbacks(pendingPlayback);
+        pendingPlayback = null;
+        pendingVisualUrl = null;
+        pendingAudioUrl = null;
+        pendingPlaybackHeaders = java.util.Collections.emptyMap();
+        pendingPlaybackSourceUrl = null;
         tvBrowserMode = false;
         if (browserOverlay != null) browserOverlay.setVisibility(View.GONE);
         // Returning home must stop playback, not merely hide the player UI.
