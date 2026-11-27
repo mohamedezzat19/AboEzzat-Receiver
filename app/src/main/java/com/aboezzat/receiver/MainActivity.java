@@ -118,6 +118,9 @@ public class MainActivity extends Activity {
     private String lastTikTokCdnHttpStatus = "unknown";
     private String lastTikTokCdnReadError = "none";
     private String lastTikTokCdnFlvProbe = "not captured";
+    // Safe, query-free diagnostics for MP4/HLS/DASH network failures.
+    private volatile String lastMediaHttpResponseDiagnostic = "no media response captured";
+    private volatile long lastMediaHttpBytesReceived = 0L;
 
     private FrameLayout root;
     private LinearLayout welcomeScreen;
@@ -6266,6 +6269,8 @@ public class MainActivity extends Activity {
                                 detail += "\n" + getTikTokRequestHeaderDiagnostic();
                                 detail += "\n" + getTikTokCdnResponseDiagnostic();
                             }
+                            detail += "\nNetwork response: " + lastMediaHttpResponseDiagnostic
+                                    + ", bytes transferred=" + lastMediaHttpBytesReceived;
                             extractionStatus = "error";
                             playbackStatusMessage = "فشل تشغيل الفيديو: " + detail;
                             recordReceiverFailure("تشغيل الوسائط",
@@ -7591,10 +7596,18 @@ public class MainActivity extends Activity {
                     public void onTransferStart(androidx.media3.datasource.DataSource source,
                                                 androidx.media3.datasource.DataSpec dataSpec,
                                                 boolean isNetwork) {
-                        if (!isTikTokCdnVideoUrl(dataSpec.uri.toString())) return;
+                        String requestUrl = dataSpec.uri == null ? "" : dataSpec.uri.toString();
                         String responseUrl = source.getUri() == null ? "" : source.getUri().toString();
-                        StringBuilder response = new StringBuilder("TikTok CDN response: url=")
-                                .append(redactSensitiveUrl(responseUrl));
+                        String host = "";
+                        String path = "";
+                        try {
+                            Uri parsed = Uri.parse(responseUrl.isEmpty() ? requestUrl : responseUrl);
+                            host = parsed.getHost() == null ? "" : parsed.getHost();
+                            path = parsed.getPath() == null ? "" : parsed.getPath();
+                        } catch (Exception ignored) { }
+                        StringBuilder response = new StringBuilder("Media HTTP response: host=")
+                                .append(host).append(", path=")
+                                .append(path.length() > 80 ? path.substring(0, 80) : path);
                         String status = "unknown";
                         try {
                             java.lang.reflect.Method method = source.getClass().getMethod("getResponseCode");
@@ -7619,28 +7632,35 @@ public class MainActivity extends Activity {
                                 }
                             }
                         }
-                        synchronized (tikTokCdnDiagnosticLock) {
-                            lastTikTokCdnResponseDiagnostic = response.toString();
-                            lastTikTokCdnHttpStatus = status;
-                            lastTikTokCdnBytesReceived = 0L;
-                            lastTikTokCdnInitialBytes = "not captured";
-                            lastTikTokCdnTransferEnded = false;
-                            lastTikTokCdnReachedEof = false;
-                            lastTikTokCdnTransferStartMs = System.currentTimeMillis();
-                            lastTikTokCdnTransferDurationMs = -1L;
-                            lastTikTokCdnReadError = "none";
-                            lastTikTokCdnFlvProbe = "capturing";
+                        lastMediaHttpResponseDiagnostic = response.toString() + ", status=" + status;
+                        lastMediaHttpBytesReceived = 0L;
+                        if (isTikTokCdnVideoUrl(requestUrl)) {
+                            synchronized (tikTokCdnDiagnosticLock) {
+                                lastTikTokCdnResponseDiagnostic = response.toString();
+                                lastTikTokCdnHttpStatus = status;
+                                lastTikTokCdnBytesReceived = 0L;
+                                lastTikTokCdnInitialBytes = "not captured";
+                                lastTikTokCdnTransferEnded = false;
+                                lastTikTokCdnReachedEof = false;
+                                lastTikTokCdnTransferStartMs = System.currentTimeMillis();
+                                lastTikTokCdnTransferDurationMs = -1L;
+                                lastTikTokCdnReadError = "none";
+                                lastTikTokCdnFlvProbe = "capturing";
+                            }
                         }
-                        Log.i(TAG, response.toString() + " / http_status=" + status);
+                        Log.i(TAG, lastMediaHttpResponseDiagnostic);
                     }
 
                     @Override
                     public void onBytesTransferred(androidx.media3.datasource.DataSource source,
                                                    androidx.media3.datasource.DataSpec dataSpec,
                                                    boolean isNetwork, int bytesTransferred) {
-                        if (isTikTokCdnVideoUrl(dataSpec.uri.toString()) && bytesTransferred > 0) {
-                            synchronized (tikTokCdnDiagnosticLock) {
-                                lastTikTokCdnBytesReceived += bytesTransferred;
+                        if (bytesTransferred > 0) {
+                            lastMediaHttpBytesReceived += bytesTransferred;
+                            if (isTikTokCdnVideoUrl(dataSpec.uri.toString())) {
+                                synchronized (tikTokCdnDiagnosticLock) {
+                                    lastTikTokCdnBytesReceived += bytesTransferred;
+                                }
                             }
                         }
                     }
@@ -7649,6 +7669,8 @@ public class MainActivity extends Activity {
                     public void onTransferEnd(androidx.media3.datasource.DataSource source,
                                               androidx.media3.datasource.DataSpec dataSpec,
                                               boolean isNetwork) {
+                        lastMediaHttpResponseDiagnostic += ", transfer=ended, bytes="
+                                + lastMediaHttpBytesReceived;
                         if (isTikTokCdnVideoUrl(dataSpec.uri.toString())) {
                             synchronized (tikTokCdnDiagnosticLock) {
                                 lastTikTokCdnTransferEnded = true;
