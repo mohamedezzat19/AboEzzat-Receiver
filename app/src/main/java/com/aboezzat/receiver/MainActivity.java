@@ -238,6 +238,8 @@ public class MainActivity extends Activity {
     private final Handler backPressHandler = new Handler(Looper.getMainLooper());
     private boolean backPressedOnceInBrowser = false;
     private final Runnable resetBrowserBackPress = () -> backPressedOnceInBrowser = false;
+    private boolean backPressedOnceAtHome = false;
+    private final Runnable resetHomeBackPress = () -> backPressedOnceAtHome = false;
     private View webFullscreenView;
     private WebChromeClient.CustomViewCallback webFullscreenCallback;
     private float imageZoomScale = 1.0f;
@@ -8268,6 +8270,30 @@ public class MainActivity extends Activity {
             return;
         }
 
+        boolean homeVisible = welcomeBackground != null
+                && welcomeBackground.getVisibility() == View.VISIBLE
+                && connectionCard != null && connectionCard.getVisibility() == View.VISIBLE
+                && settingsHomeButton != null && settingsHomeButton.getVisibility() == View.VISIBLE
+                && (browserOverlay == null || browserOverlay.getVisibility() != View.VISIBLE)
+                && (playerView == null || playerView.getVisibility() != View.VISIBLE);
+        if (homeVisible) {
+            if (backPressedOnceAtHome) {
+                backPressHandler.removeCallbacks(resetHomeBackPress);
+                backPressedOnceAtHome = false;
+                // Finish only the UI Activity. ReceiverServerService is independent
+                // and must remain alive to accept Cast requests in the background.
+                finish();
+                return;
+            }
+            backPressedOnceAtHome = true;
+            backPressHandler.removeCallbacks(resetHomeBackPress);
+            backPressHandler.postDelayed(resetHomeBackPress, 1800L);
+            Toast.makeText(this, "اضغط رجوع مرة ثانية للخروج", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        backPressHandler.removeCallbacks(resetHomeBackPress);
+        backPressedOnceAtHome = false;
+
         boolean browserVisible = tvBrowserMode && browserOverlay != null
                 && browserOverlay.getVisibility() == View.VISIBLE
                 && fallbackWebView != null && fallbackWebView.getVisibility() == View.VISIBLE;
@@ -8314,6 +8340,7 @@ public class MainActivity extends Activity {
         imageSlideshowHandler.removeCallbacks(imageSlideshowRunnable);
         imageControlsHandler.removeCallbacks(hideImageControlsRunnable);
         backPressHandler.removeCallbacks(resetBrowserBackPress);
+        backPressHandler.removeCallbacks(resetHomeBackPress);
         playbackProgressHandler.removeCallbacks(playbackProgressRunnable);
         if (sleepTimerRunnable != null) sleepTimerHandler.removeCallbacks(sleepTimerRunnable);
         if (pendingStartupPlayback != null) startupBufferHandler.removeCallbacks(pendingStartupPlayback);
