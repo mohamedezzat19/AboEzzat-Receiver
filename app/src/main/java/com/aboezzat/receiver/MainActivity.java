@@ -4516,6 +4516,101 @@ public class MainActivity extends Activity {
                 }).show();
     }
 
+    // In-app download center backed by Android DownloadManager.
+    private void showBrowserDownloads() {
+        android.app.DownloadManager manager =
+                (android.app.DownloadManager) getSystemService(DOWNLOAD_SERVICE);
+        if (manager == null) {
+            Toast.makeText(this, "مدير التنزيلات غير متاح على هذا الجهاز", Toast.LENGTH_LONG).show();
+            return;
+        }
+        java.util.ArrayList<Long> ids = new java.util.ArrayList<>();
+        java.util.ArrayList<Integer> statuses = new java.util.ArrayList<>();
+        java.util.ArrayList<String> labels = new java.util.ArrayList<>();
+        android.database.Cursor cursor = null;
+        try {
+            cursor = manager.query(new android.app.DownloadManager.Query());
+            if (cursor != null) {
+                int idCol = cursor.getColumnIndex(android.app.DownloadManager.COLUMN_ID);
+                int titleCol = cursor.getColumnIndex(android.app.DownloadManager.COLUMN_TITLE);
+                int statusCol = cursor.getColumnIndex(android.app.DownloadManager.COLUMN_STATUS);
+                int bytesCol = cursor.getColumnIndex(android.app.DownloadManager.COLUMN_BYTES_DOWNLOADED_SO_FAR);
+                int totalCol = cursor.getColumnIndex(android.app.DownloadManager.COLUMN_TOTAL_SIZE_BYTES);
+                int reasonCol = cursor.getColumnIndex(android.app.DownloadManager.COLUMN_REASON);
+                while (cursor.moveToNext()) {
+                    if (idCol < 0 || statusCol < 0) continue;
+                    long id = cursor.getLong(idCol);
+                    int status = cursor.getInt(statusCol);
+                    String title = titleCol < 0 ? "ملف تم تنزيله" : cursor.getString(titleCol);
+                    if (title == null || title.trim().isEmpty()) title = "ملف تم تنزيله";
+                    long downloaded = bytesCol < 0 ? 0L : cursor.getLong(bytesCol);
+                    long total = totalCol < 0 ? -1L : cursor.getLong(totalCol);
+                    String state;
+                    if (status == android.app.DownloadManager.STATUS_SUCCESSFUL) {
+                        state = "مكتمل";
+                    } else if (status == android.app.DownloadManager.STATUS_RUNNING
+                            || status == android.app.DownloadManager.STATUS_PENDING
+                            || status == android.app.DownloadManager.STATUS_PAUSED) {
+                        if (total > 0L) {
+                            int percent = (int) Math.min(100L, (downloaded * 100L) / total);
+                            state = "جارٍ التنزيل " + percent + "%";
+                        } else {
+                            state = status == android.app.DownloadManager.STATUS_PAUSED
+                                    ? "متوقف مؤقتًا" : "جارٍ التنزيل";
+                        }
+                    } else {
+                        int reason = reasonCol < 0 ? 0 : cursor.getInt(reasonCol);
+                        state = "فشل التنزيل" + (reason == 0 ? "" : " (" + reason + ")");
+                    }
+                    ids.add(id);
+                    statuses.add(status);
+                    labels.add(title + "\n" + state);
+                }
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "Could not query browser downloads", e);
+        } finally {
+            if (cursor != null) cursor.close();
+        }
+        if (labels.isEmpty()) {
+            new AlertDialog.Builder(this).setTitle("تنزيلات متصفح أبو عزت")
+                    .setMessage("لا توجد تنزيلات حتى الآن")
+                    .setPositiveButton("إغلاق", null).show();
+            return;
+        }
+        new AlertDialog.Builder(this).setTitle("تنزيلات متصفح أبو عزت")
+                .setItems(labels.toArray(new String[0]), (dialog, which) -> {
+                    long id = ids.get(which);
+                    if (statuses.get(which) != android.app.DownloadManager.STATUS_SUCCESSFUL) {
+                        Toast.makeText(this, "التنزيل لم يكتمل بعد", Toast.LENGTH_SHORT).show();
+                        return;
+                    }
+                    Uri uri = manager.getUriForDownloadedFile(id);
+                    if (uri == null) {
+                        Toast.makeText(this, "تعذّر الوصول إلى الملف الذي تم تنزيله", Toast.LENGTH_LONG).show();
+                        return;
+                    }
+                    String mime = manager.getMimeTypeForDownloadedFile(id);
+                    if (mime == null || mime.trim().isEmpty()) mime = "*/*";
+                    android.content.Intent open = new android.content.Intent(android.content.Intent.ACTION_VIEW);
+                    open.setDataAndType(uri, mime);
+                    open.addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                    try {
+                        startActivity(open);
+                    } catch (Exception e) {
+                        Toast.makeText(this, "لا يوجد تطبيق لفتح هذا النوع من الملفات", Toast.LENGTH_LONG).show();
+                    }
+                })
+                .setNeutralButton("مدير التنزيلات", (dialog, which) -> {
+                    try {
+                        startActivity(new android.content.Intent("android.intent.action.VIEW_DOWNLOADS"));
+                    } catch (Exception e) {
+                        Toast.makeText(this, "افتح تطبيق الملفات ومجلد Downloads", Toast.LENGTH_LONG).show();
+                    }
+                })
+                .setNegativeButton("إغلاق", null).show();
+    }
+
     private void showBrowserMenu() {
         // Tab management has one entry point in the toolbar; keep it out of this menu.
         String[] options = {"⚙ إعدادات المتصفح", "⭐ حفظ الصفحة الحالية",
@@ -4525,10 +4620,7 @@ public class MainActivity extends Activity {
                 case 0: showBrowserSettings(); break;
                 case 1: saveCurrentBrowserPage(); break;
                 case 2: showBrowserHistory(); break;
-                case 3:
-                    try { startActivity(new android.content.Intent("android.intent.action.VIEW_DOWNLOADS")); }
-                    catch (Exception e) { Toast.makeText(this, "افتح تطبيق الملفات ومجلد Downloads", Toast.LENGTH_LONG).show(); }
-                    break;
+                case 3: showBrowserDownloads(); break;
                 case 4:
                     new AlertDialog.Builder(this).setTitle("مسح بيانات التصفح")
                             .setMessage("سيتم مسح السجل وذاكرة التخزين المؤقت وملفات تعريف الارتباط. قد تحتاج إلى تسجيل الدخول مرة أخرى.")
