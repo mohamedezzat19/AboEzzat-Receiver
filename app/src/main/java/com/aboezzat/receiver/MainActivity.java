@@ -4341,7 +4341,37 @@ public class MainActivity extends Activity {
     private final java.util.ArrayList<String> browserTabUrls = new java.util.ArrayList<>();
     private int browserTabIndex = 0;
 
+    private void restoreBrowserTabs() {
+        if (!browserTabUrls.isEmpty()) return;
+        SharedPreferences prefs = getSharedPreferences("AboEzzatBrowser", MODE_PRIVATE);
+        try {
+            org.json.JSONArray saved = new org.json.JSONArray(prefs.getString("browser_tabs", "[]"));
+            for (int i = 0; i < saved.length() && browserTabUrls.size() < 20; i++) {
+                String url = saved.optString(i, "");
+                if (isHttpUrl(url) && !browserTabUrls.contains(url)) browserTabUrls.add(url);
+            }
+            browserTabIndex = Math.max(0, Math.min(prefs.getInt("browser_tab_index", 0), browserTabUrls.size() - 1));
+        } catch (Exception e) {
+            Log.w(TAG, "Could not restore browser tabs", e);
+        }
+        if (browserTabUrls.isEmpty()) {
+            String current = fallbackWebView == null ? "" : fallbackWebView.getUrl();
+            if (!isHttpUrl(current)) current = prefs.getString("homepage", "https://www.google.com");
+            browserTabUrls.add(current);
+            browserTabIndex = 0;
+        }
+    }
+
+    private void persistBrowserTabs() {
+        org.json.JSONArray saved = new org.json.JSONArray();
+        for (String url : browserTabUrls) if (isHttpUrl(url)) saved.put(url);
+        getSharedPreferences("AboEzzatBrowser", MODE_PRIVATE).edit()
+                .putString("browser_tabs", saved.toString())
+                .putInt("browser_tab_index", Math.max(0, browserTabIndex)).apply();
+    }
+
     private void showBrowserTabs() {
+        restoreBrowserTabs();
         if (browserTabUrls.isEmpty()) {
             String current = fallbackWebView == null ? "" : fallbackWebView.getUrl();
             browserTabUrls.add(isHttpUrl(current) ? current : "https://www.google.com");
@@ -4358,8 +4388,13 @@ public class MainActivity extends Activity {
                     if (which == browserTabUrls.size()) {
                         String home = getSharedPreferences("AboEzzatBrowser", MODE_PRIVATE)
                                 .getString("homepage", "https://www.google.com");
+                        if (browserTabUrls.size() >= 20) {
+                            Toast.makeText(this, "وصلت للحد الأقصى: 20 تبويب", Toast.LENGTH_SHORT).show();
+                            return;
+                        }
                         browserTabUrls.add(home);
                         browserTabIndex = browserTabUrls.size() - 1;
+                        persistBrowserTabs();
                         if (fallbackWebView != null) fallbackWebView.loadUrl(home);
                         if (browserAddress != null) browserAddress.setText(home);
                         Toast.makeText(this, "تم فتح تبويب جديد", Toast.LENGTH_SHORT).show();
@@ -4367,6 +4402,7 @@ public class MainActivity extends Activity {
                         if (browserTabUrls.size() > 1) {
                             browserTabUrls.remove(browserTabIndex);
                             browserTabIndex = Math.min(browserTabIndex, browserTabUrls.size() - 1);
+                            persistBrowserTabs();
                             openBrowserTab(browserTabIndex);
                         } else {
                             Toast.makeText(this, "هذا آخر تبويب مفتوح", Toast.LENGTH_SHORT).show();
@@ -4380,6 +4416,7 @@ public class MainActivity extends Activity {
     private void openBrowserTab(int index) {
         if (index < 0 || index >= browserTabUrls.size()) return;
         browserTabIndex = index;
+        persistBrowserTabs();
         String url = browserTabUrls.get(index);
         if (browserAddress != null) browserAddress.setText(url);
         if (fallbackWebView != null && isHttpUrl(url)) fallbackWebView.loadUrl(url);
@@ -4655,6 +4692,7 @@ public class MainActivity extends Activity {
         } else if (browserTabIndex >= 0 && browserTabIndex < browserTabUrls.size()) {
             browserTabUrls.set(browserTabIndex, target);
         }
+        persistBrowserTabs();
         browserAddress.setText(target);
         fallbackWebView.loadUrl(target);
         browserAddress.clearFocus();
@@ -4822,6 +4860,13 @@ public class MainActivity extends Activity {
                 public void onPageFinished(WebView view, String url) {
                     super.onPageFinished(view, url);
                     if (tvBrowserMode && browserAddress != null && url != null) {
+                        if (browserTabUrls.isEmpty()) {
+                            browserTabUrls.add(url);
+                            browserTabIndex = 0;
+                        } else if (browserTabIndex >= 0 && browserTabIndex < browserTabUrls.size()) {
+                            browserTabUrls.set(browserTabIndex, url);
+                        }
+                        persistBrowserTabs();
                         rememberBrowserVisit(url);
                         browserAddress.setText(url);
                         browserAddress.setSelection(browserAddress.getText().length());
