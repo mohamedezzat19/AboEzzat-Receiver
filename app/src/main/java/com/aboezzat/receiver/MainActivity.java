@@ -580,8 +580,8 @@ public class MainActivity extends Activity {
             com.google.zxing.common.BitMatrix matrix = new com.google.zxing.MultiFormatWriter()
                     .encode(report, com.google.zxing.BarcodeFormat.QR_CODE, 720, 720, hints);
             Bitmap bitmap = Bitmap.createBitmap(720, 720, Bitmap.Config.ARGB_8888);
-            for (int y = 0; y < 900; y++) {
-                for (int x = 0; x < 900; x++) {
+            for (int y = 0; y < 720; y++) {
+                for (int x = 0; x < 720; x++) {
                     bitmap.setPixel(x, y, matrix.get(x, y) ? Color.BLACK : Color.WHITE);
                 }
             }
