@@ -7799,6 +7799,30 @@ public class MainActivity extends Activity {
                 private final StringBuilder capturedHex = new StringBuilder();
                 private int capturedByteCount;
 
+                private void recordMediaRequestFailure(androidx.media3.datasource.DataSpec dataSpec,
+                                                       java.io.IOException error) {
+                    String host = "";
+                    String path = "";
+                    try {
+                        Uri parsed = dataSpec == null || dataSpec.uri == null ? Uri.EMPTY : dataSpec.uri;
+                        host = parsed.getHost() == null ? "" : parsed.getHost();
+                        path = parsed.getPath() == null ? "" : parsed.getPath();
+                    } catch (Exception ignored) { }
+                    String status = "unavailable";
+                    try {
+                        if (error instanceof androidx.media3.datasource.HttpDataSource.InvalidResponseCodeException) {
+                            status = String.valueOf(
+                                    ((androidx.media3.datasource.HttpDataSource.InvalidResponseCodeException) error).responseCode);
+                        }
+                    } catch (Exception ignored) { }
+                    String safePath = path.length() > 100 ? path.substring(0, 100) : path;
+                    lastMediaHttpResponseDiagnostic = "Failed media request: host=" + host
+                            + ", path=" + safePath + ", status=" + status
+                            + ", error=" + error.getClass().getSimpleName();
+                    lastMediaHttpBytesReceived = 0L;
+                    Log.w(TAG, lastMediaHttpResponseDiagnostic);
+                }
+
                 private void publishProbe() {
                     if (!captureTikTok) return;
                     byte[] bytes = captured.toByteArray();
@@ -7838,6 +7862,7 @@ public class MainActivity extends Activity {
                     try {
                         return upstream.open(dataSpec);
                     } catch (java.io.IOException error) {
+                        recordMediaRequestFailure(dataSpec, error);
                         recordReadError(error);
                         throw error;
                     }
