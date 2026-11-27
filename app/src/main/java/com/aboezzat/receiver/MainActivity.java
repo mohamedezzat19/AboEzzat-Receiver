@@ -530,8 +530,9 @@ public class MainActivity extends Activity {
         String fullReport = buildFailedMediaReport(entry, true);
         new AlertDialog.Builder(this).setTitle("تفاصيل محاولة الفشل")
                 .setMessage(safeReport + "\n\nالرابط الكامل محفوظ محليًا. التقرير العادي يخفي القيم الحساسة مثل token.")
-                .setPositiveButton("مشاركة تقرير آمن", (dialog, which) -> shareFailedMediaReport(safeReport))
-                .setNeutralButton("خيارات الرابط", (dialog, which) ->
+                .setPositiveButton("عرض التقرير كرمز QR", (dialog, which) -> showDiagnosticReportQr(safeReport))
+                .setNeutralButton("مشاركة تقرير آمن", (dialog, which) -> shareFailedMediaReport(safeReport))
+                .setNegativeButton("خيارات الرابط", (dialog, which) ->
                         new AlertDialog.Builder(this).setTitle("الرابط الكامل")
                                 .setMessage("الرابط قد يحتوي على token أو بيانات وصول مؤقتة. لا تشاركه إلا مع جهة تثق بها.")
                                 .setPositiveButton("مشاركة بالرابط الكامل", (d, w) -> shareFailedMediaReport(fullReport))
@@ -546,6 +547,57 @@ public class MainActivity extends Activity {
                                 })
                                 .setNegativeButton("إلغاء", null).show())
                 .setNegativeButton("إغلاق", null).show();
+    }
+
+
+    private void showDiagnosticReportQr(String report) {
+        try {
+            java.util.Map<com.google.zxing.EncodeHintType, Object> hints = new java.util.EnumMap<>(com.google.zxing.EncodeHintType.class);
+            hints.put(com.google.zxing.EncodeHintType.CHARACTER_SET, "UTF-8");
+            hints.put(com.google.zxing.EncodeHintType.ERROR_CORRECTION, com.google.zxing.qrcode.decoder.ErrorCorrectionLevel.L);
+            hints.put(com.google.zxing.EncodeHintType.MARGIN, 2);
+            com.google.zxing.common.BitMatrix matrix = new com.google.zxing.MultiFormatWriter()
+                    .encode(report, com.google.zxing.BarcodeFormat.QR_CODE, 900, 900, hints);
+            Bitmap bitmap = Bitmap.createBitmap(900, 900, Bitmap.Config.ARGB_8888);
+            for (int y = 0; y < 900; y++) {
+                for (int x = 0; x < 900; x++) {
+                    bitmap.setPixel(x, y, matrix.get(x, y) ? Color.BLACK : Color.WHITE);
+                }
+            }
+            LinearLayout content = new LinearLayout(this);
+            content.setOrientation(LinearLayout.VERTICAL);
+            content.setGravity(Gravity.CENTER);
+            content.setPadding(20, 16, 20, 12);
+            ImageView qrImage = new ImageView(this);
+            qrImage.setImageBitmap(bitmap);
+            qrImage.setAdjustViewBounds(true);
+            qrImage.setScaleType(ImageView.ScaleType.FIT_CENTER);
+            content.addView(qrImage, new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
+            TextView hint = new TextView(this);
+            hint.setText("افتح كاميرا الموبايل ووجّهها إلى الرمز، ثم انسخ نص التقرير وأرسله في المحادثة");
+            hint.setTextColor(Color.WHITE);
+            hint.setGravity(Gravity.CENTER);
+            hint.setPadding(8, 12, 8, 4);
+            content.addView(hint, new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+            AlertDialog dialog = new AlertDialog.Builder(this)
+                    .setTitle("تقرير التشخيص — امسح الرمز بالموبايل")
+                    .setView(content)
+                    .setPositiveButton("إغلاق", null)
+                    .create();
+            dialog.setOnDismissListener(ignored -> bitmap.recycle());
+            dialog.show();
+            dialog.getWindow().setLayout(
+                    Math.min(getResources().getDisplayMetrics().widthPixels - 32,
+                            (int) (getResources().getDisplayMetrics().heightPixels * 0.82f)),
+                    (int) (getResources().getDisplayMetrics().heightPixels * 0.88f));
+        } catch (com.google.zxing.WriterException e) {
+            Toast.makeText(this, "التقرير طويل جدًا لعرضه كرمز QR", Toast.LENGTH_LONG).show();
+        } catch (Exception e) {
+            Log.e(TAG, "Could not render diagnostic QR", e);
+            Toast.makeText(this, "تعذّر إنشاء رمز التقرير", Toast.LENGTH_LONG).show();
+        }
     }
 
     private void persistExtractionState() {
