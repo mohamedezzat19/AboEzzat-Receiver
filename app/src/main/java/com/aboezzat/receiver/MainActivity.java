@@ -1613,7 +1613,14 @@ public class MainActivity extends Activity {
         if (url != null && !url.trim().isEmpty()) {
             clearPendingServerMedia();
             cancelManagedPlaybackQueue();
-            queueIncomingMedia(url, null);
+            if (android.content.Intent.ACTION_VIEW.equals(action)) {
+                // A system VIEW request is browser navigation, not a media-share
+                // command. Keep ACTION_SEND links on the existing receiver playback path.
+                pendingBrowserUrl = url;
+                openTvBrowser();
+            } else {
+                queueIncomingMedia(url, null);
+            }
             return;
         }
 
