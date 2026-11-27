@@ -530,7 +530,7 @@ public class MainActivity extends Activity {
         String fullReport = buildFailedMediaReport(entry, true);
         new AlertDialog.Builder(this).setTitle("تفاصيل محاولة الفشل")
                 .setMessage(safeReport + "\n\nالرابط الكامل محفوظ محليًا. التقرير العادي يخفي القيم الحساسة مثل token.")
-                .setPositiveButton("عرض التقرير كرمز QR", (dialog, which) -> showDiagnosticReportQr(safeReport))
+                .setPositiveButton("عرض التقرير كرمز QR", (dialog, which) -> showDiagnosticReportQr(buildCompactQrDiagnostic(entry)))
                 .setNeutralButton("مشاركة تقرير آمن", (dialog, which) -> shareFailedMediaReport(safeReport))
                 .setNegativeButton("خيارات الرابط", (dialog, which) ->
                         new AlertDialog.Builder(this).setTitle("الرابط الكامل")
@@ -550,15 +550,36 @@ public class MainActivity extends Activity {
     }
 
 
+    private String buildCompactQrDiagnostic(org.json.JSONObject entry) {
+        StringBuilder out = new StringBuilder();
+        out.append("AboEzzat Receiver Diagnostic\\n")
+                .append("Time: ").append(entry.optLong("time")).append("\\n")
+                .append("Phase: ").append(entry.optString("phase", "unknown")).append("\\n")
+                .append("Reason: ").append(entry.optString("reason", "not available")).append("\\n")
+                .append("Version: ").append(entry.optString("version", "unknown")).append("\\n");
+        String requested = redactSensitiveUrl(entry.optString("requested_url", ""));
+        if (requested.length() > 140) requested = requested.substring(0, 140) + "...";
+        if (!requested.isEmpty()) out.append("URL: ").append(requested).append("\\n");
+        String technical = entry.optString("technical_diagnostic", "");
+        if (technical.length() > 420) technical = technical.substring(0, 420) + "...";
+        if (!technical.isEmpty()) out.append("HTTP/Player: ").append(technical).append("\\n");
+        String intent = entry.optString("incoming_intent", "");
+        if (intent.length() > 100) intent = intent.substring(0, 100) + "...";
+        if (!intent.isEmpty()) out.append("Input: ").append(intent).append("\\n");
+        out.append("Device: ").append(android.os.Build.MANUFACTURER).append(" ")
+                .append(android.os.Build.MODEL).append(" / Android ")
+                .append(android.os.Build.VERSION.RELEASE);
+        return out.toString();
+    }
     private void showDiagnosticReportQr(String report) {
         try {
             java.util.Map<com.google.zxing.EncodeHintType, Object> hints = new java.util.EnumMap<>(com.google.zxing.EncodeHintType.class);
             hints.put(com.google.zxing.EncodeHintType.CHARACTER_SET, "UTF-8");
-            hints.put(com.google.zxing.EncodeHintType.ERROR_CORRECTION, com.google.zxing.qrcode.decoder.ErrorCorrectionLevel.L);
-            hints.put(com.google.zxing.EncodeHintType.MARGIN, 2);
+            hints.put(com.google.zxing.EncodeHintType.ERROR_CORRECTION, com.google.zxing.qrcode.decoder.ErrorCorrectionLevel.M);
+            hints.put(com.google.zxing.EncodeHintType.MARGIN, 4);
             com.google.zxing.common.BitMatrix matrix = new com.google.zxing.MultiFormatWriter()
-                    .encode(report, com.google.zxing.BarcodeFormat.QR_CODE, 900, 900, hints);
-            Bitmap bitmap = Bitmap.createBitmap(900, 900, Bitmap.Config.ARGB_8888);
+                    .encode(report, com.google.zxing.BarcodeFormat.QR_CODE, 720, 720, hints);
+            Bitmap bitmap = Bitmap.createBitmap(720, 720, Bitmap.Config.ARGB_8888);
             for (int y = 0; y < 900; y++) {
                 for (int x = 0; x < 900; x++) {
                     bitmap.setPixel(x, y, matrix.get(x, y) ? Color.BLACK : Color.WHITE);
