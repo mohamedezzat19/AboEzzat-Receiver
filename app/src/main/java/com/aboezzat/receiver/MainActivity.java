@@ -3895,9 +3895,26 @@ public class MainActivity extends Activity {
     // HTML5 video fullscreen requests. Existing ExoPlayer remains the first choice.
     private void openTvBrowser() {
         tvBrowserMode = true;
-        String initialUrl = isHttpUrl(pendingBrowserUrl) ? pendingBrowserUrl : "";
+        String requestedUrl = isHttpUrl(pendingBrowserUrl) ? pendingBrowserUrl : "";
+        pendingBrowserUrl = "";
+
+        // Restore the last browser session whenever the browser is opened.
+        // An incoming shared URL replaces the selected tab, rather than silently
+        // discarding the user's saved tabs or opening an unrelated temporary page.
+        restoreBrowserTabs();
+        if (browserTabUrls.isEmpty()) {
+            browserTabUrls.add(getSharedPreferences("AboEzzatBrowser", MODE_PRIVATE)
+                    .getString("homepage", "https://www.google.com"));
+            browserTabIndex = 0;
+        }
+        browserTabIndex = Math.max(0, Math.min(browserTabIndex, browserTabUrls.size() - 1));
+        if (isHttpUrl(requestedUrl)) {
+            browserTabUrls.set(browserTabIndex, requestedUrl);
+            persistBrowserTabs();
+        }
+        String initialUrl = browserTabUrls.get(browserTabIndex);
+
         if (browserOverlay == null) createTvBrowserChrome();
-        // Keep the normal browser home visible unless we are opening a pending shared URL.
         showWebFallback(isHttpUrl(initialUrl) ? initialUrl : "https://www.google.com");
         if (fallbackWebView != null) {
             ViewGroup parent = (ViewGroup) fallbackWebView.getParent();
@@ -3908,16 +3925,11 @@ public class MainActivity extends Activity {
             browserOverlay.setVisibility(View.VISIBLE);
             browserOverlay.bringToFront();
             keepPersistentBrandBadgeOnTop();
-            if (isHttpUrl(initialUrl)) {
-                browserAddress.setText(initialUrl);
-                browserHomePanel.setVisibility(View.GONE);
-                fallbackWebView.setVisibility(View.VISIBLE);
-                browserAddress.setSelection(browserAddress.getText().length());
-                browserAddress.requestFocus();
-            } else {
-                browserAddress.setText("");
-                showBrowserStartPage();
-            }
+            browserAddress.setText(initialUrl);
+            browserHomePanel.setVisibility(View.GONE);
+            fallbackWebView.setVisibility(View.VISIBLE);
+            browserAddress.setSelection(browserAddress.getText().length());
+            browserAddress.requestFocus();
         }
     }
 
